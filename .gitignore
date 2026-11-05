@@ -11,3 +11,4 @@ frontend/dist/
 .DS_Store
 .env
 *.db
+*.tsbuildinfo
