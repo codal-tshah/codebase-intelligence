@@ -1,0 +1,10 @@
+questions:
+  - id: q1
+    text: Which view handles GET api/items/?
+    expect_path_contains: demo/urls.py
+  - id: q2
+    text: Which models does list_items touch?
+    expect_path_contains: shop/models.py
+  - id: q3
+    text: What is the route for get_item?
+    expect_path_contains: demo/urls.py

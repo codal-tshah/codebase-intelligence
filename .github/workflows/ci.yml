@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-packages --group dev
+      - run: uv run ruff check .
+      - run: uv run pytest -q
+      - run: uv run ci analyze benchmarks/fixtures/synthetic_django
+        env:
+          CI_DATA_DIR: ${{ runner.temp }}/ci-data
+      - run: uv run ci analyze benchmarks/fixtures/fullstack_app && uv run ci endpoints -p benchmarks/fixtures/fullstack_app
+        env:
+          CI_DATA_DIR: ${{ runner.temp }}/ci-data
+      - run: uv run python benchmarks/score_benchmark.py --fixture benchmarks/fixtures/synthetic_django
+        env:
+          CI_DATA_DIR: ${{ runner.temp }}/ci-data
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
