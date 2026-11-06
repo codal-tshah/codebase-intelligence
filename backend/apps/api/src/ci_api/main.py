@@ -16,7 +16,14 @@ from sse_starlette.sse import EventSourceResponse
 
 from ci_ai import GraphTools, build_project_summary, chat_stream
 from ci_core.db import GraphStore
-from ci_core.insights import build_tour, find_path, impact_for_request, list_endpoints, search_nodes
+from ci_core.insights import (
+    build_tour,
+    find_path,
+    impact_for_request,
+    list_endpoints,
+    neighborhood_subgraph,
+    search_nodes,
+)
 from ci_core.layers import layer_catalog
 from ci_core.views import get_view, view_catalog
 from ci_core.logging_setup import configure_logging, request_id
@@ -273,15 +280,34 @@ def get_job(project_ref: str, job_id: str) -> dict:
     return job.model_dump(mode="json")
 
 
+@app.get("/projects/{project_ref:path}/graph/neighborhood")
+def graph_neighborhood(
+    project_ref: str,
+    node_id: str = Query(..., min_length=1),
+    direction: str = Query("both"),
+    depth: int = Query(1, ge=1, le=3),
+) -> dict:
+    d = direction.lower()
+    if d not in {"in", "out", "both"}:
+        raise HTTPException(status_code=422, detail="direction must be in, out, or both")
+    store = GraphStore(_pid(project_ref))
+    index = store.load_index()
+    return neighborhood_subgraph(index, node_id, direction=d, depth=depth)
+
+
 @app.get("/projects/{project_ref:path}/graph/{view}")
 def get_graph(
     project_ref: str,
     view: str,
     focus_node_id: str | None = Query(default=None),
+    expanded: str | None = Query(default=None, description="Comma-separated node ids expanded in explore view"),
 ) -> dict:
     if get_view(view) is None:
         raise HTTPException(status_code=404, detail=f"unknown view {view!r}")
-    payload = GraphStore(_pid(project_ref)).build_graph_view(view, focus_node_id=focus_node_id)
+    params: dict | None = None
+    if expanded:
+        params = {"expanded": expanded}
+    payload = GraphStore(_pid(project_ref)).build_graph_view(view, focus_node_id=focus_node_id, params=params)
     return payload.model_dump(mode="json")
 
 

@@ -501,8 +501,10 @@ class GraphStore:
             ).delete(synchronize_session=False)
             session.commit()
 
-    def build_graph_view(self, view: str, *, focus_node_id: str | None = None) -> GraphViewPayload:
-        return build_view(self.load_index(), view, focus_node_id)
+    def build_graph_view(
+        self, view: str, *, focus_node_id: str | None = None, params: dict[str, Any] | None = None
+    ) -> GraphViewPayload:
+        return build_view(self.load_index(), view, focus_node_id, params)
 
 
 def _node_from_row(row: NodeRow) -> NodeRecord:

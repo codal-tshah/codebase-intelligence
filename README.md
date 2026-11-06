@@ -29,7 +29,7 @@ cd ../frontend && npm run dev                  # UI on :5173, proxies /api
 ## Dashboard
 
 - **Diagrams**: the sidebar lists the modules the server reports (`/projects/{ref}/views`). Modules with nothing to show for the project are disabled.
-  - Overview: Layers, Architecture
+  - Overview: Explore (hierarchical drill-down), Layers, Architecture
   - Backend: API flow, Call graph
   - Frontend: Components
   - Data: Data model
@@ -96,7 +96,8 @@ Every tool takes an optional `project` (id, name or path). An unindexed path is 
 | `GET /projects/{ref}/summary`, `/freshness` | Stats, tech stack, patterns, hotspots; index freshness |
 | `POST /projects/{ref}/index`, `GET /projects/{ref}/jobs/{job}` | Start or poll (incremental) index jobs |
 | `GET /projects/{ref}/views` | Diagram modules with availability and counts |
-| `GET /projects/{ref}/graph/{view}?focus_node_id=` | Graph for a view (404 for unknown views) |
+| `GET /projects/{ref}/graph/{view}?focus_node_id=&expanded=` | Graph for a view (`explore`: comma-separated expanded node ids; 404 for unknown views) |
+| `GET /projects/{ref}/graph/neighborhood?node_id=&direction=in|out|both&depth=1..3` | Dependency neighbourhood with aggregated lifted edges |
 | `GET /projects/{ref}/endpoints?q=`, `/models` | API explorer, data models |
 | `GET /projects/{ref}/search`, `/path`, `/tour`, `POST /impact` | Graph insights; impact body may include `base` git ref (like `ci impact --base`) |
 | `GET /projects/{ref}/nodes/{node}`, `/source` | Node detail; source window (indexed files only) |

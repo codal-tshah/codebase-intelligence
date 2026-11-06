@@ -51,6 +51,7 @@ Each diagram is a `ViewModule` in its own file. It declares its id, label, icon 
 
 | Module | Shows | Focus |
 |--------|-------|-------|
+| `explore` | Packages → modules → symbols with expand/collapse and lifted dependency edges | – |
 | `layers` | Modules, routes, models and services by layer | – |
 | `architecture` | Packages with weighted dependency roll-ups | – |
 | `api-flow` | Route → handler → services → models/external, plus client callers | Endpoint: full UI → DB trace |

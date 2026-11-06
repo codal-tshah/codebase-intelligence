@@ -15,8 +15,10 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
+  ArrowLeft,
   BookOpen,
   Check,
+  ChevronsLeft,
   Download,
   Filter,
   GitFork,
@@ -44,6 +46,8 @@ import { PathPanel } from "./components/PathPanel";
 import { ProjectSummaryCard, type ProjectSummary } from "./components/ProjectSummaryCard";
 import { TourPanel } from "./components/TourPanel";
 import { buildFlow, type ArchNodeData, type Overlay } from "./flow";
+import { decodeExpandedIds, encodeExpandedIds } from "./explore/hash";
+import { layoutExploreNodes } from "./explore/layoutExplore";
 import { DEFAULT_LAYERS, VIEW_META } from "./graphTheme";
 import { ViewIcon } from "./icons";
 import type {
@@ -51,6 +55,7 @@ import type {
   Freshness,
   GraphPayload,
   ImpactReport,
+  NeighborhoodPayload,
   Job,
   Layer,
   NodeDetail,
@@ -113,13 +118,13 @@ const FALLBACK_BEST: Record<string, string> = {
   Component: "components",
   Model: "er",
   Field: "er",
-  Package: "architecture",
+  Package: "explore",
   ExternalService: "integrations",
 };
 
 // ------------------------------------------------------------------ deep links
 
-type HashState = { p?: string; v?: string; n?: string; f?: string };
+type HashState = { p?: string; v?: string; n?: string; f?: string; e?: string };
 
 function readHash(): HashState {
   const raw = window.location.hash.replace(/^#\/?/, "");
@@ -129,6 +134,7 @@ function readHash(): HashState {
     v: params.get("v") ?? undefined,
     n: params.get("n") ?? undefined,
     f: params.get("f") ?? undefined,
+    e: params.get("e") ?? undefined,
   };
 }
 
@@ -183,6 +189,12 @@ function Dashboard() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [exploreExpanded, setExploreExpanded] = useState<string[]>(() =>
+    initialHash.current.e ? decodeExpandedIds(initialHash.current.e) : [],
+  );
+  const [exploreHistory, setExploreHistory] = useState<string[][]>([]);
+  const [exploreNeighborIds, setExploreNeighborIds] = useState<Set<string> | null>(null);
+  const [focusDepth, setFocusDepth] = useState(1);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
   const [source, setSource] = useState<SourceSnippet | null>(null);
   const [highlight, setHighlight] = useState<[number, number] | null>(null);
@@ -237,7 +249,11 @@ function Dashboard() {
   const loadSummary = useCallback(async (id: string) => {
     setSummaryLoading(true);
     try {
-      setSummary(await getJson<ProjectSummary>(`/projects/${id}/summary`));
+      const s = await getJson<ProjectSummary>(`/projects/${id}/summary`);
+      setSummary(s);
+      if (s.preferExploreView) {
+        setView((v) => (v === "layers" ? "explore" : v));
+      }
     } catch {
       setSummary(null);
     } finally {
@@ -292,6 +308,7 @@ function Dashboard() {
     setGraphError(null);
     const params = new URLSearchParams();
     if (focusNodeId) params.set("focus_node_id", focusNodeId);
+    if (view === "explore" && exploreExpanded.length) params.set("expanded", encodeExpandedIds(exploreExpanded));
     getJson<GraphPayload>(`/projects/${projectId}/graph/${view}?${params}`)
       .then((data) => {
         if (!cancelled) setPayload(data);
@@ -308,7 +325,30 @@ function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, view, focusNodeId, reloadKey]);
+  }, [projectId, view, focusNodeId, exploreExpanded, reloadKey]);
+
+  useEffect(() => {
+    if (view !== "explore" || !selectedId || !projectId) {
+      setExploreNeighborIds(null);
+      return;
+    }
+    let cancelled = false;
+    const dir = "both";
+    getJson<NeighborhoodPayload>(
+      `/projects/${projectId}/graph/neighborhood?node_id=${encodeURIComponent(selectedId)}&direction=${dir}&depth=${focusDepth}`,
+    )
+      .then((nh) => {
+        if (cancelled || nh.error) return;
+        const raw = nh.reachable_ids ?? [...nh.neighbors_in, ...nh.neighbors_out];
+        setExploreNeighborIds(new Set(raw.filter((id) => id !== selectedId)));
+      })
+      .catch(() => {
+        if (!cancelled) setExploreNeighborIds(new Set());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [view, selectedId, projectId, focusDepth, payload?.view, payload?.nodes.length]);
 
   // ---- overlays (impact > path > tour/chat) --------------------------------------------------
   const special = useMemo(() => {
@@ -341,6 +381,34 @@ function Dashboard() {
 
   const displayed = special?.payload ?? payload;
 
+  const detailForInspector = useMemo(() => {
+    if (!detail || view !== "explore" || !payload) return detail;
+    const gn = payload.nodes.find((n) => n.id === detail.node.id);
+    if (!gn?.properties) return detail;
+    return {
+      ...detail,
+      node: {
+        ...detail.node,
+        properties: { ...detail.node.properties, ...(gn.properties as Record<string, unknown>) },
+      },
+    };
+  }, [detail, view, payload]);
+
+  const exploreInspector = useMemo(() => {
+    if (view !== "explore" || !selectedId || !payload) return undefined;
+    const n = payload.nodes.find((x) => x.id === selectedId);
+    const p = n?.properties as Record<string, unknown> | undefined;
+    if (!p || !p.explore_expandable) return undefined;
+    return {
+      expandable: true,
+      expanded: Boolean(p.explore_expanded),
+      childCount: Number(p.child_count ?? 0),
+    };
+  }, [view, selectedId, payload]);
+
+  const reducedMotion =
+    typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   // ---- layout --------------------------------------------------------------------------------
   const visibleLayers = useMemo(() => {
     const present = payload?.metadata?.layers;
@@ -348,22 +416,49 @@ function Dashboard() {
     return layers.filter((l) => counts.has(l.id)).map((l) => ({ ...l, count: counts.get(l.id) }));
   }, [layers, payload]);
 
+  const exploreHighlight =
+    view === "explore" && selectedId && exploreNeighborIds !== null ? exploreNeighborIds : undefined;
+
   useEffect(() => {
     if (!displayed) {
       setNodes([]);
       setEdges([]);
       return;
     }
-    const flow = buildFlow(displayed, { layers, hiddenLayers, filter, selectedId, overlay });
-    setNodes(flow.nodes);
+    const flow = buildFlow(displayed, {
+      layers,
+      hiddenLayers,
+      filter,
+      selectedId,
+      overlay,
+      exploreNeighborIds: exploreHighlight ?? null,
+    });
     setEdges(flow.edges);
-  }, [displayed, layers, hiddenLayers, filter, selectedId, overlay, setNodes, setEdges]);
+    if (displayed.view !== "explore" || !flow.exploreLayoutSpec) {
+      setNodes(flow.nodes);
+      return;
+    }
+    let cancelled = false;
+    void layoutExploreNodes(flow.exploreLayoutSpec.sized, flow.exploreLayoutSpec.edges).then((pos) => {
+      if (cancelled) return;
+      setNodes(
+        flow.nodes.map((n) => ({
+          ...n,
+          position: pos.get(n.id) ?? n.position,
+        })),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [displayed, layers, hiddenLayers, filter, selectedId, overlay, exploreHighlight, setNodes, setEdges]);
 
-  const layoutSignature = `${projectId}|${displayed?.view}|${focusNodeId}|${displayed?.nodes.length}|${hiddenLayers.size}|${filter}`;
+  const layoutSignature = `${projectId}|${displayed?.view}|${focusNodeId}|${displayed?.nodes.length}|${hiddenLayers.size}|${filter}|${view === "explore" ? exploreExpanded.join(",") : ""}`;
   useEffect(() => {
-    const t = setTimeout(() => void fitView({ padding: 0.15, duration: 300 }), 60);
+    const dur = reducedMotion ? 0 : view === "explore" ? 180 : 300;
+    const t = setTimeout(() => void fitView({ padding: 0.15, duration: dur }), 60);
     return () => clearTimeout(t);
-  }, [layoutSignature, fitView]);
+  }, [layoutSignature, fitView, reducedMotion, view]);
 
   // ---- source --------------------------------------------------------------------------------
   const loadSource = useCallback(
@@ -416,21 +511,45 @@ function Dashboard() {
     [projectId, loadSource],
   );
 
+  const expandAncestorsForNode = useCallback(
+    async (nodeId: string) => {
+      if (!projectId) return;
+      const chain: string[] = [];
+      let cur: string | null = nodeId;
+      for (let guard = 0; guard < 64 && cur; guard += 1) {
+        const nid: string = cur;
+        const d = await getJson<NodeDetail>(`/projects/${projectId}/nodes/${nid}`);
+        const parent: string | null =
+          d.edges.find((edge) => edge.edge_type === "CONTAINS" && edge.target_id === nid)?.source_id ?? null;
+        if (!parent) break;
+        const pinfo = d.neighbors[parent];
+        if (pinfo?.node_type === "Project") break;
+        chain.unshift(parent);
+        cur = parent;
+      }
+      setExploreExpanded((e) => [...new Set([...chain, ...e])]);
+      setView("explore");
+    },
+    [projectId],
+  );
+
   /** Jump to any node: pick a fitting diagram if it's not on the current canvas, then select it. */
   const navigateTo = useCallback(
-    (id: string, nodeType?: string) => {
+    async (id: string, nodeType?: string) => {
       setImpact(null);
       setPathResult(null);
       const onCanvas = payload?.nodes.some((n) => n.id === id);
-      if (!onCanvas && nodeType) {
+      if (view === "explore" && !onCanvas) {
+        await expandAncestorsForNode(id);
+      } else if (!onCanvas && nodeType) {
         const target = viewForType(nodeType);
         const focusable = views.find((v) => v.id === target)?.focusable ?? false;
         setView(target);
         setFocusNodeId(focusable && nodeType !== "Model" ? id : undefined);
       }
-      void selectNode(id);
+      await selectNode(id);
     },
-    [payload, selectNode, viewForType, views],
+    [payload, selectNode, viewForType, views, view, expandAncestorsForNode],
   );
 
   const navigateById = useCallback(
@@ -447,8 +566,6 @@ function Dashboard() {
     [detail, navigateTo, projectId, selectNode],
   );
 
-  const onSearchPick = (hit: SearchHit) => navigateTo(hit.id, hit.node_type);
-
   // restore the selected node from a deep link once per project
   const restored = useRef(false);
   useEffect(() => {
@@ -460,8 +577,10 @@ function Dashboard() {
 
   useEffect(() => {
     if (!projectId) return;
-    writeHash({ p: projectId, v: view, f: focusNodeId, n: selectedId ?? undefined });
-  }, [projectId, view, focusNodeId, selectedId]);
+    const e =
+      view === "explore" && exploreExpanded.length ? encodeExpandedIds(exploreExpanded) : undefined;
+    writeHash({ p: projectId, v: view, f: focusNodeId, n: selectedId ?? undefined, e });
+  }, [projectId, view, focusNodeId, selectedId, exploreExpanded]);
 
   // ⌘K / "/" palette · ⌘J ask · ⌘\ details pane · Esc clears overlays
   useEffect(() => {
@@ -501,7 +620,39 @@ function Dashboard() {
     setTourIds([]);
     setChatIds([]);
     setFocusNodeId(undefined);
+    setExploreExpanded([]);
+    setExploreHistory([]);
+    setExploreNeighborIds(null);
   };
+
+  const toggleExploreExpand = useCallback((id: string) => {
+    setExploreExpanded((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      setExploreHistory((h) => [...h.slice(-19), prev]);
+      return next;
+    });
+  }, []);
+
+  const resetExploreTop = useCallback(() => {
+    setExploreExpanded([]);
+    setExploreHistory([]);
+  }, []);
+
+  const exploreBack = useCallback(() => {
+    setExploreHistory((h) => {
+      if (!h.length) return h;
+      const prev = h[h.length - 1];
+      setExploreExpanded(prev);
+      return h.slice(0, -1);
+    });
+  }, []);
+
+  const onSearchPick = useCallback(
+    (hit: SearchHit) => {
+      void navigateTo(hit.id, hit.node_type);
+    },
+    [navigateTo],
+  );
 
   const onTourSelect = (step: TourStep | null, index: number | null) => {
     setImpact(null);
@@ -666,6 +817,8 @@ function Dashboard() {
               onChange={(e) => {
                 resetSelection();
                 setProjectId(e.target.value);
+                setExploreExpanded([]);
+                setExploreHistory([]);
               }}
             >
               {projects.map((p) => (
@@ -731,7 +884,6 @@ function Dashboard() {
                     <button
                       key={meta.id}
                       type="button"
-                      title={meta.description}
                       aria-current={view === meta.id && !special ? "page" : undefined}
                       className={`view-nav-item ${view === meta.id && !special ? "active" : ""}`}
                       onClick={() => {
@@ -771,7 +923,7 @@ function Dashboard() {
               loading={summaryLoading}
               onPickNode={(id) => void navigateById(id)}
             />
-            <div className="canvas-toolbar">
+            <div className={`canvas-toolbar ${view === "explore" && !special ? "canvas-toolbar--explore" : ""}`}>
               <div className="canvas-title">
                 <ViewIcon id={view} />
                 <h2>{currentView?.label ?? view}</h2>
@@ -781,6 +933,31 @@ function Dashboard() {
                 <Filter size={14} strokeWidth={1.5} aria-hidden className="search-icon" />
                 <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter diagram" aria-label="Filter the diagram" />
               </label>
+              {view === "explore" && !special ? (
+                <div className="canvas-toolbar-explore" role="group" aria-label="Explore controls">
+                  <span className="muted explore-hint">
+                    {exploreExpanded.length ? `${exploreExpanded.length} expanded` : "Select a package · Expand in Details, or double-click a node"}
+                  </span>
+                  <button type="button" className="icon-btn" onClick={exploreBack} disabled={!exploreHistory.length} title="Back" aria-label="Back one expand">
+                    <ArrowLeft size={16} strokeWidth={1.5} aria-hidden />
+                  </button>
+                  <button type="button" className="icon-btn" onClick={resetExploreTop} title="Reset to top level" aria-label="Reset explore">
+                    <ChevronsLeft size={16} strokeWidth={1.5} aria-hidden />
+                  </button>
+                  <label className="muted explore-depth">
+                    Depth
+                    <select
+                      value={focusDepth}
+                      onChange={(e) => setFocusDepth(Number(e.target.value))}
+                      aria-label="Neighbourhood depth"
+                    >
+                      <option value={1}>1</option>
+                      <option value={2}>2</option>
+                      <option value={3}>3</option>
+                    </select>
+                  </label>
+                </div>
+              ) : null}
               {focusNodeId && !special ? (
                 <button type="button" className="chip-btn" onClick={() => setFocusNodeId(undefined)}>
                   Focused <X size={12} strokeWidth={1.5} aria-hidden />
@@ -832,18 +1009,29 @@ function Dashboard() {
                 nodes={nodes}
                 edges={edges}
                 nodeTypes={NODE_TYPES}
+                nodesDraggable={view !== "explore"}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
+                onlyRenderVisibleElements
                 onNodeClick={(_, node) => {
                   setPanelOpen(true);
                   void selectNode(node.id);
                 }}
                 onNodeDoubleClick={(_, node) => {
                   if (special) return;
-                  const type = (node.data as ArchNodeData).nodeType;
+                  const data = node.data as ArchNodeData;
+                  if (view === "explore" && data.exploreExpandable) {
+                    toggleExploreExpand(node.id);
+                    return;
+                  }
+                  const type = data.nodeType;
                   if (currentView?.focusable) setFocusNodeId(node.id);
-                  else navigateTo(node.id, type);
+                  else void navigateTo(node.id, type);
                   if (currentView?.focusable) void selectNode(node.id);
+                }}
+                onEdgeClick={() => {
+                  setPanelOpen(true);
+                  setRightTab("inspector");
                 }}
                 minZoom={0.1}
                 maxZoom={1.8}
@@ -870,7 +1058,10 @@ function Dashboard() {
                 ) : null}
                 {displayed?.metadata?.truncated ? (
                   <Panel position="top-right" className="graph-legend">
-                    <span className="muted">Showing the most connected nodes. Filter or search to narrow down.</span>
+                    <span className="muted">
+                      {displayed.metadata?.truncation_reason ??
+                        "Showing the most connected nodes. Filter or search to narrow down."}
+                    </span>
                   </Panel>
                 ) : null}
               </ReactFlow>
@@ -896,10 +1087,14 @@ function Dashboard() {
             <div className={`panel-body ${rightTab === "assistant" ? "assistant" : ""}`}>
               {rightTab === "inspector" ? (
                 <Inspector
-                  detail={detail}
+                  detail={detailForInspector}
                   source={source}
                   highlight={highlight}
                   layers={layers}
+                  explore={exploreInspector}
+                  onToggleExplore={
+                    exploreInspector && selectedId ? () => toggleExploreExpand(selectedId) : undefined
+                  }
                   onNavigate={(id) => void navigateById(id)}
                   onFocus={(id) => {
                     clearSpecial();
