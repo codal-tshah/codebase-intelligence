@@ -355,6 +355,26 @@ class GraphStore:
                 updated_at=row.updated_at,
             )
 
+    def fail_orphaned_running_jobs(self) -> int:
+        """Mark RUNNING jobs as failed (e.g. after API/worker restart)."""
+        with self.session() as session:
+            rows = session.scalars(
+                select(JobRow).where(
+                    JobRow.project_id == self.project_id,
+                    JobRow.status == JobStatus.RUNNING.value,
+                )
+            ).all()
+            if not rows:
+                return 0
+            now = utcnow()
+            for row in rows:
+                row.status = JobStatus.FAILED.value
+                row.error = "interrupted (process restarted while job was running)"
+                row.message = "Index failed"
+                row.updated_at = now
+            session.commit()
+            return len(rows)
+
     def upsert_chunks(self, chunks: list[dict[str, Any]]) -> None:
         with self.session() as session:
             now = utcnow()

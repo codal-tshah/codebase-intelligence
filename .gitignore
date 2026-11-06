@@ -12,3 +12,4 @@ frontend/dist/
 .env
 *.db
 *.tsbuildinfo
+.vscode/

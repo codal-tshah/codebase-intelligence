@@ -327,6 +327,14 @@ def serve(
         typer.echo(f"No index.html in {ui}. Build it with: cd frontend && npm run build", err=True)
         raise typer.Exit(code=1)
     typer.echo(f"Dashboard: http://{host}:{port}/   API: http://{host}:{port}/api")
+    from ci_core.settings import get_settings
+
+    if get_settings().mode == "server":
+        typer.echo(
+            "Warning: CI_MODE=server requires X-API-Key on /api requests; "
+            "the bundled dashboard will get 401 unless you use CI_MODE=local or an auth proxy.",
+            err=True,
+        )
     uvicorn.run(create_app(ui_dir=ui), host=host, port=port)
 
 
