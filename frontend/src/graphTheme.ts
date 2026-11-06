@@ -1,6 +1,11 @@
 import type { Layer } from "./types";
 
 export const VIEW_META: Record<string, { label: string; description: string; icon: string }> = {
+  explore: {
+    label: "Explore",
+    description: "Drill down packages and modules without loading the whole graph",
+    icon: "",
+  },
   layers: {
     label: "Layers",
     description: "Modules, routes and models grouped by architectural layer",

@@ -21,7 +21,10 @@ from ci_core.views._common import MAX_NODES, edge_view, edges_between, node_view
 
 log = logging.getLogger(__name__)
 
-Builder = Callable[[GraphIndex, str | None], tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]]
+Builder = Callable[
+    [GraphIndex, str | None, dict[str, Any] | None],
+    tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]],
+]
 
 
 @dataclass(frozen=True)
@@ -30,7 +33,7 @@ class ViewModule:
     label: str
     description: str
     icon: str
-    build: Builder
+    build: Builder  # (index, focus_node_id, params)
     order: int = 100
     # Availability: the view is shown as available when any node of these types exists.
     requires: tuple[NodeType, ...] = ()
@@ -103,10 +106,12 @@ def view_catalog(index: GraphIndex | None = None) -> list[dict[str, Any]]:
     return out
 
 
-def build_view(index: GraphIndex, view: str, focus_node_id: str | None = None) -> GraphViewPayload:
+def build_view(
+    index: GraphIndex, view: str, focus_node_id: str | None = None, params: dict[str, Any] | None = None
+) -> GraphViewPayload:
     module = get_view(view) or get_view("layers")
     assert module is not None
-    nodes, edges, meta = module.build(index, focus_node_id)
+    nodes, edges, meta = module.build(index, focus_node_id, params)
     present = {n.layer for n in nodes if n.layer}
     present_layers = []
     for entry in layer_catalog():
@@ -123,6 +128,7 @@ from ci_core.views import (  # noqa: E402,F401
     call_graph,
     components,
     er,
+    explore,
     integrations,
     layers,
 )

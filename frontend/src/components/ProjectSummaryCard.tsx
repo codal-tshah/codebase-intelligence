@@ -4,6 +4,7 @@ export type ProjectSummary = {
   summary: string;
   techStack: string[];
   patterns: string[];
+  preferExploreView?: boolean;
   stats: {
     files: number;
     lines: string;

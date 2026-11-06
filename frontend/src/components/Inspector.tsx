@@ -1,4 +1,4 @@
-import { Copy, Crosshair, ExternalLink, GitFork, MessageSquare, Route } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Crosshair, ExternalLink, GitFork, MessageSquare, Route } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EDGE_STYLE, layerColor } from "../graphTheme";
 import { highlightLines, languageOf } from "../highlight";
@@ -15,29 +15,65 @@ type Props = {
   onImpact: () => void;
   onPathFrom: () => void;
   onAsk: (question: string) => void;
+  explore?: { expandable: boolean; expanded: boolean; childCount: number };
+  onToggleExplore?: () => void;
 };
 
-export function Inspector({ detail, source, highlight, layers, onNavigate, onFocus, onImpact, onPathFrom, onAsk }: Props) {
+export function Inspector({
+  detail,
+  source,
+  highlight,
+  layers,
+  onNavigate,
+  onFocus,
+  onImpact,
+  onPathFrom,
+  onAsk,
+  explore,
+  onToggleExplore,
+}: Props) {
   if (!detail && !source) {
     return (
       <div className="placeholder">
         <p className="placeholder-title">Nothing selected</p>
         <p className="muted">Select a node in the diagram to see what it does, what it connects to, and its source.</p>
         <p className="muted">
-          <kbd>⌘K</kbd> to search · double-click a node to focus on it
+          <kbd>⌘K</kbd> to search · In Explore, use Expand in Details or double-click a package
         </p>
       </div>
     );
   }
   return (
     <>
-      {detail ? <NodeCard detail={detail} layers={layers} onNavigate={onNavigate} onFocus={onFocus} onImpact={onImpact} onPathFrom={onPathFrom} onAsk={onAsk} /> : null}
+      {detail ? (
+        <NodeCard
+          detail={detail}
+          layers={layers}
+          onNavigate={onNavigate}
+          onFocus={onFocus}
+          onImpact={onImpact}
+          onPathFrom={onPathFrom}
+          onAsk={onAsk}
+          explore={explore}
+          onToggleExplore={onToggleExplore}
+        />
+      ) : null}
       <SourceView source={source} highlight={highlight} />
     </>
   );
 }
 
-function NodeCard({ detail, layers, onNavigate, onFocus, onImpact, onPathFrom, onAsk }: Omit<Props, "source" | "highlight" | "detail"> & { detail: NodeDetail }) {
+function NodeCard({
+  detail,
+  layers,
+  onNavigate,
+  onFocus,
+  onImpact,
+  onPathFrom,
+  onAsk,
+  explore,
+  onToggleExplore,
+}: Omit<Props, "source" | "highlight" | "detail"> & { detail: NodeDetail }) {
   const { node, edges, neighbors } = detail;
   const props = node.properties ?? {};
   const layerId = props.layer as string | undefined;
@@ -120,6 +156,21 @@ function NodeCard({ detail, layers, onNavigate, onFocus, onImpact, onPathFrom, o
           </div>
         ) : null}
         <div className="detail-actions">
+          {explore?.expandable && onToggleExplore ? (
+            <button type="button" className="btn secondary small" onClick={onToggleExplore} title="Show or hide children under this node">
+              {explore.expanded ? (
+                <>
+                  <ChevronDown size={14} strokeWidth={1.5} aria-hidden />
+                  Collapse
+                </>
+              ) : (
+                <>
+                  <ChevronRight size={14} strokeWidth={1.5} aria-hidden />
+                  Expand{explore.childCount > 0 ? ` (${explore.childCount})` : ""}
+                </>
+              )}
+            </button>
+          ) : null}
           <button type="button" className="btn primary small" onClick={() => onAsk(askAbout)}>
             <MessageSquare size={14} strokeWidth={1.5} aria-hidden />
             Ask about this

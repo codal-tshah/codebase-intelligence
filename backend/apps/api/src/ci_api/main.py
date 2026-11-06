@@ -6,6 +6,8 @@ import re
 import uuid
 from pathlib import Path
 
+from contextlib import asynccontextmanager
+
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -14,13 +16,21 @@ from sse_starlette.sse import EventSourceResponse
 
 from ci_ai import GraphTools, build_project_summary, chat_stream
 from ci_core.db import GraphStore
-from ci_core.insights import build_tour, find_path, impact_for_request, list_endpoints, search_nodes
+from ci_core.insights import (
+    build_tour,
+    find_path,
+    impact_for_request,
+    list_endpoints,
+    neighborhood_subgraph,
+    search_nodes,
+)
 from ci_core.layers import layer_catalog
 from ci_core.views import get_view, view_catalog
 from ci_core.logging_setup import configure_logging, request_id
 from ci_core.models import ProjectRecord
 from ci_core.projects import resolve_project
-from ci_core.registry import get_registered_project, load_registry
+from ci_core.registry import load_registry
+from ci_core.serializers import node_summary
 from ci_core.settings import get_settings
 from ci_core.source import resolve_source_path
 from ci_indexer import (
@@ -31,11 +41,26 @@ from ci_indexer import (
     run_index_job,
 )
 
-app = FastAPI(title="Codebase Intelligence API", version="0.3.0")
-
 _settings = get_settings()  # fails fast on invalid configuration (e.g. CI_MODE=server without a key)
 configure_logging(_settings.log_level, _settings.log_json)
 log = logging.getLogger("ci_api")
+
+
+def _reconcile_orphaned_index_jobs() -> None:
+    n = 0
+    for p in load_registry():
+        n += GraphStore(p.id).fail_orphaned_running_jobs()
+    if n:
+        log.warning("marked %d orphaned index job(s) as failed on startup", n)
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    _reconcile_orphaned_index_jobs()
+    yield
+
+
+app = FastAPI(title="Codebase Intelligence API", version="0.3.0", lifespan=_lifespan)
 
 # Local-first: only the dev UI origins by default. Extend with CI_CORS_ORIGINS="https://a,https://b".
 app.add_middleware(
@@ -97,6 +122,7 @@ class ImpactBody(BaseModel):
 
     files: list[str] = Field(default_factory=list)
     node_ids: list[str] = Field(default_factory=list)
+    base: str | None = Field(default=None, description="Git ref to diff against (e.g. origin/main); ignored if files set")
     depth: int = Field(default=3, ge=1, le=6)
 
 
@@ -110,15 +136,24 @@ def _register(body: "CreateProjectBody") -> ProjectRecord:
             raise HTTPException(status_code=400, detail=f"not a directory: {body.path}")
         return create_project_from_path(path)
     if body.git_url:
+        if get_settings().mode == "server":
+            raise HTTPException(
+                status_code=403,
+                detail="git_url ingest is disabled in server mode; clone under CI_PROJECT_ROOTS and use path",
+            )
         return create_project_from_git(body.git_url)
     raise HTTPException(status_code=400, detail="path or git_url required")
 
 
-def _require_project(project_id: str) -> ProjectRecord:
-    project = get_registered_project(project_id)
+def _require_project(project_ref: str) -> ProjectRecord:
+    project = resolve_project(project_ref)
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
     return project
+
+
+def _pid(ref: str) -> str:
+    return _require_project(ref).id
 
 
 class AnalyzeBody(CreateProjectBody):
@@ -188,83 +223,99 @@ def views() -> list[dict]:
     return view_catalog()
 
 
-@app.get("/projects/{project_id}/views")
-def project_views(project_id: str) -> list[dict]:
+@app.get("/projects/{project_ref:path}/views")
+def project_views(project_ref: str) -> list[dict]:
     """Diagram modules with availability and counts for this project's graph."""
-    _require_project(project_id)
-    return view_catalog(GraphStore(project_id).load_index())
+    return view_catalog(GraphStore(_pid(project_ref)).load_index())
 
 
-@app.get("/projects/{project_id}/endpoints")
-def endpoints(project_id: str, q: str | None = Query(default=None, max_length=200)) -> dict:
+@app.get("/projects/{project_ref:path}/endpoints")
+def endpoints(project_ref: str, q: str | None = Query(default=None, max_length=200)) -> dict:
     """API explorer: every route with handler, guards, frontend callers and models touched."""
-    _require_project(project_id)
-    items = list_endpoints(GraphStore(project_id).load_index(), query=q)
+    pid = _pid(project_ref)
+    items = list_endpoints(GraphStore(pid).load_index(), query=q)
     return {"count": len(items), "endpoints": items}
 
 
-@app.get("/projects/{project_id}/models")
-def models(project_id: str) -> dict:
+@app.get("/projects/{project_ref:path}/models")
+def models(project_ref: str) -> dict:
     """Data models with tables, fields, relations, and the code that reads/writes them."""
-    _require_project(project_id)
-    items = GraphTools(project_id).models(limit=500)
+    pid = _pid(project_ref)
+    items = GraphTools(pid).models(limit=500)
     return {"count": len(items), "models": items}
 
 
-@app.get("/projects/{project_id}/summary")
-def project_summary(project_id: str) -> dict:
-    _require_project(project_id)
-    return build_project_summary(project_id)
+@app.get("/projects/{project_ref:path}/summary")
+def project_summary(project_ref: str) -> dict:
+    return build_project_summary(_pid(project_ref))
 
 
-@app.get("/projects/{project_id}/freshness")
-def freshness(project_id: str) -> dict:
+@app.get("/projects/{project_ref:path}/freshness")
+def freshness(project_ref: str) -> dict:
     """fresh | dirty | stale | unknown, with the files that differ from the index."""
-    project = _require_project(project_id)
-    return compute_freshness(project_id, Path(project.root_path))
+    project = _require_project(project_ref)
+    return compute_freshness(project.id, Path(project.root_path))
 
 
-@app.post("/projects/{project_id}/index")
-def index_project(project_id: str, background: BackgroundTasks, incremental: bool = False) -> dict:
+@app.post("/projects/{project_ref:path}/index")
+def index_project(project_ref: str, background: BackgroundTasks, incremental: bool = False) -> dict:
     """Start an index job. `incremental=true` skips unchanged work; default forces a rebuild."""
-    _require_project(project_id)
-    store = GraphStore(project_id)
+    pid = _pid(project_ref)
+    store = GraphStore(pid)
     job = store.create_job()
 
     def _run() -> None:
-        run_index_job(project_id, incremental=incremental, job_id=job.id)
+        run_index_job(pid, incremental=incremental, job_id=job.id)
 
     background.add_task(_run)
     return job.model_dump(mode="json")
 
 
-@app.get("/projects/{project_id}/jobs/{job_id}")
-def get_job(project_id: str, job_id: str) -> dict:
-    _require_project(project_id)
-    job = GraphStore(project_id).get_job(job_id)
+@app.get("/projects/{project_ref:path}/jobs/{job_id}")
+def get_job(project_ref: str, job_id: str) -> dict:
+    pid = _pid(project_ref)
+    job = GraphStore(pid).get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
     return job.model_dump(mode="json")
 
 
-@app.get("/projects/{project_id}/graph/{view}")
+@app.get("/projects/{project_ref:path}/graph/neighborhood")
+def graph_neighborhood(
+    project_ref: str,
+    node_id: str = Query(..., min_length=1),
+    direction: str = Query("both"),
+    depth: int = Query(1, ge=1, le=3),
+) -> dict:
+    d = direction.lower()
+    if d not in {"in", "out", "both"}:
+        raise HTTPException(status_code=422, detail="direction must be in, out, or both")
+    store = GraphStore(_pid(project_ref))
+    index = store.load_index()
+    return neighborhood_subgraph(index, node_id, direction=d, depth=depth)
+
+
+@app.get("/projects/{project_ref:path}/graph/{view}")
 def get_graph(
-    project_id: str,
+    project_ref: str,
     view: str,
     focus_node_id: str | None = Query(default=None),
+    expanded: str | None = Query(default=None, description="Comma-separated node ids expanded in explore view"),
 ) -> dict:
-    _require_project(project_id)
     if get_view(view) is None:
         raise HTTPException(status_code=404, detail=f"unknown view {view!r}")
-    payload = GraphStore(project_id).build_graph_view(view, focus_node_id=focus_node_id)
+    params: dict | None = None
+    if expanded:
+        params = {"expanded": expanded}
+    payload = GraphStore(_pid(project_ref)).build_graph_view(view, focus_node_id=focus_node_id, params=params)
     return payload.model_dump(mode="json")
 
 
-@app.get("/projects/{project_id}/export")
-def export_graph(project_id: str) -> Response:
+@app.get("/projects/{project_ref:path}/export")
+def export_graph(project_ref: str) -> Response:
     """Download the complete knowledge graph (nodes + edges + layers) as JSON."""
-    project = _require_project(project_id)
-    store = GraphStore(project_id)
+    project = _require_project(project_ref)
+    store = GraphStore(project.id)
     index = store.load_index()
     payload = {
         "version": 1,
@@ -282,87 +333,66 @@ def export_graph(project_id: str) -> Response:
     )
 
 
-@app.get("/projects/{project_id}/tour")
-def tour(project_id: str) -> dict:
+@app.get("/projects/{project_ref:path}/tour")
+def tour(project_ref: str) -> dict:
     """Guided walkthrough: where a newcomer should read first."""
-    _require_project(project_id)
-    index = GraphStore(project_id).load_index()
+    index = GraphStore(_pid(project_ref)).load_index()
     steps = build_tour(index)
     for step in steps:
-        step["nodes"] = [
-            {
-                "id": nid,
-                "name": index.nodes[nid].name,
-                "node_type": index.nodes[nid].node_type.value,
-                "source_path": index.nodes[nid].source_path,
-                "layer": index.nodes[nid].properties.get("layer"),
-            }
-            for nid in step["node_ids"]
-        ]
+        step["nodes"] = [node_summary(index.nodes[nid]) for nid in step["node_ids"] if nid in index.nodes]
     return {"steps": steps}
 
 
-@app.get("/projects/{project_id}/search")
+@app.get("/projects/{project_ref:path}/search")
 def search(
-    project_id: str,
+    project_ref: str,
     q: str = Query(..., min_length=1, max_length=200),
     types: str | None = Query(default=None, description="Comma-separated node types"),
     limit: int = Query(25, ge=1, le=100),
 ) -> dict:
-    _require_project(project_id)
-    nodes = GraphStore(project_id).list_all_nodes()
+    nodes = GraphStore(_pid(project_ref)).list_all_nodes()
     wanted = {t.strip() for t in types.split(",") if t.strip()} if types else None
     hits = search_nodes(nodes, q, types=wanted, limit=limit)
     return {
         "query": q,
-        "results": [
-            {
-                "id": n.id,
-                "name": n.name,
-                "node_type": n.node_type.value,
-                "source_path": n.source_path,
-                "start_line": n.start_line,
-                "layer": n.properties.get("layer"),
-                "summary": n.properties.get("summary"),
-                "score": score,
-            }
-            for n, score in hits
-        ],
+        "results": [node_summary(n, score=score) for n, score in hits],
     }
 
 
-@app.get("/projects/{project_id}/path")
+@app.get("/projects/{project_ref:path}/path")
 def shortest_path(
-    project_id: str,
+    project_ref: str,
     source: str = Query(..., description="Source node id"),
     target: str = Query(..., description="Target node id"),
     max_hops: int = Query(12, ge=1, le=30),
 ) -> dict:
-    _require_project(project_id)
-    index = GraphStore(project_id).load_index()
+    index = GraphStore(_pid(project_ref)).load_index()
     result = find_path(index, source, target, max_hops=max_hops)
     result["nodes"] = [
-        {
-            "id": nid,
-            "name": index.nodes[nid].name,
-            "node_type": index.nodes[nid].node_type.value,
-            "source_path": index.nodes[nid].source_path,
-            "layer": index.nodes[nid].properties.get("layer"),
-            "summary": index.nodes[nid].properties.get("summary"),
-        }
+        node_summary(index.nodes[nid])
         for nid in result.get("node_ids", [])
+        if nid in index.nodes
     ]
     return result
 
 
-@app.post("/projects/{project_id}/impact")
-def impact(project_id: str, body: ImpactBody) -> dict:
-    project = _require_project(project_id)
-    index = GraphStore(project_id).load_index()
+@app.post("/projects/{project_ref:path}/impact")
+def impact(project_ref: str, body: ImpactBody) -> dict:
+    project = _require_project(project_ref)
+    pid = project.id
+    index = GraphStore(pid).load_index()
     files = [f.replace("\\", "/") for f in body.files]
     source = "files" if files else "nodes"
-    if not files and not body.node_ids:
-        fresh = compute_freshness(project_id, Path(project.root_path))
+    if body.base and not files and not body.node_ids:
+        from ci_parsers import git_changed_between
+
+        diff = git_changed_between(Path(project.root_path), body.base)
+        if diff is None:
+            raise HTTPException(status_code=400, detail=f"could not diff against {body.base!r}")
+        files = diff
+        source = "git-ref"
+    elif not files and not body.node_ids:
+        fresh = compute_freshness(pid, Path(project.root_path))
         files = list(fresh.get("changed_files", []))
         source = "working-tree"
     report = impact_for_request(index, files=files, node_ids=body.node_ids, depth=body.depth)
@@ -370,10 +400,9 @@ def impact(project_id: str, body: ImpactBody) -> dict:
     return report
 
 
-@app.get("/projects/{project_id}/nodes/{node_id}")
-def get_node(project_id: str, node_id: str) -> dict:
-    _require_project(project_id)
-    index = GraphStore(project_id).load_index()
+@app.get("/projects/{project_ref:path}/nodes/{node_id}")
+def get_node(project_ref: str, node_id: str) -> dict:
+    index = GraphStore(_pid(project_ref)).load_index()
     node = index.nodes.get(node_id)
     if node is None:
         raise HTTPException(status_code=404, detail="node not found")
@@ -397,15 +426,15 @@ def get_node(project_id: str, node_id: str) -> dict:
     }
 
 
-@app.get("/projects/{project_id}/source")
+@app.get("/projects/{project_ref:path}/source")
 def get_source(
-    project_id: str,
+    project_ref: str,
     path: str = Query(...),
     start: int = Query(1, ge=1),
     end: int | None = None,
 ) -> dict:
-    project = _require_project(project_id)
-    allowed = GraphStore(project_id).indexed_paths()
+    project = _require_project(project_ref)
+    allowed = GraphStore(project.id).indexed_paths()
     candidate = resolve_source_path(Path(project.root_path), path, allowed)
     if candidate is None:
         raise HTTPException(status_code=404, detail="not an indexed source file")
@@ -427,9 +456,9 @@ def _language_for(path: str) -> str:
     return {"py": "python", "ts": "typescript", "tsx": "tsx", "js": "javascript", "jsx": "jsx", "mjs": "javascript", "cjs": "javascript"}.get(ext, ext or "text")
 
 
-@app.post("/projects/{project_id}/chat")
-async def chat(project_id: str, body: ChatBody, response: Response) -> EventSourceResponse:
-    _require_project(project_id)
+@app.post("/projects/{project_ref:path}/chat")
+async def chat(project_ref: str, body: ChatBody, response: Response) -> EventSourceResponse:
+    pid = _pid(project_ref)
     response.headers["X-CI-Mode"] = "graph-tools-rag"
 
     history = [{"role": m.role, "content": m.content} for m in body.conversation_history]
@@ -437,7 +466,7 @@ async def chat(project_id: str, body: ChatBody, response: Response) -> EventSour
     async def event_generator():
         # events: message (markdown text), tool, citations, done, error — see ci_ai.agent
         async for event in chat_stream(
-            project_id,
+            pid,
             body.message,
             body.focus_node_id,
             conversation_history=history,

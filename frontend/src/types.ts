@@ -35,7 +35,27 @@ export type GraphPayload = {
   view: string;
   nodes: GraphNode[];
   edges: GraphEdge[];
-  metadata?: { layers?: Layer[]; truncated?: boolean; node_count?: number; edge_count?: number };
+  metadata?: {
+    layers?: Layer[];
+    truncated?: boolean;
+    truncation_reason?: string | null;
+    node_count?: number;
+    edge_count?: number;
+    explore?: { expanded: string[]; project_id?: string };
+  };
+};
+
+export type NeighborhoodPayload = {
+  node_id: string;
+  direction: string;
+  depth: number;
+  reachable_count: number;
+  reachable_ids?: string[];
+  edges: GraphEdge[];
+  neighbors_in: string[];
+  neighbors_out: string[];
+  center: { id: string; name: string; node_type: string; source_path?: string | null; layer?: string | null };
+  error?: string;
 };
 
 export type NeighborInfo = {
