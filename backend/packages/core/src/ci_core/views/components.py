@@ -18,7 +18,9 @@ def _is_ui(node) -> bool:
     return node.node_type == NodeType.COMPONENT or node.properties.get("role") in UI_ROLES
 
 
-def build(index: GraphIndex, focus: str | None) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
+def build(
+    index: GraphIndex, focus: str | None, params: dict[str, Any] | None = None
+) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
     components = [n for n in index.nodes.values() if n.node_type == NodeType.COMPONENT]
     if focus and focus in index.nodes:
         seeds = [focus]

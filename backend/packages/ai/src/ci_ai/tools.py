@@ -10,28 +10,20 @@ from ci_core.db import GraphStore
 from ci_core.insights import (
     GraphIndex,
     build_tour,
-    compute_impact,
     describe_endpoint,
     find_path,
+    impact_for_request,
     list_endpoints,
     search_nodes,
 )
 from ci_core.models import EdgeType, NodeRecord, NodeType
+from ci_core.serializers import tool_node_brief
 from ci_core.source import resolve_source_path
 from ci_security import sanitize_for_llm
 
 
 def _brief(n: NodeRecord) -> dict[str, Any]:
-    return {
-        "id": n.id,
-        "name": n.name,
-        "type": n.node_type.value,
-        "path": n.source_path,
-        "line": n.start_line,
-        "qualified_name": n.qualified_name,
-        "layer": n.properties.get("layer"),
-        "summary": n.properties.get("summary"),
-    }
+    return tool_node_brief(n)
 
 
 class GraphTools:
@@ -270,13 +262,18 @@ class GraphTools:
 
     def impact_of(self, query: str, depth: int = 3) -> dict:
         """What breaks if `query` (a symbol name or file path) changes?"""
-        q = query.strip()
-        seeds = [n.id for n in self.index.nodes.values() if n.source_path == q]
-        files = [q] if seeds else None
-        if not seeds:
+        q = query.strip().replace("\\", "/")
+        files: list[str] = []
+        node_ids: list[str] = []
+        if any(n.source_path == q for n in self.index.nodes.values()):
+            files = [q]
+        else:
             hit = self.resolve(q)
-            seeds = [hit.id] if hit else []
-        report = compute_impact(self.index, seeds, changed_files=files, depth=depth)
+            if hit:
+                node_ids = [hit.id]
+            else:
+                return {"error": f"no node matches {q!r}", "affected": [], "changed": []}
+        report = impact_for_request(self.index, files=files, node_ids=node_ids, depth=depth)
         report["affected"] = report["affected"][:25]
         return report
 

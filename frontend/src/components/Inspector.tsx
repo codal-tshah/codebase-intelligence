@@ -1,9 +1,9 @@
-import { Copy, Crosshair, ExternalLink, GitFork, MessageSquare, Route } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Crosshair, ExternalLink, GitFork, MessageSquare, Route } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EDGE_STYLE, layerColor } from "../graphTheme";
 import { highlightLines, languageOf } from "../highlight";
 import { NodeIcon } from "../icons";
-import type { HttpCallInfo, Layer, NodeDetail, SourceSnippet } from "../types";
+import type { GraphEdge, HttpCallInfo, Layer, NodeDetail, SourceSnippet, UnderlyingEdgesPayload } from "../types";
 
 type Props = {
   detail: NodeDetail | null;
@@ -15,29 +15,155 @@ type Props = {
   onImpact: () => void;
   onPathFrom: () => void;
   onAsk: (question: string) => void;
+  explore?: { expandable: boolean; expanded: boolean; childCount: number };
+  onToggleExplore?: () => void;
+  /** Explore aggregated edge selection (underlying edges from API). */
+  exploreEdge?: {
+    edge: GraphEdge;
+    payload: UnderlyingEdgesPayload | null;
+    loading: boolean;
+    sourceLabel: string;
+    targetLabel: string;
+  };
 };
 
-export function Inspector({ detail, source, highlight, layers, onNavigate, onFocus, onImpact, onPathFrom, onAsk }: Props) {
-  if (!detail && !source) {
+export function Inspector({
+  detail,
+  source,
+  highlight,
+  layers,
+  onNavigate,
+  onFocus,
+  onImpact,
+  onPathFrom,
+  onAsk,
+  explore,
+  onToggleExplore,
+  exploreEdge,
+}: Props) {
+  if (!detail && !source && !exploreEdge) {
     return (
       <div className="placeholder">
         <p className="placeholder-title">Nothing selected</p>
         <p className="muted">Select a node in the diagram to see what it does, what it connects to, and its source.</p>
         <p className="muted">
-          <kbd>⌘K</kbd> to search · double-click a node to focus on it
+          <kbd>⌘K</kbd> to search · In Explore, use the chevron on a node to expand, or double-click to zoom to it
         </p>
       </div>
     );
   }
   return (
     <>
-      {detail ? <NodeCard detail={detail} layers={layers} onNavigate={onNavigate} onFocus={onFocus} onImpact={onImpact} onPathFrom={onPathFrom} onAsk={onAsk} /> : null}
-      <SourceView source={source} highlight={highlight} />
+      {exploreEdge ? <ExploreEdgeCard onNavigate={onNavigate} {...exploreEdge} /> : null}
+      {detail ? (
+        <NodeCard
+          detail={detail}
+          layers={layers}
+          onNavigate={onNavigate}
+          onFocus={onFocus}
+          onImpact={onImpact}
+          onPathFrom={onPathFrom}
+          onAsk={onAsk}
+          explore={explore}
+          onToggleExplore={onToggleExplore}
+        />
+      ) : null}
+      {source || !detail ? <SourceView source={source} highlight={highlight} /> : null}
     </>
   );
 }
 
-function NodeCard({ detail, layers, onNavigate, onFocus, onImpact, onPathFrom, onAsk }: Omit<Props, "source" | "highlight" | "detail"> & { detail: NodeDetail }) {
+function ExploreEdgeCard({
+  edge,
+  payload,
+  loading,
+  sourceLabel,
+  targetLabel,
+  onNavigate,
+}: {
+  edge: GraphEdge;
+  payload: UnderlyingEdgesPayload | null;
+  loading: boolean;
+  sourceLabel: string;
+  targetLabel: string;
+  onNavigate: (id: string) => void;
+}) {
+  const props = edge.properties ?? {};
+  const weight = Number(props.weight ?? 0);
+  const byType = (props.by_type as Record<string, number> | undefined) ?? {};
+
+  return (
+    <div className="detail-card explore-edge-card">
+      <div className="detail-header">
+        <span className="badge">{edge.edge_type}</span>
+        {loading ? (
+          <span className="muted" aria-busy>
+            Loading…
+          </span>
+        ) : null}
+      </div>
+      <h2 className="explore-edge-title">
+        <button type="button" className="link-inline" title={edge.source} onClick={() => onNavigate(edge.source)}>
+          {sourceLabel}
+        </button>
+        <span className="muted"> → </span>
+        <button type="button" className="link-inline" title={edge.target} onClick={() => onNavigate(edge.target)}>
+          {targetLabel}
+        </button>
+      </h2>
+      <p className="muted">
+        Confidence {Math.round((edge.confidence ?? 1) * 100)}%
+        {weight > 1 ? ` · weight ${weight}` : ""}
+        {Boolean(props.aggregated) ? " · aggregated" : ""}
+      </p>
+      {Object.keys(byType).length > 0 ? (
+        <div className="chip-row">
+          {Object.entries(byType).map(([t, c]) => (
+            <span key={t} className="chip static">
+              {EDGE_STYLE[t]?.label ?? t} ×{c}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <details open>
+        <summary>
+          Underlying edges {payload ? <span className="muted">{payload.edges.length}</span> : null}
+          {payload?.capped ? <span className="muted"> (capped)</span> : null}
+        </summary>
+        {payload && payload.edges.length > 0 ? (
+          <ul className="explore-edge-list">
+            {payload.edges.map((ue) => (
+              <li key={ue.id}>
+                <span className="mono">{ue.edge_type}</span>
+                <button type="button" className="link-inline" onClick={() => onNavigate(ue.source_id)}>
+                  {ue.source_id.slice(0, 10)}…
+                </button>
+                <span className="muted"> → </span>
+                <button type="button" className="link-inline" onClick={() => onNavigate(ue.target_id)}>
+                  {ue.target_id.slice(0, 10)}…
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : !loading ? (
+          <p className="muted">No underlying edges returned.</p>
+        ) : null}
+      </details>
+    </div>
+  );
+}
+
+function NodeCard({
+  detail,
+  layers,
+  onNavigate,
+  onFocus,
+  onImpact,
+  onPathFrom,
+  onAsk,
+  explore,
+  onToggleExplore,
+}: Omit<Props, "source" | "highlight" | "detail"> & { detail: NodeDetail }) {
   const { node, edges, neighbors } = detail;
   const props = node.properties ?? {};
   const layerId = props.layer as string | undefined;
@@ -50,9 +176,10 @@ function NodeCard({ detail, layers, onNavigate, onFocus, onImpact, onPathFrom, o
 
   const grouped = new Map<string, { id: string; dir: "out" | "in"; low: boolean }[]>();
   for (const e of edges as { edge_type: string; source_id: string; target_id: string; confidence?: number }[]) {
-    if (e.edge_type === "CONTAINS") continue;
     const out = e.source_id === node.id;
-    const key = `${out ? "→" : "←"} ${EDGE_STYLE[e.edge_type]?.label ?? e.edge_type}`;
+    // Containment: list what this node contains (its parent is already in the breadcrumbs).
+    if (e.edge_type === "CONTAINS" && !out) continue;
+    const key = e.edge_type === "CONTAINS" ? "Contains" : `${out ? "→" : "←"} ${EDGE_STYLE[e.edge_type]?.label ?? e.edge_type}`;
     const id = out ? e.target_id : e.source_id;
     const list = grouped.get(key) ?? [];
     if (!list.some((x) => x.id === id)) list.push({ id, dir: out ? "out" : "in", low: (e.confidence ?? 1) < 0.7 });
@@ -91,7 +218,11 @@ function NodeCard({ detail, layers, onNavigate, onFocus, onImpact, onPathFrom, o
         </div>
         <h2>{node.name}</h2>
         {summary ? <p className="detail-summary">{summary}</p> : null}
-        {node.qualified_name ? <p className="mono muted">{node.qualified_name}</p> : null}
+        {node.qualified_name &&
+        node.qualified_name !== node.source_path &&
+        node.qualified_name !== node.source_path?.replace(/\.[^./]+$/, "") ? (
+          <p className="mono muted">{node.qualified_name}</p>
+        ) : null}
         {node.source_path ? (
           <p className="file-path">
             {node.source_path}
@@ -120,6 +251,21 @@ function NodeCard({ detail, layers, onNavigate, onFocus, onImpact, onPathFrom, o
           </div>
         ) : null}
         <div className="detail-actions">
+          {explore?.expandable && onToggleExplore ? (
+            <button type="button" className="btn secondary small" onClick={onToggleExplore} title="Show or hide children under this node">
+              {explore.expanded ? (
+                <>
+                  <ChevronDown size={14} strokeWidth={1.5} aria-hidden />
+                  Collapse
+                </>
+              ) : (
+                <>
+                  <ChevronRight size={14} strokeWidth={1.5} aria-hidden />
+                  Expand{explore.childCount > 0 ? ` (${explore.childCount})` : ""}
+                </>
+              )}
+            </button>
+          ) : null}
           <button type="button" className="btn primary small" onClick={() => onAsk(askAbout)}>
             <MessageSquare size={14} strokeWidth={1.5} aria-hidden />
             Ask about this
@@ -164,7 +310,7 @@ function NodeCard({ detail, layers, onNavigate, onFocus, onImpact, onPathFrom, o
 
       {grouped.size > 0 ? (
         <div className="relations">
-          {[...grouped.entries()].map(([label, items]) => (
+          {[...grouped.entries()].sort(([a], [b]) => (a === "Contains" ? -1 : b === "Contains" ? 1 : 0)).map(([label, items]) => (
             <details key={label} open={items.length <= 6}>
               <summary>
                 {label} <span className="muted">{items.length}</span>

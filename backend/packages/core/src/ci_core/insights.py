@@ -7,7 +7,7 @@ API, the CLI, the agent tools, and unit tests without any storage dependency.
 from __future__ import annotations
 
 import difflib
-from collections import deque
+from collections import defaultdict, deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
@@ -586,3 +586,138 @@ def impact_for_request(
     files = [f.replace("\\", "/") for f in files]
     seeds = [*seeds_for_files(index, files), *node_ids]
     return compute_impact(index, seeds, changed_files=files or None, depth=depth)
+
+
+def _contains_parent_map(index: GraphIndex) -> dict[str, str]:
+    parent: dict[str, str] = {}
+    for e in index.edges:
+        if e.edge_type == EdgeType.CONTAINS:
+            parent[e.target_id] = e.source_id
+    return parent
+
+
+def neighborhood_subgraph(
+    index: GraphIndex,
+    node_id: str,
+    *,
+    direction: str = "both",
+    depth: int = 1,
+) -> dict[str, Any]:
+    """Dependency neighborhood around a node with lifted endpoints into the BFS frontier.
+
+    `direction`: ``in`` (dependants), ``out`` (dependencies), or ``both``.
+    `depth``: 1–3 hops along ``DEPENDENCY_EDGES`` (excludes CONTAINS).
+    """
+    if node_id not in index.nodes:
+        return {"error": "node not found"}
+    depth = max(1, min(3, depth))
+    direction = direction.lower()
+    if direction not in {"in", "out", "both"}:
+        direction = "both"
+
+    parent = _contains_parent_map(index)
+    reachable: set[str] = {node_id}
+    frontier: set[str] = {node_id}
+    for _ in range(depth):
+        nxt: set[str] = set()
+        for n in frontier:
+            if direction in ("out", "both"):
+                for e in index.outgoing.get(n, []):
+                    if e.edge_type in DEPENDENCY_EDGES and e.edge_type != EdgeType.CONTAINS:
+                        tid = e.target_id
+                        reachable.add(tid)
+                        nxt.add(tid)
+            if direction in ("in", "both"):
+                for e in index.incoming.get(n, []):
+                    if e.edge_type in DEPENDENCY_EDGES and e.edge_type != EdgeType.CONTAINS:
+                        sid = e.source_id
+                        reachable.add(sid)
+                        nxt.add(sid)
+        frontier = nxt
+        if not frontier:
+            break
+
+    def lift_into_reachable(nid: str | None) -> str | None:
+        if nid is None:
+            return None
+        cur: str | None = nid
+        guard = 0
+        while cur and guard < 512:
+            if cur in reachable:
+                return cur
+            cur = parent.get(cur)
+            guard += 1
+        return None
+
+    neighbors_in: list[str] = []
+    neighbors_out: list[str] = []
+    if direction in ("in", "both"):
+        for e in index.incoming.get(node_id, []):
+            if e.edge_type in DEPENDENCY_EDGES and e.edge_type != EdgeType.CONTAINS:
+                neighbors_in.append(e.source_id)
+    if direction in ("out", "both"):
+        for e in index.outgoing.get(node_id, []):
+            if e.edge_type in DEPENDENCY_EDGES and e.edge_type != EdgeType.CONTAINS:
+                neighbors_out.append(e.target_id)
+
+    weights: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    conf: dict[tuple[str, str], list[float]] = defaultdict(list)
+    raw_counts: dict[tuple[str, str], int] = defaultdict(int)
+    lift_mismatch: dict[tuple[str, str], bool] = defaultdict(bool)
+
+    for e in index.edges:
+        if e.edge_type not in DEPENDENCY_EDGES or e.edge_type == EdgeType.CONTAINS:
+            continue
+        s0, t0 = e.source_id, e.target_id
+        s = lift_into_reachable(s0)
+        t = lift_into_reachable(t0)
+        if not s or not t or s == t:
+            continue
+        key = (s, t)
+        weights[key][e.edge_type.value] += 1
+        conf[key].append(e.confidence)
+        raw_counts[key] += 1
+        if s0 != s or t0 != t:
+            lift_mismatch[key] = True
+
+    center = index.nodes[node_id]
+    edge_payload: list[dict[str, Any]] = []
+    for key, by_t in weights.items():
+        a, b = key
+        total = sum(by_t.values())
+        dom = max(by_t, key=lambda k: by_t[k])
+        min_c = min(conf[key]) if conf[key] else 1.0
+        uc = raw_counts[key]
+        edge_payload.append(
+            {
+                "id": f"nh:{a}:{b}:{dom}",
+                "source": a,
+                "target": b,
+                "edge_type": dom,
+                "confidence": min_c,
+                "properties": {
+                    "weight": total,
+                    "by_type": dict(by_t),
+                    "underlying_edge_count": uc,
+                    "aggregated": uc > 1 or lift_mismatch[key],
+                },
+            }
+        )
+
+    return {
+        "node_id": node_id,
+        "direction": direction,
+        "depth": depth,
+        "reachable_count": len(reachable),
+        "reachable_ids": sorted(reachable),
+        "edges": edge_payload,
+        "neighbors_in": neighbors_in,
+        "neighbors_out": neighbors_out,
+        "center": {
+            "id": center.id,
+            "name": center.name,
+            "node_type": center.node_type.value,
+            "source_path": center.source_path,
+            "layer": center.properties.get("layer"),
+        },
+    }

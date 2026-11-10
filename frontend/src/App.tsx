@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   Background,
   BackgroundVariant,
@@ -15,8 +16,10 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
+  ArrowLeft,
   BookOpen,
   Check,
+  ChevronsLeft,
   Download,
   Filter,
   GitFork,
@@ -31,7 +34,7 @@ import {
   X,
 } from "lucide-react";
 import { API, getJson, postJson } from "./api";
-import { ArchNode } from "./components/ArchNode";
+import { ArchNode, LaneLabel } from "./components/ArchNode";
 import { ChatPanel } from "./components/ChatPanel";
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { EndpointsPanel } from "./components/EndpointsPanel";
@@ -44,15 +47,22 @@ import { PathPanel } from "./components/PathPanel";
 import { ProjectSummaryCard, type ProjectSummary } from "./components/ProjectSummaryCard";
 import { TourPanel } from "./components/TourPanel";
 import { buildFlow, type ArchNodeData, type Overlay } from "./flow";
+import { ExploreGraphCache, exploreCacheKey } from "./explore/exploreGraphCache";
+import { decodeExpandedIds, encodeExpandedIds } from "./explore/hash";
+import { layoutExploreNodes } from "./explore/layoutExplore";
+import { createExploreState, exploreReducer } from "./explore/useExploreState";
 import { DEFAULT_LAYERS, VIEW_META } from "./graphTheme";
 import { ViewIcon } from "./icons";
 import type {
   EndpointInfo,
   Freshness,
   GraphPayload,
+  UnderlyingEdgesPayload,
   ImpactReport,
+  NeighborhoodPayload,
   Job,
   Layer,
+  GraphEdge,
   NodeDetail,
   PathResult,
   Project,
@@ -62,7 +72,7 @@ import type {
   ViewInfo,
 } from "./types";
 
-const NODE_TYPES = { arch: ArchNode };
+const NODE_TYPES = { arch: ArchNode, lane: LaneLabel };
 
 type RightTab = "inspector" | "endpoints" | "tour" | "impact" | "path" | "assistant";
 /** Primary tabs first; analysis tools are quieter and also reachable from ⌘K and node actions. */
@@ -113,13 +123,13 @@ const FALLBACK_BEST: Record<string, string> = {
   Component: "components",
   Model: "er",
   Field: "er",
-  Package: "architecture",
+  Package: "explore",
   ExternalService: "integrations",
 };
 
 // ------------------------------------------------------------------ deep links
 
-type HashState = { p?: string; v?: string; n?: string; f?: string };
+type HashState = { p?: string; v?: string; n?: string; f?: string; e?: string };
 
 function readHash(): HashState {
   const raw = window.location.hash.replace(/^#\/?/, "");
@@ -129,6 +139,7 @@ function readHash(): HashState {
     v: params.get("v") ?? undefined,
     n: params.get("n") ?? undefined,
     f: params.get("f") ?? undefined,
+    e: params.get("e") ?? undefined,
   };
 }
 
@@ -137,6 +148,24 @@ function writeHash(state: HashState) {
   for (const [k, v] of Object.entries(state)) if (v) params.set(k, v);
   const next = `#/${params.toString()}`;
   if (window.location.hash !== next) window.history.replaceState(null, "", next);
+}
+
+/** Keep ELK positions/dimensions; apply latest highlight/selection styling from a fresh `buildFlow`. */
+function mergeExploreLayoutPositions(
+  laidOut: Node<ArchNodeData>[],
+  styled: { nodes: Node<ArchNodeData>[]; edges: Edge[] },
+): { nodes: Node<ArchNodeData>[]; edges: Edge[] } {
+  const posById = new Map(laidOut.map((n) => [n.id, n.position]));
+  const dimById = new Map(
+    laidOut.map((n) => [n.id, { width: n.width as number | undefined, height: n.height as number | undefined }]),
+  );
+  const nodes = styled.nodes.map((n) => {
+    const p = posById.get(n.id);
+    const d = dimById.get(n.id);
+    if (!p) return n;
+    return { ...n, position: p, width: d?.width ?? n.width, height: d?.height ?? n.height };
+  });
+  return { nodes, edges: styled.edges };
 }
 
 // ---------------------------------------------------------------- overlays
@@ -169,8 +198,9 @@ function pathToPayload(r: PathResult): GraphPayload {
 }
 
 function Dashboard() {
-  const { fitView } = useReactFlow();
+  const { fitView, fitBounds, getNodes } = useReactFlow();
   const initialHash = useRef<HashState>(readHash());
+  const viewChosenRef = useRef<boolean>(Boolean(initialHash.current.v));
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
   const [layers, setLayers] = useState<Layer[]>(DEFAULT_LAYERS);
@@ -183,6 +213,31 @@ function Dashboard() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [exploreState, exploreDispatch] = useReducer(
+    exploreReducer,
+    initialHash.current.e ? decodeExpandedIds(initialHash.current.e) : [],
+    (expandedFromHash) => createExploreState(expandedFromHash),
+  );
+  const exploreExpanded = exploreState.expanded;
+  const exploreChildOffsets = exploreState.childOffsets;
+  const [exploreNeighborIds, setExploreNeighborIds] = useState<Set<string> | null>(null);
+  const [exploreLoadingId, setExploreLoadingId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [exploreEdgeDetail, setExploreEdgeDetail] = useState<{
+    edge: GraphEdge;
+    underlying: UnderlyingEdgesPayload | null;
+    loading: boolean;
+  } | null>(null);
+  const exploreGraphCache = useRef(new ExploreGraphCache(20));
+  const explorePrevPos = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const exploreLaidOutFlowRef = useRef<{ nodes: Node<ArchNodeData>[]; edges: Edge[]; gen: number } | null>(null);
+  const exploreLayoutGenRef = useRef(0);
+  const exploreSelectedIdRef = useRef<string | null>(null);
+  exploreSelectedIdRef.current = selectedId;
+  const exploreClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exploreLastToggleId = useRef<string | null>(null);
+  const exploreFitReason = useRef<"initial" | "view" | "reset" | null>(null);
+  const [focusDepth, setFocusDepth] = useState(1);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
   const [source, setSource] = useState<SourceSnippet | null>(null);
   const [highlight, setHighlight] = useState<[number, number] | null>(null);
@@ -237,7 +292,13 @@ function Dashboard() {
   const loadSummary = useCallback(async (id: string) => {
     setSummaryLoading(true);
     try {
-      setSummary(await getJson<ProjectSummary>(`/projects/${id}/summary`));
+      const s = await getJson<ProjectSummary>(`/projects/${id}/summary`);
+      setSummary(s);
+      // Large graph: default to Explore, but never override a view the user picked
+      // (sidebar click or a deep link with v=...).
+      if (s.preferExploreView && !viewChosenRef.current) {
+        setView((v) => (v === "layers" ? "explore" : v));
+      }
     } catch {
       setSummary(null);
     } finally {
@@ -288,13 +349,33 @@ function Dashboard() {
   useEffect(() => {
     if (!projectId) return;
     let cancelled = false;
-    setGraphLoading(true);
     setGraphError(null);
     const params = new URLSearchParams();
     if (focusNodeId) params.set("focus_node_id", focusNodeId);
+    if (view === "explore") {
+      if (exploreExpanded.length) params.set("expanded", encodeExpandedIds(exploreExpanded));
+      for (const [nid, off] of Object.entries(exploreChildOffsets)) {
+        if (off > 0) params.append("extra_child_offsets", `${nid}=${off}`);
+      }
+    }
+    const cacheKey =
+      view === "explore"
+        ? exploreCacheKey(exploreExpanded, exploreChildOffsets)
+        : `${view}|${focusNodeId ?? ""}`;
+    if (view === "explore") {
+      const cached = exploreGraphCache.current.get(cacheKey);
+      if (cached) {
+        setPayload(cached);
+        setGraphLoading(false);
+        return;
+      }
+    }
+    setGraphLoading(true);
     getJson<GraphPayload>(`/projects/${projectId}/graph/${view}?${params}`)
       .then((data) => {
-        if (!cancelled) setPayload(data);
+        if (cancelled) return;
+        setPayload(data);
+        if (view === "explore") exploreGraphCache.current.set(cacheKey, data);
       })
       .catch((e) => {
         if (!cancelled) {
@@ -308,7 +389,30 @@ function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, view, focusNodeId, reloadKey]);
+  }, [projectId, view, focusNodeId, exploreExpanded, exploreChildOffsets, reloadKey]);
+
+  useEffect(() => {
+    if (view !== "explore" || !selectedId || !projectId) {
+      setExploreNeighborIds(null);
+      return;
+    }
+    let cancelled = false;
+    const dir = "both";
+    getJson<NeighborhoodPayload>(
+      `/projects/${projectId}/graph/neighborhood?node_id=${encodeURIComponent(selectedId)}&direction=${dir}&depth=${focusDepth}`,
+    )
+      .then((nh) => {
+        if (cancelled || nh.error) return;
+        const raw = nh.reachable_ids ?? [...nh.neighbors_in, ...nh.neighbors_out];
+        setExploreNeighborIds(new Set(raw.filter((id) => id !== selectedId)));
+      })
+      .catch(() => {
+        if (!cancelled) setExploreNeighborIds(new Set());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [view, selectedId, projectId, focusDepth, payload?.view, payload?.nodes.length]);
 
   // ---- overlays (impact > path > tour/chat) --------------------------------------------------
   const special = useMemo(() => {
@@ -341,6 +445,47 @@ function Dashboard() {
 
   const displayed = special?.payload ?? payload;
 
+  const detailForInspector = useMemo(() => {
+    if (!detail || view !== "explore" || !payload) return detail;
+    const gn = payload.nodes.find((n) => n.id === detail.node.id);
+    if (!gn?.properties) return detail;
+    return {
+      ...detail,
+      node: {
+        ...detail.node,
+        properties: { ...detail.node.properties, ...(gn.properties as Record<string, unknown>) },
+      },
+    };
+  }, [detail, view, payload]);
+
+  const exploreInspector = useMemo(() => {
+    if (view !== "explore" || !selectedId || !payload) return undefined;
+    const n = payload.nodes.find((x) => x.id === selectedId);
+    const p = n?.properties as Record<string, unknown> | undefined;
+    if (!p || !p.explore_expandable) return undefined;
+    return {
+      expandable: true,
+      expanded: Boolean(p.explore_expanded),
+      childCount: Number(p.child_count ?? 0),
+    };
+  }, [view, selectedId, payload]);
+
+  const exploreInspectorEdge = useMemo(() => {
+    if (view !== "explore" || !exploreEdgeDetail) return undefined;
+    const src = payload?.nodes.find((n) => n.id === exploreEdgeDetail.edge.source);
+    const tgt = payload?.nodes.find((n) => n.id === exploreEdgeDetail.edge.target);
+    return {
+      edge: exploreEdgeDetail.edge,
+      payload: exploreEdgeDetail.underlying,
+      loading: exploreEdgeDetail.loading,
+      sourceLabel: src?.label ?? exploreEdgeDetail.edge.source,
+      targetLabel: tgt?.label ?? exploreEdgeDetail.edge.target,
+    };
+  }, [view, exploreEdgeDetail, payload?.nodes]);
+
+  const reducedMotion =
+    typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   // ---- layout --------------------------------------------------------------------------------
   const visibleLayers = useMemo(() => {
     const present = payload?.metadata?.layers;
@@ -348,22 +493,286 @@ function Dashboard() {
     return layers.filter((l) => counts.has(l.id)).map((l) => ({ ...l, count: counts.get(l.id) }));
   }, [layers, payload]);
 
+  const exploreHighlight =
+    view === "explore" && selectedId && exploreNeighborIds !== null ? exploreNeighborIds : undefined;
+
+  const exploreHighlightRef = useRef(exploreHighlight);
+  exploreHighlightRef.current = exploreHighlight;
+
+  type ExploreCrumb = { id: string; label: string };
+  const exploreBreadcrumbs = useMemo((): ExploreCrumb[] => {
+    if (view !== "explore" || !selectedId || !payload) return [];
+    const byId = new Map(payload.nodes.map((n) => [n.id, n]));
+    const cur = byId.get(selectedId);
+    if (!cur) return [];
+    let p: string | null | undefined = (cur.properties?.parent_id as string | null | undefined) ?? null;
+    const stack: ExploreCrumb[] = [{ id: cur.id, label: cur.label }];
+    let g = 0;
+    while (p && g++ < 64) {
+      const n = byId.get(p);
+      if (!n) break;
+      stack.unshift({ id: n.id, label: n.label });
+      p = (n.properties?.parent_id as string | null | undefined) ?? null;
+    }
+    const repo = activeProject?.name ?? "Repository";
+    return [{ id: "__repo", label: repo }, ...stack];
+  }, [view, selectedId, payload, activeProject?.name]);
+
+  const orderedAncestorPath = useMemo(() => {
+    if (!exploreBreadcrumbs.length) return [];
+    return exploreBreadcrumbs.filter((c) => c.id !== "__repo").map((c) => c.id);
+  }, [exploreBreadcrumbs]);
+
+  useEffect(() => {
+    exploreFitReason.current = "view";
+  }, [view]);
+
+  useEffect(() => {
+    if (!graphLoading) setExploreLoadingId(null);
+  }, [graphLoading]);
+
+  const toggleExploreExpand = useCallback((id: string) => {
+    setExploreLoadingId(id);
+    exploreLastToggleId.current = id;
+    exploreDispatch({ type: "toggle", id });
+    exploreFitReason.current = null;
+  }, []);
+
+  const resetExploreTop = useCallback(() => {
+    exploreDispatch({ type: "reset" });
+    exploreGraphCache.current = new ExploreGraphCache(20);
+    explorePrevPos.current = new Map();
+    exploreFitReason.current = "reset";
+  }, []);
+
+  const exploreBack = useCallback(() => {
+    exploreDispatch({ type: "back" });
+    exploreFitReason.current = null;
+  }, []);
+
+  const expandExploreChildrenOfSelection = useCallback(() => {
+    if (!selectedId) return;
+    const p = payload?.nodes.find((x) => x.id === selectedId)?.properties as Record<string, unknown> | undefined;
+    if (!p?.explore_expandable || p.explore_expanded) return;
+    toggleExploreExpand(selectedId);
+  }, [selectedId, payload?.nodes, toggleExploreExpand]);
+
+  useEffect(() => {
+    return () => {
+      if (exploreClickTimer.current) clearTimeout(exploreClickTimer.current);
+    };
+  }, []);
+
+  const loadMoreStructuralPage = useCallback((id: string) => {
+    setExploreLoadingId(id);
+    exploreDispatch({ type: "loadMoreChildren", nodeId: id });
+    exploreFitReason.current = null;
+  }, []);
+
+  // Non-Explore views re-render on selection (cheap dagre/lane layout + highlight). Explore keeps
+  // selection out of this effect so a click never triggers an ELK relayout.
+  const nonExploreSelectedId = displayed && displayed.view !== "explore" ? selectedId : null;
+
+  /** Structure + ELK: omit selection/neighbour highlight so clicking doesn't relayout. */
   useEffect(() => {
     if (!displayed) {
       setNodes([]);
       setEdges([]);
+      exploreLaidOutFlowRef.current = null;
       return;
     }
-    const flow = buildFlow(displayed, { layers, hiddenLayers, filter, selectedId, overlay });
-    setNodes(flow.nodes);
-    setEdges(flow.edges);
-  }, [displayed, layers, hiddenLayers, filter, selectedId, overlay, setNodes, setEdges]);
+    if (displayed.view !== "explore") {
+      exploreLaidOutFlowRef.current = null;
+      const flow = buildFlow(displayed, {
+        layers,
+        hiddenLayers,
+        filter,
+        selectedId: nonExploreSelectedId,
+        overlay,
+        exploreNeighborIds: null,
+        selectedEdgeId,
+        exploreLoadingId,
+        onExploreToggle: toggleExploreExpand,
+        onExploreLoadMore: loadMoreStructuralPage,
+      });
+      setEdges(flow.edges);
+      setNodes(flow.nodes);
+      return;
+    }
 
-  const layoutSignature = `${projectId}|${displayed?.view}|${focusNodeId}|${displayed?.nodes.length}|${hiddenLayers.size}|${filter}`;
+    const flow = buildFlow(displayed, {
+      layers,
+      hiddenLayers,
+      filter,
+      selectedId: exploreSelectedIdRef.current,
+      overlay,
+      exploreNeighborIds: exploreHighlightRef.current ?? null,
+      selectedEdgeId,
+      exploreLoadingId,
+      onExploreToggle: toggleExploreExpand,
+      onExploreLoadMore: loadMoreStructuralPage,
+    });
+    setEdges(flow.edges);
+
+    if (!flow.exploreLayoutInput) {
+      setNodes(flow.nodes);
+      exploreLaidOutFlowRef.current = null;
+      return;
+    }
+
+    const layoutGen = ++exploreLayoutGenRef.current;
+    let cancelled = false;
+    const prevSeed = new Map<string, { x: number; y: number }>();
+    for (const [id, p] of explorePrevPos.current) prevSeed.set(id, { x: p.x, y: p.y });
+    const firstLayout = explorePrevPos.current.size === 0;
+    void layoutExploreNodes(flow.exploreLayoutInput, prevSeed).then((pos) => {
+      if (cancelled || layoutGen !== exploreLayoutGenRef.current) return;
+      const next = new Map<string, { x: number; y: number }>();
+      const dur = reducedMotion ? 0 : 180;
+      const withPos = flow.nodes.map((n) => {
+        const lp = pos.get(n.id);
+        if (!lp) return n;
+        next.set(n.id, { x: lp.x, y: lp.y });
+        return { ...n, position: { x: lp.x, y: lp.y }, width: lp.width, height: lp.height };
+      });
+      explorePrevPos.current = next;
+      const styledFlow = buildFlow(displayed, {
+        layers,
+        hiddenLayers,
+        filter,
+        selectedId: exploreSelectedIdRef.current,
+        overlay,
+        exploreNeighborIds: exploreHighlightRef.current ?? null,
+        selectedEdgeId,
+        exploreLoadingId,
+        onExploreToggle: toggleExploreExpand,
+        onExploreLoadMore: loadMoreStructuralPage,
+      });
+      const merged = mergeExploreLayoutPositions(withPos, styledFlow);
+      exploreLaidOutFlowRef.current = { nodes: merged.nodes, edges: merged.edges, gen: layoutGen };
+
+      flushSync(() => {
+        setNodes(merged.nodes);
+        setEdges(merged.edges);
+      });
+
+      const scheduleFit = () =>
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (layoutGen !== exploreLayoutGenRef.current) return;
+            // While an expand/collapse is still fetching, this layout shows the *old* payload:
+            // don't move the camera or consume the toggle marker yet.
+            if (exploreLoadingId) return;
+            const tid = exploreLastToggleId.current;
+            const reason = exploreFitReason.current;
+            const fitOpts = {
+              padding: 0.18,
+              duration: dur,
+              minZoom: 0.35,
+              maxZoom: 1.6 as number | undefined,
+              nodes: merged.nodes,
+              includeHiddenNodes: true,
+            };
+            if (reason === "view" || reason === "reset") {
+              exploreFitReason.current = null;
+              void fitView(fitOpts);
+            } else if (tid) {
+              // Fit to the toggled group's own box (its children live inside it). Computed from the
+              // layout result, not from React Flow's measurements, which lag one frame after resize.
+              const byId = new Map(merged.nodes.map((x) => [x.id, x]));
+              const target = byId.get(tid);
+              const isGroup = merged.nodes.some((x) => x.parentId === tid);
+              if (target && isGroup) {
+                let x = target.position.x;
+                let y = target.position.y;
+                let parent = target.parentId ? byId.get(target.parentId) : undefined;
+                while (parent) {
+                  x += parent.position.x;
+                  y += parent.position.y;
+                  parent = parent.parentId ? byId.get(parent.parentId) : undefined;
+                }
+                const w = Number(target.width ?? target.style?.width ?? 216);
+                const h = Number(target.height ?? target.style?.height ?? 78);
+                void fitBounds({ x, y, width: w, height: h }, { padding: 0.12, duration: dur });
+              } else {
+                // Collapsed: the graph shrank, so show the whole (smaller) picture rather than empty space.
+                void fitView(fitOpts);
+              }
+              exploreLastToggleId.current = null;
+            } else if (firstLayout) {
+              void fitView(fitOpts);
+            }
+            // Otherwise (selection, edge click, loading indicator, overlay) keep the camera where the user left it.
+          });
+        });
+      scheduleFit();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    nonExploreSelectedId,
+    displayed,
+    layers,
+    hiddenLayers,
+    filter,
+    overlay,
+    selectedEdgeId,
+    exploreLoadingId,
+    toggleExploreExpand,
+    loadMoreStructuralPage,
+    setNodes,
+    setEdges,
+    reducedMotion,
+    fitView,
+    fitBounds,
+  ]);
+
+  /** Explore only: update highlights when selection / neighbourhood changes — keep ELK positions. */
   useEffect(() => {
-    const t = setTimeout(() => void fitView({ padding: 0.15, duration: 300 }), 60);
+    if (view !== "explore" || !displayed || displayed.view !== "explore") return;
+    const base = exploreLaidOutFlowRef.current;
+    if (!base || base.gen !== exploreLayoutGenRef.current) return;
+    const flow = buildFlow(displayed, {
+      layers,
+      hiddenLayers,
+      filter,
+      selectedId,
+      overlay,
+      exploreNeighborIds: exploreHighlight ?? null,
+      selectedEdgeId,
+      exploreLoadingId,
+      onExploreToggle: toggleExploreExpand,
+      onExploreLoadMore: loadMoreStructuralPage,
+    });
+    const merged = mergeExploreLayoutPositions(base.nodes, flow);
+    exploreLaidOutFlowRef.current = { ...merged, gen: base.gen };
+    setNodes(merged.nodes);
+    setEdges(merged.edges);
+  }, [
+    view,
+    displayed,
+    layers,
+    hiddenLayers,
+    filter,
+    selectedId,
+    overlay,
+    exploreHighlight,
+    selectedEdgeId,
+    exploreLoadingId,
+    toggleExploreExpand,
+    loadMoreStructuralPage,
+    setNodes,
+    setEdges,
+  ]);
+
+  const exploreLayoutSig = `${projectId}|${displayed?.view}|${focusNodeId}|${displayed?.nodes.length}|${hiddenLayers.size}|${filter}`;
+  useEffect(() => {
+    if (view === "explore") return;
+    const dur = reducedMotion ? 0 : 300;
+    const t = setTimeout(() => void fitView({ padding: 0.15, duration: dur }), 60);
     return () => clearTimeout(t);
-  }, [layoutSignature, fitView]);
+  }, [exploreLayoutSig, fitView, reducedMotion, view]);
 
   // ---- source --------------------------------------------------------------------------------
   const loadSource = useCallback(
@@ -390,9 +799,40 @@ function Dashboard() {
   );
 
   // ---- selection -----------------------------------------------------------------------------
+  const fetchExploreUnderlying = useCallback(
+    async (edge: GraphEdge) => {
+      if (!projectId || edge.edge_type === "CONTAINS") return;
+      setSelectedEdgeId(edge.id);
+      setExploreEdgeDetail({ edge, underlying: null, loading: true });
+      setRightTab("inspector");
+      setPanelOpen(true);
+      const params = new URLSearchParams({ source: edge.source, target: edge.target });
+      if (exploreExpanded.length) params.set("expanded", encodeExpandedIds(exploreExpanded));
+      for (const [nid, off] of Object.entries(exploreChildOffsets)) {
+        if (off > 0) params.append("extra_child_offsets", `${nid}=${off}`);
+      }
+      try {
+        const data = await getJson<UnderlyingEdgesPayload>(`/projects/${projectId}/graph/edges?${params}`);
+        setExploreEdgeDetail({ edge, underlying: data, loading: false });
+      } catch {
+        setExploreEdgeDetail({ edge, underlying: null, loading: false });
+      }
+    },
+    [projectId, exploreExpanded, exploreChildOffsets],
+  );
+
+  useEffect(() => {
+    if (view !== "explore") {
+      setSelectedEdgeId(null);
+      setExploreEdgeDetail(null);
+    }
+  }, [view]);
+
   const selectNode = useCallback(
     async (id: string) => {
       if (!projectId) return;
+      setSelectedEdgeId(null);
+      setExploreEdgeDetail(null);
       setSelectedId(id);
       setRightTab((t) => (t === "assistant" || t === "tour" || t === "endpoints" ? t : "inspector"));
       try {
@@ -416,21 +856,61 @@ function Dashboard() {
     [projectId, loadSource],
   );
 
+  const onExploreBreadcrumbClick = useCallback(
+    (crumbId: string) => {
+      if (crumbId === "__repo") {
+        resetExploreTop();
+        exploreFitReason.current = "reset";
+        return;
+      }
+      const idx = orderedAncestorPath.indexOf(crumbId);
+      if (idx < 0) return;
+      exploreDispatch({ type: "collapseToLevel", level: idx, orderedAncestors: orderedAncestorPath });
+      exploreFitReason.current = null;
+      void selectNode(crumbId);
+    },
+    [orderedAncestorPath, resetExploreTop, selectNode],
+  );
+
+  const expandAncestorsForNode = useCallback(
+    async (nodeId: string) => {
+      if (!projectId) return;
+      const chain: string[] = [];
+      let cur: string | null = nodeId;
+      for (let guard = 0; guard < 64 && cur; guard += 1) {
+        const nid: string = cur;
+        const d = await getJson<NodeDetail>(`/projects/${projectId}/nodes/${nid}`);
+        const parent: string | null =
+          d.edges.find((edge) => edge.edge_type === "CONTAINS" && edge.target_id === nid)?.source_id ?? null;
+        if (!parent) break;
+        const pinfo = d.neighbors[parent];
+        if (pinfo?.node_type === "Project") break;
+        chain.unshift(parent);
+        cur = parent;
+      }
+      exploreDispatch({ type: "expandPath", ancestors: chain });
+      setView("explore");
+    },
+    [projectId],
+  );
+
   /** Jump to any node: pick a fitting diagram if it's not on the current canvas, then select it. */
   const navigateTo = useCallback(
-    (id: string, nodeType?: string) => {
+    async (id: string, nodeType?: string) => {
       setImpact(null);
       setPathResult(null);
       const onCanvas = payload?.nodes.some((n) => n.id === id);
-      if (!onCanvas && nodeType) {
+      if (view === "explore" && !onCanvas) {
+        await expandAncestorsForNode(id);
+      } else if (!onCanvas && nodeType) {
         const target = viewForType(nodeType);
         const focusable = views.find((v) => v.id === target)?.focusable ?? false;
         setView(target);
         setFocusNodeId(focusable && nodeType !== "Model" ? id : undefined);
       }
-      void selectNode(id);
+      await selectNode(id);
     },
-    [payload, selectNode, viewForType, views],
+    [payload, selectNode, viewForType, views, view, expandAncestorsForNode],
   );
 
   const navigateById = useCallback(
@@ -447,8 +927,6 @@ function Dashboard() {
     [detail, navigateTo, projectId, selectNode],
   );
 
-  const onSearchPick = (hit: SearchHit) => navigateTo(hit.id, hit.node_type);
-
   // restore the selected node from a deep link once per project
   const restored = useRef(false);
   useEffect(() => {
@@ -460,8 +938,10 @@ function Dashboard() {
 
   useEffect(() => {
     if (!projectId) return;
-    writeHash({ p: projectId, v: view, f: focusNodeId, n: selectedId ?? undefined });
-  }, [projectId, view, focusNodeId, selectedId]);
+    const e =
+      view === "explore" && exploreExpanded.length ? encodeExpandedIds(exploreExpanded) : undefined;
+    writeHash({ p: projectId, v: view, f: focusNodeId, n: selectedId ?? undefined, e });
+  }, [projectId, view, focusNodeId, selectedId, exploreExpanded]);
 
   // ⌘K / "/" palette · ⌘J ask · ⌘\ details pane · Esc clears overlays
   useEffect(() => {
@@ -501,7 +981,20 @@ function Dashboard() {
     setTourIds([]);
     setChatIds([]);
     setFocusNodeId(undefined);
+    exploreDispatch({ type: "clearExplore" });
+    exploreGraphCache.current = new ExploreGraphCache(20);
+    explorePrevPos.current = new Map();
+    setExploreNeighborIds(null);
+    setSelectedEdgeId(null);
+    setExploreEdgeDetail(null);
   };
+
+  const onSearchPick = useCallback(
+    (hit: SearchHit) => {
+      void navigateTo(hit.id, hit.node_type);
+    },
+    [navigateTo],
+  );
 
   const onTourSelect = (step: TourStep | null, index: number | null) => {
     setImpact(null);
@@ -731,13 +1224,13 @@ function Dashboard() {
                     <button
                       key={meta.id}
                       type="button"
-                      title={meta.description}
                       aria-current={view === meta.id && !special ? "page" : undefined}
                       className={`view-nav-item ${view === meta.id && !special ? "active" : ""}`}
                       onClick={() => {
                         clearSpecial();
                         setTourIds([]);
                         setTourStep(null);
+                        viewChosenRef.current = true;
                         setView(meta.id);
                         setFocusNodeId(undefined);
                       }}
@@ -763,7 +1256,7 @@ function Dashboard() {
             ) : null}
           </aside>
 
-          <section className="canvas-area" aria-label="Diagram">
+          <section className={`canvas-area ${view === "explore" ? "canvas-area--explore" : ""}`} aria-label="Diagram">
             <ProjectSummaryCard
               projectName={activeProject?.name ?? "Project"}
               gitUrl={activeProject?.git_url}
@@ -771,16 +1264,99 @@ function Dashboard() {
               loading={summaryLoading}
               onPickNode={(id) => void navigateById(id)}
             />
-            <div className="canvas-toolbar">
+            <div className={`canvas-toolbar ${view === "explore" && !special ? "canvas-toolbar--explore" : ""}`}>
               <div className="canvas-title">
                 <ViewIcon id={view} />
                 <h2>{currentView?.label ?? view}</h2>
                 <span className="muted canvas-desc">{currentView?.description}</span>
               </div>
+              {view === "explore" && !special && exploreBreadcrumbs.length > 0 ? (
+                <nav className="explore-breadcrumbs" aria-label="Selection path">
+                  {exploreBreadcrumbs.map((c, i) => (
+                    <span key={c.id} className="explore-crumb-wrap">
+                      {i > 0 ? <span className="explore-crumb-sep" aria-hidden /> : null}
+                      <button
+                        type="button"
+                        className={`link-btn explore-crumb ${selectedId === c.id ? "active" : ""}`}
+                        onClick={() => onExploreBreadcrumbClick(c.id)}
+                      >
+                        {c.label}
+                      </button>
+                    </span>
+                  ))}
+                </nav>
+              ) : null}
               <label className="search-field">
                 <Filter size={14} strokeWidth={1.5} aria-hidden className="search-icon" />
                 <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter diagram" aria-label="Filter the diagram" />
               </label>
+              {view === "explore" && !special ? (
+                <div className="canvas-toolbar-explore" role="group" aria-label="Explore controls">
+                  <span className="muted explore-hint">
+                    {exploreExpanded.length ? `${exploreExpanded.length} expanded` : "Chevron expands · double-click zooms"}
+                  </span>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    onClick={exploreBack}
+                    disabled={!exploreState.history.length}
+                    title="Back"
+                    aria-label="Back one expand"
+                  >
+                    <ArrowLeft size={16} strokeWidth={1.5} aria-hidden />
+                  </button>
+                  <button type="button" className="icon-btn" onClick={resetExploreTop} title="Reset to top level" aria-label="Reset explore">
+                    <ChevronsLeft size={16} strokeWidth={1.5} aria-hidden />
+                  </button>
+                  <label className="muted explore-depth">
+                    Collapse to
+                    <select
+                      aria-label="Collapse explore to level"
+                      onChange={(e) => {
+                        const lv = Number(e.target.value);
+                        e.target.value = "";
+                        if (!lv) return;
+                        exploreDispatch({
+                          type: "collapseToLevel",
+                          level: lv,
+                          orderedAncestors: orderedAncestorPath,
+                        });
+                        exploreFitReason.current = null;
+                      }}
+                      defaultValue=""
+                    >
+                      <option value="" disabled>
+                        level…
+                      </option>
+                      <option value={1}>1</option>
+                      <option value={2}>2</option>
+                      <option value={3}>3</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    onClick={expandExploreChildrenOfSelection}
+                    disabled={!selectedId}
+                    title="Expand children of selection"
+                    aria-label="Expand children of selection"
+                  >
+                    <Plus size={16} strokeWidth={1.5} aria-hidden />
+                  </button>
+                  <label className="muted explore-depth">
+                    Depth
+                    <select
+                      value={focusDepth}
+                      onChange={(e) => setFocusDepth(Number(e.target.value))}
+                      aria-label="Neighbourhood depth"
+                    >
+                      <option value={1}>1</option>
+                      <option value={2}>2</option>
+                      <option value={3}>3</option>
+                    </select>
+                  </label>
+                </div>
+              ) : null}
               {focusNodeId && !special ? (
                 <button type="button" className="chip-btn" onClick={() => setFocusNodeId(undefined)}>
                   Focused <X size={12} strokeWidth={1.5} aria-hidden />
@@ -832,20 +1408,56 @@ function Dashboard() {
                 nodes={nodes}
                 edges={edges}
                 nodeTypes={NODE_TYPES}
+                nodesDraggable={view !== "explore"}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
+                onlyRenderVisibleElements
                 onNodeClick={(_, node) => {
+                  if (node.type === "lane") return;
+                  if (view === "explore" && !special) {
+                    if (exploreClickTimer.current) clearTimeout(exploreClickTimer.current);
+                    exploreClickTimer.current = setTimeout(() => {
+                      setPanelOpen(true);
+                      void selectNode(node.id);
+                    }, 220);
+                    return;
+                  }
                   setPanelOpen(true);
                   void selectNode(node.id);
                 }}
                 onNodeDoubleClick={(_, node) => {
+                  if (node.type === "lane") return;
                   if (special) return;
-                  const type = (node.data as ArchNodeData).nodeType;
+                  if (view === "explore") {
+                    if (exploreClickTimer.current) {
+                      clearTimeout(exploreClickTimer.current);
+                      exploreClickTimer.current = null;
+                    }
+                    const kids = getNodes().filter((n) => n.parentId === node.id);
+                    const dur = reducedMotion ? 0 : 200;
+                    void fitView({
+                      nodes: kids.length ? [node, ...kids] : [node],
+                      padding: 0.3,
+                      duration: dur,
+                      includeHiddenNodes: true,
+                    }).catch(() => undefined);
+                    void selectNode(node.id);
+                    return;
+                  }
+                  const data = node.data as ArchNodeData;
+                  const type = data.nodeType;
                   if (currentView?.focusable) setFocusNodeId(node.id);
-                  else navigateTo(node.id, type);
+                  else void navigateTo(node.id, type);
                   if (currentView?.focusable) void selectNode(node.id);
                 }}
-                minZoom={0.1}
+                onEdgeClick={(_, edge) => {
+                  setPanelOpen(true);
+                  setRightTab("inspector");
+                  if (view !== "explore" || special) return;
+                  const ge = displayed?.edges.find((x) => x.id === edge.id);
+                  if (ge) void fetchExploreUnderlying(ge);
+                }}
+                minZoom={view === "explore" ? 0.25 : 0.1}
                 maxZoom={1.8}
                 proOptions={{ hideAttribution: true }}
               >
@@ -870,7 +1482,10 @@ function Dashboard() {
                 ) : null}
                 {displayed?.metadata?.truncated ? (
                   <Panel position="top-right" className="graph-legend">
-                    <span className="muted">Showing the most connected nodes. Filter or search to narrow down.</span>
+                    <span className="muted">
+                      {displayed.metadata?.truncation_reason ??
+                        "Showing the most connected nodes. Filter or search to narrow down."}
+                    </span>
                   </Panel>
                 ) : null}
               </ReactFlow>
@@ -896,10 +1511,15 @@ function Dashboard() {
             <div className={`panel-body ${rightTab === "assistant" ? "assistant" : ""}`}>
               {rightTab === "inspector" ? (
                 <Inspector
-                  detail={detail}
+                  detail={detailForInspector}
                   source={source}
                   highlight={highlight}
                   layers={layers}
+                  exploreEdge={exploreInspectorEdge}
+                  explore={exploreInspector}
+                  onToggleExplore={
+                    exploreInspector && selectedId ? () => toggleExploreExpand(selectedId) : undefined
+                  }
                   onNavigate={(id) => void navigateById(id)}
                   onFocus={(id) => {
                     clearSpecial();

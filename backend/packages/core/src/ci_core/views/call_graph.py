@@ -13,7 +13,9 @@ CALL_TYPES = {EdgeType.CALLS, EdgeType.SUBSCRIBES, EdgeType.INJECTS, EdgeType.HT
 CALLABLE = (NodeType.FUNCTION, NodeType.CLASS, NodeType.MIDDLEWARE, NodeType.COMPONENT)
 
 
-def build(index: GraphIndex, focus: str | None) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
+def build(
+    index: GraphIndex, focus: str | None, params: dict[str, Any] | None = None
+) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
     seed = focus if focus in index.nodes else None
     if seed is None:
         def call_degree(node_id: str) -> int:

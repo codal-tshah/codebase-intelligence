@@ -18,7 +18,9 @@ KEEP = {
 }
 
 
-def build(index: GraphIndex, focus: str | None) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
+def build(
+    index: GraphIndex, focus: str | None, params: dict[str, Any] | None = None
+) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
     candidates = [n for n in index.nodes.values() if n.node_type in KEEP]
     candidates.sort(key=lambda n: (-index.degree(n.id), n.name))
     truncated = len(candidates) > MAX_NODES
