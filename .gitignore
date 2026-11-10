@@ -13,3 +13,9 @@ frontend/dist/
 *.db
 *.tsbuildinfo
 .vscode/
+
+# local browser-test artifacts
+playwright-*.png
+playwright-*.log
+playwright-*.yml
+.cursor/

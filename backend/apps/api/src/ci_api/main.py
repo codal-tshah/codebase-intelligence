@@ -33,6 +33,7 @@ from ci_core.registry import load_registry
 from ci_core.serializers import node_summary
 from ci_core.settings import get_settings
 from ci_core.source import resolve_source_path
+from ci_core.views.explore import underlying_between
 from ci_indexer import (
     analyzer_catalog,
     compute_freshness,
@@ -292,7 +293,36 @@ def graph_neighborhood(
         raise HTTPException(status_code=422, detail="direction must be in, out, or both")
     store = GraphStore(_pid(project_ref))
     index = store.load_index()
+    if node_id not in index.nodes:
+        raise HTTPException(status_code=404, detail="node not found")
     return neighborhood_subgraph(index, node_id, direction=d, depth=depth)
+
+
+@app.get("/projects/{project_ref:path}/graph/edges")
+def graph_explore_underlying_edges(
+    project_ref: str,
+    source: str = Query(..., min_length=1, description="Visible explore node id (aggregated arc source)"),
+    target: str = Query(..., min_length=1, description="Visible explore node id (aggregated arc target)"),
+    expanded: str | None = Query(
+        default=None,
+        description="Same expanded= list as /graph/explore so lifting matches the canvas",
+    ),
+    extra_child_offsets: list[str] | None = Query(
+        default=None,
+        description="Same as explore view: node_id=offset for structural paging",
+    ),
+    limit: int = Query(200, ge=1, le=500),
+) -> dict:
+    from ci_core.views.explore import _parse_offsets_param
+
+    store = GraphStore(_pid(project_ref))
+    index = store.load_index()
+    if source not in index.nodes or target not in index.nodes:
+        raise HTTPException(status_code=404, detail="node not found")
+    off: dict[str, int] = _parse_offsets_param({"extra_child_offsets": extra_child_offsets or []})
+    edges = underlying_between(index, source, target, expanded, cap=limit + 1, extra_offsets=off)
+    capped = len(edges) > limit  # fetched one extra row: only true when something was cut off
+    return {"source": source, "target": target, "edges": edges[:limit], "capped": capped}
 
 
 @app.get("/projects/{project_ref:path}/graph/{view}")
@@ -301,12 +331,20 @@ def get_graph(
     view: str,
     focus_node_id: str | None = Query(default=None),
     expanded: str | None = Query(default=None, description="Comma-separated node ids expanded in explore view"),
+    extra_child_offsets: list[str] | None = Query(
+        default=None,
+        description="Repeat param: node_id=offset for paging structural children under expanded nodes",
+    ),
 ) -> dict:
     if get_view(view) is None:
         raise HTTPException(status_code=404, detail=f"unknown view {view!r}")
     params: dict | None = None
-    if expanded:
-        params = {"expanded": expanded}
+    if expanded or extra_child_offsets:
+        params = {}
+        if expanded:
+            params["expanded"] = expanded
+        if extra_child_offsets:
+            params["extra_child_offsets"] = extra_child_offsets
     payload = GraphStore(_pid(project_ref)).build_graph_view(view, focus_node_id=focus_node_id, params=params)
     return payload.model_dump(mode="json")
 

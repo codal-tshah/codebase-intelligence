@@ -68,6 +68,9 @@ export const DEFAULT_LAYERS: Layer[] = Object.entries(LAYER_COLORS).map(([id, co
 
 export const NEUTRAL = "#8A867C";
 export const ACCENT = "#1F5C56";
+/** Explore: dependency edges toward selection vs away (muted, paper-safe). */
+export const EXPLORE_UPSTREAM = "#6F7A45";
+export const EXPLORE_DOWNSTREAM = "#3E7770";
 
 export const EDGE_STYLE: Record<string, { color: string; dashed?: boolean; label: string }> = {
   ROUTES_TO: { color: "#55708F", label: "routes to" },

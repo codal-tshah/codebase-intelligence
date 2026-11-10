@@ -1,6 +1,7 @@
 import { MarkerType, Position, type Edge, type Node } from "@xyflow/react";
-import { ACCENT, EDGE_STYLE, IMPACT_COLORS, layerColor } from "./graphTheme";
-import { layoutNodes } from "./layout";
+import { buildExploreLayoutModel, type ExploreLayoutInput } from "./explore/layoutExplore";
+import { ACCENT, EDGE_STYLE, EXPLORE_DOWNSTREAM, EXPLORE_UPSTREAM, IMPACT_COLORS, layerColor } from "./graphTheme";
+import { LANE_HEADER, layoutByLayer, layoutNodes } from "./layout";
 import type { GraphPayload, Layer } from "./types";
 
 export type NodeVisualState = "default" | "selected" | "overlay" | "dim";
@@ -20,6 +21,13 @@ export type ArchNodeData = {
   state: NodeVisualState;
   ring?: string; // overlay ring colour (impact hop / path)
   badge?: string;
+  /** Explore: expanded package/module as ELK group (title row + children). */
+  exploreGroup?: boolean;
+  exploreChildCount?: number;
+  truncatedChildren?: number;
+  exploreLoading?: boolean;
+  onExploreChevronClick?: () => void;
+  onExploreLoadMore?: () => void;
   [key: string]: unknown;
 };
 
@@ -40,6 +48,10 @@ export type FlowOptions = {
   overlay: Overlay | null;
   /** Explore view: highlight neighbourhood around selection */
   exploreNeighborIds?: Set<string> | null;
+  selectedEdgeId?: string | null;
+  exploreLoadingId?: string | null;
+  onExploreToggle?: (id: string) => void;
+  onExploreLoadMore?: (id: string) => void;
 };
 
 const WIDTH = 216;
@@ -50,8 +62,8 @@ const FIELDS_CHROME = 14; // divider + spacing above the field list
 export type FlowBuildResult = {
   nodes: Node<ArchNodeData>[];
   edges: Edge[];
-  /** When set, App may run async ELK and apply positions */
-  exploreLayoutSpec?: { sized: { id: string; width: number; height: number }[]; edges: { source: string; target: string }[] };
+  /** When set, App runs nested ELK for explore */
+  exploreLayoutInput?: ExploreLayoutInput;
 };
 
 export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildResult {
@@ -95,18 +107,105 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
   );
 
   const exploreMode = payload.view === "explore";
+  const exploreDims = exploreMode
+    ? new Map(
+        buildExploreLayoutModel({ graphNodes: visible, graphEdges: visibleEdges }).layoutNodes.map((ln) => [
+          ln.id,
+          { width: ln.width, height: ln.height },
+        ]),
+      )
+    : null;
   const sized = visible.map((n) => {
     const fields = fieldsByModel.get(n.id) ?? [];
-    return { id: n.id, width: WIDTH, height: BASE_HEIGHT + (fields.length ? FIELDS_CHROME + (Math.min(fields.length, 12) + (fields.length > 12 ? 1 : 0)) * FIELD_HEIGHT : 0) };
+    const baseH = BASE_HEIGHT + (fields.length ? FIELDS_CHROME + (Math.min(fields.length, 12) + (fields.length > 12 ? 1 : 0)) * FIELD_HEIGHT : 0);
+    const d = exploreDims?.get(n.id);
+    return { id: n.id, width: d?.width ?? WIDTH, height: d?.height ?? baseH };
   });
+  const layersMode = payload.view === "layers";
+  const visibleById = new Map(visible.map((v) => [v.id, v]));
+  const degree = new Map<string, number>();
+  for (const e of visibleEdges) {
+    degree.set(e.source, (degree.get(e.source) ?? 0) + 1);
+    degree.set(e.target, (degree.get(e.target) ?? 0) + 1);
+  }
+  const laneLayout = layersMode
+    ? layoutByLayer(
+        sized.map((s) => {
+          const n = visibleById.get(s.id)!;
+          return { ...s, layer: n.layer, rank: degree.get(s.id) ?? 0 };
+        }),
+        // rows grow with graph size so the whole picture stays roughly screen-shaped
+        { rowsPerColumn: Math.max(8, Math.ceil(Math.sqrt(sized.length) * 1.4)) },
+      )
+    : null;
   const positions = exploreMode
     ? new Map(sized.map((s) => [s.id, { x: 0, y: 0 }]))
-    : layoutNodes(sized, visibleEdges, "LR");
+    : laneLayout
+      ? laneLayout.positions
+      : layoutNodes(sized, visibleEdges, "LR");
   const sizeById = new Map(sized.map((s) => [s.id, s]));
 
   const overlay = opts.overlay;
-  const exploreNH = opts.exploreNeighborIds;
-  const nodes: Node<ArchNodeData>[] = visible.map((n) => {
+  // Neighbourhood dimming only makes sense when the selected node is on this canvas; otherwise
+  // (e.g. its parent was collapsed) every visible node would be dimmed.
+  const sel = opts.selectedId && sizeById.has(opts.selectedId) ? opts.selectedId : null;
+  const parentOfVisible = new Map(
+    visible.map((n) => [n.id, exploreMode ? ((n.properties?.parent_id as string | null | undefined) ?? undefined) : undefined]),
+  );
+  // Explore draws containment by nesting, so CONTAINS edges to a nested child are redundant clutter.
+  const drawnEdges = exploreMode
+    ? visibleEdges.filter((e) => !(e.edge_type === "CONTAINS" && parentOfVisible.get(e.target) === e.source))
+    : visibleEdges;
+  /**
+   * Highlight set for the current selection (all views): direct dependency neighbours from the
+   * drawn edges, plus in Explore the server neighbourhood and the selected group's own subtree
+   * (a selected group must never dim its own children).
+   */
+  let hl: Set<string> | null = null;
+  if (sel && !overlay) {
+    hl = new Set<string>(exploreMode ? (opts.exploreNeighborIds ?? []) : []);
+    for (const e of drawnEdges) {
+      if (e.edge_type === "CONTAINS") continue;
+      if (e.source === sel) hl.add(e.target);
+      else if (e.target === sel) hl.add(e.source);
+    }
+    if (exploreMode) {
+      for (const n of visible) {
+        let cur = parentOfVisible.get(n.id);
+        let guard = 0;
+        while (cur && guard++ < 64) {
+          if (cur === sel) {
+            hl.add(n.id);
+            break;
+          }
+          cur = parentOfVisible.get(cur);
+        }
+      }
+      // keep ancestors of the selection readable too (they frame it)
+      let up = parentOfVisible.get(sel);
+      while (up) {
+        hl.add(up);
+        up = parentOfVisible.get(up);
+      }
+    }
+    hl.delete(sel);
+  }
+  const showAllLabels = !sel && drawnEdges.length <= 40;
+  const onToggle = opts.onExploreToggle;
+  const onLoadMore = opts.onExploreLoadMore;
+  const loadId = opts.exploreLoadingId ?? null;
+
+  const depthOf = (id: string) => {
+    let d = 0;
+    let cur = parentOfVisible.get(id);
+    while (cur && d < 64) {
+      d++;
+      cur = parentOfVisible.get(cur);
+    }
+    return d;
+  };
+  const ordered = exploreMode ? [...visible].sort((a, b) => depthOf(a.id) - depthOf(b.id)) : visible;
+  const nodes: Node<ArchNodeData>[] = ordered.map((n) => {
     const props = n.properties ?? {};
     let state: NodeVisualState = "default";
     let ring: string | undefined;
@@ -126,11 +225,11 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
       } else {
         state = "dim";
       }
-    } else if (exploreMode && exploreNH !== null && exploreNH !== undefined && opts.selectedId) {
-      if (n.id === opts.selectedId) {
+    } else if (hl && sel) {
+      if (n.id === sel) {
         state = "selected";
         ring = ACCENT;
-      } else if (exploreNH.has(n.id)) {
+      } else if (hl.has(n.id)) {
         state = "overlay";
         ring = "#55708F";
       } else {
@@ -138,13 +237,18 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
       }
     }
     if (opts.selectedId === n.id) state = "selected";
-    if (exploreMode) {
-      const exp = Boolean(props.explore_expandable);
-      const nch = Number(props.child_count ?? 0);
-      if (exp) {
-        badge = props.explore_expanded ? "−" : nch > 0 ? `+${nch}` : "+";
-      }
-    }
+
+    const exp = exploreMode && Boolean(props.explore_expandable);
+    const nch = Number(props.child_count ?? 0);
+    const parentRaw = props.parent_id as string | null | undefined;
+    const parentId =
+      exploreMode && parentRaw && allowed.has(parentRaw) && parentRaw !== n.id ? parentRaw : undefined;
+    const truncatedChildren = exploreMode ? Number(props.truncated_children ?? 0) : 0;
+    const isGroup =
+      exploreMode &&
+      Boolean(props.explore_expanded) &&
+      (visible.some((c) => (c.properties?.parent_id as string | undefined) === n.id) || truncatedChildren > 0);
+
     const size = sizeById.get(n.id)!;
     return {
       id: n.id,
@@ -152,10 +256,18 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
       position: positions.get(n.id) ?? { x: 0, y: 0 },
       width: size.width,
       height: size.height,
+      parentId,
+      extent: parentId ? ("parent" as const) : undefined,
+      zIndex: parentId ? 1 : 0,
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
+      className: isGroup ? "rf-node-arch-group" : undefined,
       data: {
-        label: n.label,
+        // Module/package names are full paths; show the last segment (the path line keeps the rest).
+        label:
+          (n.node_type === "Module" || n.node_type === "Package" || n.node_type === "Migration") && n.label.includes("/")
+            ? n.label.slice(n.label.lastIndexOf("/") + 1)
+            : n.label,
         nodeType: n.node_type,
         layer: n.layer,
         color: layerColor(opts.layers, n.layer),
@@ -169,52 +281,113 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
         state,
         ring,
         badge,
-        exploreExpandable: exploreMode ? Boolean(props.explore_expandable) : undefined,
+        exploreExpandable: exploreMode ? exp : undefined,
         exploreExpanded: exploreMode ? Boolean(props.explore_expanded) : undefined,
+        exploreGroup: exploreMode ? isGroup : undefined,
+        exploreChildCount: exploreMode && exp ? nch : undefined,
+        truncatedChildren: exploreMode ? truncatedChildren : undefined,
+        exploreLoading: exploreMode && loadId !== null && loadId === n.id,
+        onExploreChevronClick:
+          exploreMode && exp && onToggle
+            ? () => {
+                onToggle(n.id);
+              }
+            : undefined,
+        onExploreLoadMore:
+          exploreMode && truncatedChildren > 0 && onLoadMore
+            ? () => {
+                onLoadMore(n.id);
+              }
+            : undefined,
       },
     };
   });
 
-  const edges: Edge[] = visibleEdges.map((e) => {
+  if (laneLayout) {
+    for (const lane of laneLayout.lanes) {
+      const name = opts.layers.find((l) => l.id === lane.id)?.name ?? (lane.id === "other" ? "Other" : lane.id);
+      nodes.unshift({
+        id: `__lane:${lane.id}`,
+        type: "lane",
+        position: { x: lane.x, y: 0 },
+        width: lane.width,
+        height: LANE_HEADER - 8,
+        selectable: false,
+        draggable: false,
+        focusable: false,
+        data: { label: name, count: lane.count, color: layerColor(opts.layers, lane.id) } as unknown as ArchNodeData,
+      });
+    }
+  }
+  const edges: Edge[] = drawnEdges.map((e) => {
     const style = EDGE_STYLE[e.edge_type] ?? { color: "#9A958A", label: e.edge_type };
     const weight = Number(e.properties?.weight ?? 0);
+    const aggregated = Boolean(e.properties?.aggregated);
     const inOverlay = overlay?.edgeIds
       ? overlay.edgeIds.has(e.id)
       : overlay
         ? overlay.ids.has(e.source) && overlay.ids.has(e.target)
         : false;
     let dim = Boolean(overlay && !inOverlay);
-    if (!overlay && exploreMode && exploreNH !== null && exploreNH !== undefined && opts.selectedId) {
-      const inc =
-        e.source === opts.selectedId ||
-        e.target === opts.selectedId ||
-        (exploreNH.has(e.source) && exploreNH.has(e.target)) ||
-        (exploreNH.has(e.source) && e.target === opts.selectedId) ||
-        (e.source === opts.selectedId && exploreNH.has(e.target));
-      dim = !inc;
+    let exploreRole: "upstream" | "downstream" | undefined;
+    let incident = false;
+    if (!overlay && hl && sel) {
+      if (e.target === sel) exploreRole = "upstream";
+      else if (e.source === sel) exploreRole = "downstream";
+      incident = e.source === sel || e.target === sel;
+      dim = !(incident || (hl.has(e.source) && hl.has(e.target)));
     }
     const lowConfidence = (e.confidence ?? 1) < 0.7;
+    const strokeBase =
+      exploreRole === "upstream"
+        ? EXPLORE_UPSTREAM
+        : exploreRole === "downstream"
+          ? EXPLORE_DOWNSTREAM
+          : inOverlay
+            ? ACCENT
+            : style.color;
+    const wStroke =
+      exploreMode && e.edge_type !== "CONTAINS" && weight > 1
+        ? Math.min(1 + Math.log10(weight + 1) * 1.4, 4)
+        : inOverlay
+          ? 2
+          : weight > 1
+            ? Math.min(1.2 + weight * 0.2, 3.2)
+            : 1.2;
+    const edgeSelected = opts.selectedEdgeId === e.id;
     return {
       id: e.id,
       source: e.source,
       target: e.target,
-      label: weight > 1 ? `${style.label} ×${weight}` : style.label,
+      // Labels only where they help: the selection's own edges, a selected edge, or small graphs.
+      label:
+        edgeSelected || incident || (showAllLabels && !(exploreMode && aggregated))
+          ? weight > 1
+            ? `${style.label} ×${weight}`
+            : style.label
+          : undefined,
       animated: Boolean(inOverlay),
-      markerEnd: { type: MarkerType.ArrowClosed, color: inOverlay ? ACCENT : style.color, width: 14, height: 14 },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: strokeBase,
+        width: 14,
+        height: 14,
+      },
       labelStyle: { fill: "#716D63", fontSize: 10, fontWeight: 500, fontFamily: "Schibsted Grotesk, system-ui, sans-serif" },
       labelBgStyle: { fill: "#F7F6F2", fillOpacity: 0.92 },
       labelBgPadding: [5, 3] as [number, number],
       style: {
-        stroke: inOverlay ? ACCENT : style.color,
-        strokeWidth: inOverlay ? 2 : weight > 1 ? Math.min(1.2 + weight * 0.2, 3.2) : 1.2,
+        stroke: strokeBase,
+        strokeWidth: incident ? Math.max(wStroke, 2) : wStroke,
         strokeDasharray: style.dashed || lowConfidence ? "5 4" : undefined,
-        opacity: dim ? 0.15 : 0.85,
+        opacity: dim ? 0.12 : incident ? 1 : 0.7,
       },
     };
   });
 
-  const exploreLayoutSpec =
-    exploreMode ? { sized, edges: visibleEdges.map((e) => ({ source: e.source, target: e.target })) } : undefined;
+  const exploreLayoutInput: ExploreLayoutInput | undefined = exploreMode
+    ? { graphNodes: visible, graphEdges: visibleEdges }
+    : undefined;
 
-  return { nodes, edges, exploreLayoutSpec };
+  return { nodes, edges, exploreLayoutInput };
 }

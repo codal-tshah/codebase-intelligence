@@ -12,6 +12,8 @@ from ci_core.views._common import node_view
 
 BUDGET = 250
 SHOW_MORE = 200
+# Max structural children surfaced per expanded node per request (pagination via extra_child_offsets).
+STRUCT_CHILD_PAGE = 80
 
 
 # Types that can list children in the explorer (structural containment).
@@ -66,22 +68,31 @@ def _contains_children(index: GraphIndex) -> dict[str, list[str]]:
 
 
 def _expand_closure(index: GraphIndex, expanded: set[str]) -> set[str]:
-    """Include every CONTAINS ancestor so nested packages stay coherent."""
+    """Tree-view semantics: an expanded node only takes effect when every CONTAINS ancestor
+    (below the project) is expanded too. Collapsing a parent therefore hides its expanded
+    descendants without forgetting them, and re-expanding restores them.
+
+    (Previously ancestors were auto-added, which made collapsing a parent with an expanded
+    child impossible: the closure immediately re-expanded it.)
+    """
     parent = _contains_parent(index)
-    out = set(expanded)
-    for eid in list(expanded):
+    effective: set[str] = set()
+    for eid in expanded:
         cur = eid
+        ok = True
         guard = 0
         while cur in parent and guard < 256:
             p = parent[cur]
             guard += 1
-            if p not in index.nodes:
+            if p not in index.nodes or index.nodes[p].node_type == NodeType.PROJECT:
                 break
-            if index.nodes[p].node_type == NodeType.PROJECT:
+            if index.nodes[p].node_type in _EXPAND_TYPES and p not in expanded:
+                ok = False
                 break
-            out.add(p)
             cur = p
-    return out
+        if ok:
+            effective.add(eid)
+    return effective
 
 
 def _direct_structural_children(index: GraphIndex, nid: str) -> list[str]:
@@ -134,23 +145,40 @@ def _is_expandable(index: GraphIndex, nid: str) -> bool:
     return bool(_direct_structural_children(index, nid))
 
 
-def _collect_visible(index: GraphIndex, proj: str, expanded: set[str]) -> tuple[set[str], dict[str, int]]:
-    """Visible nodes: roots + recursive children of every expanded node."""
+def _collect_visible(
+    index: GraphIndex,
+    proj: str,
+    expanded: set[str],
+    extra_child_offsets: dict[str, int],
+) -> tuple[set[str], dict[str, int], dict[str, int]]:
+    """
+    Visible nodes: roots + recursive children of every expanded node.
+
+    For expanded nodes, only a page of structural children is included (STRUCT_CHILD_PAGE),
+    starting at extra_child_offsets.get(nid, 0). Returns (visible, child_count, truncated_children).
+    """
     visible: set[str] = set()
     child_count: dict[str, int] = {}
+    truncated_children: dict[str, int] = {}
 
     def visit(nid: str) -> None:
         visible.add(nid)
-        ch = _direct_structural_children(index, nid)
-        child_count[nid] = len(ch)
-        if nid in expanded:
-            for c in ch:
-                visit(c)
+        all_ch = _direct_structural_children(index, nid)
+        child_count[nid] = len(all_ch)
+        if nid not in expanded:
+            return
+        off = max(0, int(extra_child_offsets.get(nid, 0) or 0))
+        page = all_ch[off : off + STRUCT_CHILD_PAGE]
+        rest = len(all_ch) - off - len(page)
+        if rest > 0:
+            truncated_children[nid] = rest
+        for c in page:
+            visit(c)
 
     roots = _top_level_roots(index, proj)
     for r in roots:
         visit(r)
-    return visible, child_count
+    return visible, child_count, truncated_children
 
 
 def _lift_to_visible(
@@ -238,6 +266,152 @@ def _aggregate_edges(
     return contains_out, dep_edges
 
 
+def _parse_offsets_param(params: dict[str, Any]) -> dict[str, int]:
+    """Parse extra_child_offsets: JSON object, comma key=value, or FastAPI list of key=value strings."""
+    raw = params.get("extra_child_offsets") or params.get("child_offsets")
+    out: dict[str, int] = {}
+    if raw is None:
+        return out
+    if isinstance(raw, list):
+        for item in raw:
+            s = str(item).strip()
+            if "=" in s:
+                k, _, v = s.partition("=")
+                k, v = k.strip(), v.strip()
+                if k:
+                    try:
+                        out[k] = max(0, int(v))
+                    except (TypeError, ValueError):
+                        pass
+        return out
+    if isinstance(raw, str) and raw.strip().startswith("{"):
+        try:
+            import json
+
+            obj = json.loads(raw)
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    try:
+                        out[str(k)] = max(0, int(v))
+                    except (TypeError, ValueError):
+                        pass
+        except Exception:
+            pass
+        return out
+    if isinstance(raw, str):
+        for part in raw.split(","):
+            part = part.strip()
+            if "=" in part:
+                k, _, v = part.partition("=")
+                k, v = k.strip(), v.strip()
+                if k:
+                    try:
+                        out[k] = max(0, int(v))
+                    except (TypeError, ValueError):
+                        pass
+    return out
+
+
+def _explore_visible_bundle(
+    index: GraphIndex,
+    proj: str,
+    expanded_set: set[str],
+    extra_child_offsets: dict[str, int],
+) -> tuple[
+    set[str],
+    dict[str, int],
+    dict[str, int],
+    dict[str, str | None],
+    dict[str, int],
+    bool,
+    str,
+]:
+    """
+    Single pass: visible set, per-node total child counts, truncated_children (unshown struct kids),
+    parent_id (nearest visible CONTAINS ancestor), depth from visible roots, global truncation.
+    """
+    visible, child_count, trunc_page = _collect_visible(index, proj, expanded_set, extra_child_offsets)
+    parent_map = _contains_parent(index)
+
+    parent_id: dict[str, str | None] = {}
+    for nid in visible:
+        cur: str | None = nid
+        found: str | None = None
+        guard = 0
+        while cur and guard < 512:
+            cand = parent_map.get(cur)
+            if not cand:
+                break
+            if cand in visible:
+                found = cand
+                break
+            cur = cand
+            guard += 1
+        parent_id[nid] = found
+
+    depth: dict[str, int] = {}
+    roots = [nid for nid, p in parent_id.items() if p is None]
+    for r in roots:
+        depth[r] = 0
+    queue = list(roots)
+    head = 0
+    while head < len(queue):
+        u = queue[head]
+        head += 1
+        du = depth[u]
+        for v in visible:
+            if parent_id.get(v) == u:
+                depth[v] = du + 1
+                queue.append(v)
+
+    truncated_children = dict(trunc_page)
+    truncated = False
+    reason = ""
+    if len(visible) > BUDGET:
+        truncated = True
+        reason = f"visible node budget ({BUDGET}) exceeded"
+        ranked = sorted(visible, key=lambda i: (-index.degree(i), index.nodes[i].name))
+        keep = set(ranked[:SHOW_MORE])
+        root_ids = set(_top_level_roots(index, proj))
+        visible = keep | root_ids | expanded_set
+        visible = {v for v in visible if v in index.nodes}
+        if len(visible) > BUDGET:
+            visible = set(ranked[:BUDGET])
+        child_count = {k: v for k, v in child_count.items() if k in visible}
+        truncated_children = {k: v for k, v in truncated_children.items() if k in visible}
+        parent_id = {}
+        for nid in visible:
+            cur: str | None = nid
+            found: str | None = None
+            guard = 0
+            while cur and guard < 512:
+                cand = parent_map.get(cur)
+                if not cand:
+                    break
+                if cand in visible:
+                    found = cand
+                    break
+                cur = cand
+                guard += 1
+            parent_id[nid] = found
+        depth = {}
+        roots = [nid for nid, p in parent_id.items() if p is None]
+        for r in roots:
+            depth[r] = 0
+        queue = list(roots)
+        head = 0
+        while head < len(queue):
+            u = queue[head]
+            head += 1
+            du = depth[u]
+            for v in visible:
+                if parent_id.get(v) == u:
+                    depth[v] = du + 1
+                    queue.append(v)
+
+    return visible, child_count, truncated_children, parent_id, depth, truncated, reason
+
+
 def build(
     index: GraphIndex, focus: str | None, params: dict[str, Any] | None = None
 ) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
@@ -256,24 +430,11 @@ def build(
     expanded_set = {e for e in expanded_set if e in index.nodes}
     expanded_set = _expand_closure(index, expanded_set)
 
-    visible, child_count = _collect_visible(index, proj, expanded_set)
+    extra_offsets = _parse_offsets_param(params)
+    visible, child_count, truncated_children, parent_id, depth, truncated, reason = (
+        _explore_visible_bundle(index, proj, expanded_set, extra_offsets)
+    )
     parent = _contains_parent(index)
-
-    truncated = False
-    reason = ""
-    if len(visible) > BUDGET:
-        truncated = True
-        reason = f"visible node budget ({BUDGET}) exceeded"
-        ranked = sorted(
-            visible,
-            key=lambda i: (-index.degree(i), index.nodes[i].name),
-        )
-        keep = set(ranked[:SHOW_MORE])
-        roots = set(_top_level_roots(index, proj))
-        visible = keep | roots | expanded_set
-        visible = {v for v in visible if v in index.nodes}
-        if len(visible) > BUDGET:
-            visible = set(ranked[:BUDGET])
 
     nodes_out: list[GraphNodeView] = []
     for nid in sorted(visible, key=lambda i: (index.nodes[i].node_type.value, index.nodes[i].name)):
@@ -284,6 +445,9 @@ def build(
         view.properties["explore_expandable"] = exp
         view.properties["child_count"] = cnt
         view.properties["explore_expanded"] = nid in expanded_set
+        view.properties["parent_id"] = parent_id.get(nid)
+        view.properties["depth"] = depth.get(nid, 0)
+        view.properties["truncated_children"] = truncated_children.get(nid, 0)
         nodes_out.append(view)
 
     cedges, dedges = _aggregate_edges(index, visible, parent)
@@ -298,6 +462,37 @@ def build(
         "truncation_reason": reason if truncated else None,
     }
     return nodes_out, edges_out, meta
+
+
+def underlying_between(
+    index: GraphIndex,
+    source_id: str,
+    target_id: str,
+    expanded_raw: str | None,
+    cap: int = 200,
+    *,
+    extra_offsets: dict[str, int] | None = None,
+) -> list[dict[str, Any]]:
+    """Public helper for API: underlying edges between two visible explore nodes."""
+    from ci_core.views.explore_edges import underlying_edges_between_visible
+
+    proj = _project_id(index)
+    if not proj or source_id not in index.nodes or target_id not in index.nodes:
+        return []
+
+    expanded_set: set[str] = set()
+    if isinstance(expanded_raw, str) and expanded_raw.strip():
+        expanded_set = {s.strip() for s in expanded_raw.split(",") if s.strip()}
+    expanded_set = {e for e in expanded_set if e in index.nodes}
+    expanded_set = _expand_closure(index, expanded_set)
+
+    visible, _, _, _, _, _, _ = _explore_visible_bundle(
+        index, proj, expanded_set, extra_offsets or {}
+    )
+    parent = _contains_parent(index)
+    return underlying_edges_between_visible(
+        index, source_id, target_id, visible, parent, cap=cap
+    )
 
 
 register_view(

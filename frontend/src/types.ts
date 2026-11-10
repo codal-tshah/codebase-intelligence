@@ -45,6 +45,20 @@ export type GraphPayload = {
   };
 };
 
+export type UnderlyingEdgesPayload = {
+  source: string;
+  target: string;
+  capped: boolean;
+  edges: {
+    id: string;
+    edge_type: string;
+    source_id: string;
+    target_id: string;
+    confidence?: number;
+    properties?: Record<string, unknown>;
+  }[];
+};
+
 export type NeighborhoodPayload = {
   node_id: string;
   direction: string;
