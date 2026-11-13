@@ -46,7 +46,7 @@ export type FlowOptions = {
   filter: string;
   selectedId: string | null;
   overlay: Overlay | null;
-  /** Explore view: highlight neighbourhood around selection */
+  /** Server neighbourhood ids to highlight (intersected with visible nodes; all graph views). */
   exploreNeighborIds?: Set<string> | null;
   selectedEdgeId?: string | null;
   exploreLoadingId?: string | null;
@@ -163,11 +163,19 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
    */
   let hl: Set<string> | null = null;
   if (sel && !overlay) {
-    hl = new Set<string>(exploreMode ? (opts.exploreNeighborIds ?? []) : []);
+    hl = new Set<string>();
+    if (opts.exploreNeighborIds) {
+      for (const id of opts.exploreNeighborIds) {
+        if (sizeById.has(id)) hl.add(id);
+      }
+    }
     for (const e of drawnEdges) {
       if (e.edge_type === "CONTAINS") continue;
-      if (e.source === sel) hl.add(e.target);
-      else if (e.target === sel) hl.add(e.source);
+      if (e.source === sel) {
+        hl.add(e.target);
+      } else if (e.target === sel) {
+        hl.add(e.source);
+      }
     }
     if (exploreMode) {
       for (const n of visible) {

@@ -72,4 +72,15 @@ describe("buildFlow selection highlight", () => {
     expect(Number(bc.style?.opacity)).toBeLessThan(0.2);
     expect(ab.label).toBeTruthy();
   });
+
+  it("other views: server neighbourhood ids highlight on-canvas nodes beyond one hop", () => {
+    const payload: GraphPayload = {
+      view: "architecture",
+      nodes: ["a", "b", "c"].map((id) => ({ id, label: id, node_type: "Module", properties: {} })),
+      edges: [{ id: "ab", source: "a", target: "b", edge_type: "IMPORTS" }],
+    };
+    const flow = buildFlow(payload, { ...base, selectedId: "a", exploreNeighborIds: new Set(["c"]) });
+    const state = Object.fromEntries(flow.nodes.map((n) => [n.id, n.data.state]));
+    expect(state.c).toBe("overlay");
+  });
 });

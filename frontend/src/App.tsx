@@ -229,7 +229,6 @@ function Dashboard() {
     loading: boolean;
   } | null>(null);
   const exploreGraphCache = useRef(new ExploreGraphCache(20));
-  const explorePrevPos = useRef<Map<string, { x: number; y: number }>>(new Map());
   const exploreLaidOutFlowRef = useRef<{ nodes: Node<ArchNodeData>[]; edges: Edge[]; gen: number } | null>(null);
   const exploreLayoutGenRef = useRef(0);
   const exploreSelectedIdRef = useRef<string | null>(null);
@@ -391,29 +390,6 @@ function Dashboard() {
     };
   }, [projectId, view, focusNodeId, exploreExpanded, exploreChildOffsets, reloadKey]);
 
-  useEffect(() => {
-    if (view !== "explore" || !selectedId || !projectId) {
-      setExploreNeighborIds(null);
-      return;
-    }
-    let cancelled = false;
-    const dir = "both";
-    getJson<NeighborhoodPayload>(
-      `/projects/${projectId}/graph/neighborhood?node_id=${encodeURIComponent(selectedId)}&direction=${dir}&depth=${focusDepth}`,
-    )
-      .then((nh) => {
-        if (cancelled || nh.error) return;
-        const raw = nh.reachable_ids ?? [...nh.neighbors_in, ...nh.neighbors_out];
-        setExploreNeighborIds(new Set(raw.filter((id) => id !== selectedId)));
-      })
-      .catch(() => {
-        if (!cancelled) setExploreNeighborIds(new Set());
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [view, selectedId, projectId, focusDepth, payload?.view, payload?.nodes.length]);
-
   // ---- overlays (impact > path > tour/chat) --------------------------------------------------
   const special = useMemo(() => {
     if (impact) {
@@ -493,11 +469,33 @@ function Dashboard() {
     return layers.filter((l) => counts.has(l.id)).map((l) => ({ ...l, count: counts.get(l.id) }));
   }, [layers, payload]);
 
-  const exploreHighlight =
-    view === "explore" && selectedId && exploreNeighborIds !== null ? exploreNeighborIds : undefined;
+  const canvasNeighborHighlight =
+    selectedId && exploreNeighborIds !== null && !overlay ? exploreNeighborIds : undefined;
 
-  const exploreHighlightRef = useRef(exploreHighlight);
-  exploreHighlightRef.current = exploreHighlight;
+  const canvasNeighborHighlightRef = useRef(canvasNeighborHighlight);
+  canvasNeighborHighlightRef.current = canvasNeighborHighlight;
+
+  useEffect(() => {
+    if (!selectedId || !projectId || overlay) {
+      setExploreNeighborIds(null);
+      return;
+    }
+    let cancelled = false;
+    getJson<NeighborhoodPayload>(
+      `/projects/${projectId}/graph/neighborhood?node_id=${encodeURIComponent(selectedId)}&direction=both&depth=${focusDepth}`,
+    )
+      .then((nh) => {
+        if (cancelled || nh.error) return;
+        const raw = nh.reachable_ids ?? [...nh.neighbors_in, ...nh.neighbors_out];
+        setExploreNeighborIds(new Set(raw.filter((id) => id !== selectedId)));
+      })
+      .catch(() => {
+        if (!cancelled) setExploreNeighborIds(new Set());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, projectId, focusDepth, overlay, payload?.nodes.length]);
 
   type ExploreCrumb = { id: string; label: string };
   const exploreBreadcrumbs = useMemo((): ExploreCrumb[] => {
@@ -541,7 +539,6 @@ function Dashboard() {
   const resetExploreTop = useCallback(() => {
     exploreDispatch({ type: "reset" });
     exploreGraphCache.current = new ExploreGraphCache(20);
-    explorePrevPos.current = new Map();
     exploreFitReason.current = "reset";
   }, []);
 
@@ -589,7 +586,7 @@ function Dashboard() {
         filter,
         selectedId: nonExploreSelectedId,
         overlay,
-        exploreNeighborIds: null,
+        exploreNeighborIds: canvasNeighborHighlight ?? null,
         selectedEdgeId,
         exploreLoadingId,
         onExploreToggle: toggleExploreExpand,
@@ -606,7 +603,7 @@ function Dashboard() {
       filter,
       selectedId: exploreSelectedIdRef.current,
       overlay,
-      exploreNeighborIds: exploreHighlightRef.current ?? null,
+      exploreNeighborIds: canvasNeighborHighlightRef.current ?? null,
       selectedEdgeId,
       exploreLoadingId,
       onExploreToggle: toggleExploreExpand,
@@ -621,28 +618,23 @@ function Dashboard() {
     }
 
     const layoutGen = ++exploreLayoutGenRef.current;
+    const firstLayout = exploreLaidOutFlowRef.current === null;
     let cancelled = false;
-    const prevSeed = new Map<string, { x: number; y: number }>();
-    for (const [id, p] of explorePrevPos.current) prevSeed.set(id, { x: p.x, y: p.y });
-    const firstLayout = explorePrevPos.current.size === 0;
-    void layoutExploreNodes(flow.exploreLayoutInput, prevSeed).then((pos) => {
+    void layoutExploreNodes(flow.exploreLayoutInput).then((pos) => {
       if (cancelled || layoutGen !== exploreLayoutGenRef.current) return;
-      const next = new Map<string, { x: number; y: number }>();
       const dur = reducedMotion ? 0 : 180;
       const withPos = flow.nodes.map((n) => {
         const lp = pos.get(n.id);
         if (!lp) return n;
-        next.set(n.id, { x: lp.x, y: lp.y });
         return { ...n, position: { x: lp.x, y: lp.y }, width: lp.width, height: lp.height };
       });
-      explorePrevPos.current = next;
       const styledFlow = buildFlow(displayed, {
         layers,
         hiddenLayers,
         filter,
         selectedId: exploreSelectedIdRef.current,
         overlay,
-        exploreNeighborIds: exploreHighlightRef.current ?? null,
+        exploreNeighborIds: canvasNeighborHighlightRef.current ?? null,
         selectedEdgeId,
         exploreLoadingId,
         onExploreToggle: toggleExploreExpand,
@@ -712,6 +704,7 @@ function Dashboard() {
     };
   }, [
     nonExploreSelectedId,
+    canvasNeighborHighlight,
     displayed,
     layers,
     hiddenLayers,
@@ -739,7 +732,7 @@ function Dashboard() {
       filter,
       selectedId,
       overlay,
-      exploreNeighborIds: exploreHighlight ?? null,
+      exploreNeighborIds: canvasNeighborHighlight ?? null,
       selectedEdgeId,
       exploreLoadingId,
       onExploreToggle: toggleExploreExpand,
@@ -757,7 +750,7 @@ function Dashboard() {
     filter,
     selectedId,
     overlay,
-    exploreHighlight,
+    canvasNeighborHighlight,
     selectedEdgeId,
     exploreLoadingId,
     toggleExploreExpand,
@@ -983,7 +976,6 @@ function Dashboard() {
     setFocusNodeId(undefined);
     exploreDispatch({ type: "clearExplore" });
     exploreGraphCache.current = new ExploreGraphCache(20);
-    explorePrevPos.current = new Map();
     setExploreNeighborIds(null);
     setSelectedEdgeId(null);
     setExploreEdgeDetail(null);

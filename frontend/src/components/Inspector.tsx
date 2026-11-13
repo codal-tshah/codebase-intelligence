@@ -348,7 +348,7 @@ function SourceView({ source, highlight }: { source: SourceSnippet | null; highl
     [source],
   );
   if (!source) {
-    return <p className="muted code-empty">No source for this node.</p>;
+    return <p className="muted code-empty">No indexed source file for this selection.</p>;
   }
   const at = highlight?.[0] ?? source.start;
   const editorHref = source.abs_path ? `vscode://file/${source.abs_path}:${at}` : undefined;
