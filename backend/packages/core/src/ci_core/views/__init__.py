@@ -40,6 +40,8 @@ class ViewModule:
     # Node types for which this view is the best place to show a node (used for navigation).
     best_for: tuple[NodeType, ...] = ()
     focusable: bool = False  # accepts focus_node_id
+    # Optional availability count for views not keyed by node type (e.g. jobs); overrides `requires`.
+    count: Callable[[GraphIndex], int] | None = None
     group: str = "explore"
     tags: tuple[str, ...] = field(default_factory=tuple)
 
@@ -89,7 +91,10 @@ def view_catalog(index: GraphIndex | None = None) -> list[dict[str, Any]]:
             counts[node.node_type] = counts.get(node.node_type, 0) + 1
     out = []
     for v in registered_views():
-        count = sum(counts.get(t, 0) for t in v.requires) if v.requires else None
+        if v.count is not None and index is not None:
+            count: int | None = v.count(index)
+        else:
+            count = sum(counts.get(t, 0) for t in v.requires) if v.requires else None
         out.append(
             {
                 "id": v.id,
@@ -99,7 +104,7 @@ def view_catalog(index: GraphIndex | None = None) -> list[dict[str, Any]]:
                 "group": v.group,
                 "focusable": v.focusable,
                 "best_for": [t.value for t in v.best_for],
-                "available": index is None or not v.requires or bool(count),
+                "available": index is None or (not v.requires and v.count is None) or bool(count),
                 "count": count,
             }
         )
@@ -130,6 +135,7 @@ from ci_core.views import (  # noqa: E402,F401
     er,
     explore,
     integrations,
+    jobs,
     layers,
 )
 

@@ -6,6 +6,7 @@ import {
   Controls,
   MiniMap,
   Panel,
+  PanOnScrollMode,
   ReactFlow,
   ReactFlowProvider,
   useEdgesState,
@@ -72,6 +73,7 @@ import type {
   ViewInfo,
 } from "./types";
 
+const ZOOM_KEYS = ["Meta", "Control"];
 const NODE_TYPES = { arch: ArchNode, lane: LaneLabel };
 
 type RightTab = "inspector" | "endpoints" | "tour" | "impact" | "path" | "assistant";
@@ -1404,6 +1406,12 @@ function Dashboard() {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onlyRenderVisibleElements
+                // Trackpad-friendly: two-finger scroll pans, pinch zooms, ⌘/Ctrl + wheel zooms (mouse users).
+                panOnScroll
+                panOnScrollMode={PanOnScrollMode.Free}
+                zoomOnScroll={false}
+                zoomOnPinch
+                zoomActivationKeyCode={ZOOM_KEYS}
                 onNodeClick={(_, node) => {
                   if (node.type === "lane") return;
                   if (view === "explore" && !special) {

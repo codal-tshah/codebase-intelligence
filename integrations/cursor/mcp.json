@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "codebase-intel": {
+      "command": "uv",
+      "args": ["run", "--project", "/ABSOLUTE/PATH/TO/codebase-intelligence/backend", "ci", "mcp"]
+    }
+  }
+}

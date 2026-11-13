@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import os
+import base64
 import subprocess
 from pathlib import Path
 
@@ -132,14 +133,46 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def clone_git_repo(git_url: str, dest: Path) -> str | None:
+class GitCloneError(RuntimeError):
+    """Clone or pull failed (message is safe to show: it never contains the token)."""
+
+
+def _git_auth_env(token: str | None) -> dict[str, str]:
+    """Env that sends a GitHub token as an HTTP header for this one git process.
+
+    The token is passed via GIT_CONFIG_* env vars, so it is not in argv, the remote URL,
+    or ``.git/config`` of the clone. GIT_TERMINAL_PROMPT=0 makes auth failures fail fast.
+    """
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    if token:
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        env.update(
+            GIT_CONFIG_COUNT="1",
+            GIT_CONFIG_KEY_0="http.https://github.com/.extraheader",
+            GIT_CONFIG_VALUE_0=f"AUTHORIZATION: basic {basic}",
+        )
+    return env
+
+
+def clone_git_repo(git_url: str, dest: Path, *, token: str | None = None) -> str | None:
+    """Shallow-clone (or fast-forward an existing clone of) a GitHub repo.
+
+    ``token`` (CI_GITHUB_TOKEN / GITHUB_TOKEN) enables private repositories.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
+    env = _git_auth_env(token)
     if dest.exists() and any(dest.iterdir()):
         result = _git(dest, "rev-parse", "HEAD")
         if result.returncode == 0:
-            _git(dest, "pull", "--ff-only")
+            subprocess.run(["git", "-C", str(dest), "pull", "--ff-only"], capture_output=True, env=env, check=False)
             return git_head_sha(dest)
-    subprocess.run(["git", "clone", "--depth", "1", git_url, str(dest)], check=True)
+    result = subprocess.run(
+        ["git", "clone", "--depth", "1", git_url, str(dest)], capture_output=True, text=True, env=env, check=False
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip().splitlines()[-1:] or ["unknown error"]
+        hint = "" if token else " If the repository is private, set CI_GITHUB_TOKEN (see docs/private-repos.md)."
+        raise GitCloneError(f"git clone failed: {detail[0]}.{hint}")
     return git_head_sha(dest)
 
 

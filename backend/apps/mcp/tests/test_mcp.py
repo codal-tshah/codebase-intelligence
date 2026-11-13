@@ -32,10 +32,14 @@ def test_mcp_lists_tools_and_answers_against_path(data_dir, fullstack_copy):
     server = build_server(str(fullstack_copy))
     tools = asyncio.run(server.list_tools())
     names = {t.name for t in tools}
-    assert {"project_overview", "trace_endpoint", "impact_analysis", "list_models", "index_project"} <= names
+    assert {"project_overview", "trace_endpoint", "impact_analysis", "list_models", "index_project",
+            "list_jobs", "suggest_optimizations", "generate_docs"} <= names
 
     overview = _payload(_call(server, "project_overview", {}))  # auto-indexes the path
     assert "fastapi" in overview["frameworks"] and overview["counts"]["Endpoint"] >= 5
+
+    docs = _payload(_call(server, "generate_docs", {"output_dir": "docs/map"}))
+    assert "docs/map/architecture.md" in docs["written"] and (fullstack_copy / "docs/map/README.md").is_file()
 
     trace = _payload(_call(server, "trace_endpoint", {"route": "/api/items/{item_id}", "method": "GET"}))
     assert trace["handler"]["name"] == "get_item"

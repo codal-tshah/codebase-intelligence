@@ -164,11 +164,12 @@ def create_project_from_path(
 
 def create_project_from_git(git_url: str, work_root: Path | None = None) -> ProjectRecord:
     from ci_core.config import get_data_dir
+    from ci_core.settings import get_settings
     from ci_parsers import clone_git_repo
 
     slug = git_url.rstrip("/").split("/")[-1].replace(".git", "")
     dest = (work_root or get_data_dir() / "sources") / slug
-    clone_git_repo(git_url, dest)
+    clone_git_repo(git_url, dest, token=get_settings().github_token)
     return create_project_from_path(dest, git_url=git_url)
 
 

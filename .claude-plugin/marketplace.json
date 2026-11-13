@@ -1,0 +1,11 @@
+{
+  "name": "codebase-intelligence",
+  "owner": { "name": "Codebase Intelligence" },
+  "plugins": [
+    {
+      "name": "codebase-intel",
+      "source": "./integrations/claude-code",
+      "description": "Code graph MCP tools plus a skill that writes architecture, API-flow, jobs and ER diagrams into the repo."
+    }
+  ]
+}

@@ -66,3 +66,16 @@ def test_graph_lookup_routes_404_on_unknown_nodes(fs_client):
     assert fs_client.get(f"/projects/{pid}/graph/neighborhood", params={"node_id": "nope"}).status_code == 404
     assert fs_client.get(f"/projects/{pid}/graph/neighborhood", params={"node_id": "x", "depth": 9}).status_code == 422
     assert fs_client.get(f"/projects/{pid}/graph/edges", params={"source": "a", "target": "b"}).status_code == 404
+
+
+def test_background_jobs_suggestions_and_docs_routes(fs_client):
+    pid = fs_client.project_id
+    jobs = fs_client.get(f"/projects/{pid}/background-jobs")
+    assert jobs.status_code == 200 and jobs.json()["count"] == 0  # fixture has no jobs
+    views = {v["id"]: v for v in fs_client.get(f"/projects/{pid}/views").json()}
+    assert views["jobs"]["available"] is False
+    sug = fs_client.get(f"/projects/{pid}/suggestions?limit=5")
+    assert sug.status_code == 200 and sug.json()["count"] <= 5
+    assert fs_client.get(f"/projects/{pid}/suggestions?limit=0").status_code == 422
+    files = fs_client.get(f"/projects/{pid}/docs").json()["files"]
+    assert "```mermaid" in files["api-flows.md"] and "erDiagram" in files["data-model.md"]

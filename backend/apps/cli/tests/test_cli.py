@@ -56,3 +56,15 @@ def test_cli_impact_base_ref_diffs_git_history(data_dir, fullstack_copy):
     res = runner.invoke(app, ["impact", "--base", "HEAD~1", "-p", str(fullstack_copy), "--fail-on", "high"])
     assert res.exit_code == 2 and "Risk: high" in res.output, res.output
     assert runner.invoke(app, ["impact", "--base", "no-such-ref", "-p", str(fullstack_copy)]).exit_code == 1
+
+
+def test_cli_jobs_suggest_and_docs(data_dir, fullstack_copy):
+    assert runner.invoke(app, ["analyze", str(fullstack_copy)]).exit_code == 0
+    res = runner.invoke(app, ["jobs", "-p", str(fullstack_copy), "--json"])
+    assert res.exit_code == 0 and json.loads(res.output) == []
+    res = runner.invoke(app, ["suggest", "-p", str(fullstack_copy), "--json"])
+    assert res.exit_code == 0 and isinstance(json.loads(res.output), list)
+    res = runner.invoke(app, ["docs", "-p", str(fullstack_copy)])
+    assert res.exit_code == 0, res.output
+    assert (fullstack_copy / "docs/codebase-map/api-flows.md").is_file()
+    assert runner.invoke(app, ["docs", "-p", str(fullstack_copy), "-o", "../escape"]).exit_code == 1

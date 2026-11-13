@@ -137,6 +137,14 @@ def _strings_in(node: ast.AST) -> list[str]:
     return out
 
 
+def _literal(node: ast.expr) -> str:
+    """Short source text for constant/call kwargs (e.g. ``hour=3``, ``crontab(minute=0)``), else ""."""
+    if isinstance(node, (ast.Constant, ast.Call)):
+        text = ast.unparse(node)
+        return text if len(text) <= 80 else ""
+    return ""
+
+
 def _decorator(node: ast.expr) -> Decorator | None:
     if isinstance(node, ast.Call):
         name = dotted_name(node.func)
@@ -145,7 +153,7 @@ def _decorator(node: ast.expr) -> Decorator | None:
         return Decorator(
             name=name,
             args=[dotted_name(a) or "" for a in node.args],
-            kwargs={kw.arg: (dotted_name(kw.value) or "") for kw in node.keywords if kw.arg},
+            kwargs={kw.arg: (dotted_name(kw.value) or _literal(kw.value)) for kw in node.keywords if kw.arg},
             strings=[s for a in node.args for s in _strings_in(a)],
         )
     name = dotted_name(node)

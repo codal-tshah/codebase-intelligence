@@ -15,6 +15,7 @@ from typing import Any
 import typer
 import uvicorn
 
+from ci_parsers import GitCloneError
 from ci_indexer import create_project_from_git, create_project_from_path, run_index_job
 
 app = typer.Typer(add_completion=False, help="Codebase Intelligence CLI", no_args_is_help=True)
@@ -54,7 +55,11 @@ def analyze(
 ) -> None:
     """Analyze a repository and build the local index."""
     if target.startswith(("http://", "https://")) or target.endswith(".git"):
-        project = create_project_from_git(target)
+        try:
+            project = create_project_from_git(target)
+        except GitCloneError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
     else:
         project = create_project_from_path(Path(target))
     if not as_json:
@@ -171,6 +176,58 @@ def models(project: str | None = ProjectArg, as_json: bool = JsonOpt) -> None:
     for m in items:
         rel = ", ".join(r["to"] for r in m["relations"]) or "-"
         typer.echo(f"{m['name']:<24} table={m.get('table') or '-':<20} → {rel:<24} read_by={len(m['read_by'])} written_by={len(m['written_by'])}")
+
+
+@app.command()
+def jobs(project: str | None = ProjectArg, as_json: bool = JsonOpt) -> None:
+    """Background tasks, scheduled jobs and management commands, and the models they write."""
+    items = _tools(project).jobs()
+    if as_json:
+        return _emit(items)
+    if not items:
+        typer.echo("No background or scheduled jobs detected.")
+    for j in items:
+        when = j.get("schedule") or j.get("command") or j.get("kind")
+        writes = ", ".join(j["writes"]) or "-"
+        typer.echo(f"{j['name']:<32} {j.get('framework', ''):<16} {when:<24} writes={writes}  ({j['source_path']}:{j['line']})")
+
+
+@app.command()
+def suggest(
+    project: str | None = ProjectArg,
+    limit: int = typer.Option(40, help="Maximum suggestions"),
+    as_json: bool = JsonOpt,
+) -> None:
+    """Optimization and reuse suggestions (hubs, large functions, duplicates, cycles, unused code)."""
+    items = _tools(project).suggestions(limit=limit)
+    if as_json:
+        return _emit(items)
+    if not items:
+        typer.echo("No suggestions.")
+    for s in items:
+        first = s["nodes"][0] if s["nodes"] else {}
+        where = f"{first.get('source_path')}:{first.get('line')}" if first.get("source_path") else ""
+        typer.echo(f"[{s['severity']:<6}] {s['title']}  {where}\n         {s['detail']}")
+
+
+@app.command()
+def docs(
+    project: str | None = ProjectArg,
+    output: str = typer.Option("docs/codebase-map", "-o", help="Directory inside the repository"),
+) -> None:
+    """Write Markdown + Mermaid diagrams (architecture, API flows, jobs, ER, suggestions) into the repo."""
+    from ci_core.db import GraphStore
+    from ci_core.docgen import write_docs
+
+    record = _require(project)
+    root = Path(record.root_path)
+    try:
+        written = write_docs(GraphStore(record.id).load_index(), record.name, root, output)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    for path in written:
+        typer.echo(f"wrote {path.relative_to(root.resolve())}")
 
 
 @app.command()

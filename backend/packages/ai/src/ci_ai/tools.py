@@ -211,6 +211,37 @@ class GraphTools:
             )
         return out
 
+    def jobs(self) -> list[dict]:
+        """Background/scheduled jobs and management commands with the models they write."""
+        from ci_core.views.jobs import job_nodes
+
+        out = []
+        for j in job_nodes(self.index):
+            reached = {j.id}
+            frontier = [j.id]
+            writes, reads = set(), set()
+            for _ in range(4):
+                nxt = []
+                for cur in frontier:
+                    for e in self.index.outgoing.get(cur, []):
+                        target = self.index.nodes[e.target_id]
+                        if e.edge_type == EdgeType.WRITES_MODEL:
+                            writes.add(target.name)
+                        elif e.edge_type == EdgeType.READS_MODEL:
+                            reads.add(target.name)
+                        elif e.edge_type in (EdgeType.CALLS, EdgeType.INJECTS) and e.target_id not in reached:
+                            reached.add(e.target_id)
+                            nxt.append(e.target_id)
+                frontier = nxt
+            out.append({**_brief(j), **j.properties["job"], "writes": sorted(writes), "reads": sorted(reads)})
+        return out
+
+    def suggestions(self, limit: int = 40) -> list[dict]:
+        """Optimization and reuse leads: hubs, large functions, duplicates, cycles, scattered writes, unused code."""
+        from ci_core.suggestions import suggest
+
+        return suggest(self.index, limit=limit)
+
     def overview(self) -> dict:
         project = self.store.get_project()
         project_node = next((n for n in self.index.nodes.values() if n.node_type == NodeType.PROJECT), None)

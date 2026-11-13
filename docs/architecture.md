@@ -1,6 +1,6 @@
 # Architecture
 
-This implements [plan.md](../plan.md): a framework-agnostic analysis core, language and framework analyzers as plugins, one knowledge graph, and three front doors (web dashboard, CLI, MCP) that share the same grounded queries.
+New here? Read [onboarding.md](onboarding.md) first. This implements [plan.md](../plan.md): a framework-agnostic analysis core, language and framework analyzers as plugins, one knowledge graph, and three front doors (web dashboard, CLI, MCP) that share the same grounded queries.
 
 ```mermaid
 flowchart LR
@@ -51,14 +51,21 @@ Each diagram is a `ViewModule` in its own file. It declares its id, label, icon 
 
 | Module | Shows | Focus |
 |--------|-------|-------|
-| `explore` | Packages → modules → symbols with expand/collapse and lifted dependency edges | – |
+| `explore` | Packages → modules → symbols with expand/collapse and lifted dependency edges. Nested ELK layout in the UI; `/graph/neighborhood` and `/graph/edges` back selection and edge drill-down | – |
 | `layers` | Modules, routes, models and services by layer | – |
 | `architecture` | Packages with weighted dependency roll-ups | – |
 | `api-flow` | Route → handler → services → models/external, plus client callers | Endpoint: full UI → DB trace |
+| `jobs` | Background tasks, scheduled jobs and management commands → what they call → models written (nodes with `properties.job`) | A job |
 | `call-graph` | Callers and callees (CALLS, INJECTS, SUBSCRIBES, HTTP_CALLS) | Any symbol |
 | `components` | Render tree, hooks, stores, API clients and the endpoints they call | Subtree of a component |
 | `er` | Models with folded fields and FKs | Model: which code reads/writes it |
 | `integrations` | External services and their users | One service |
+
+## Jobs, suggestions and generated docs
+
+- **Jobs:** analyzers set `properties.job = {kind, framework, schedule?|command?}` and the `job` tag. Python: Celery `@shared_task/@app.task` (`run_every`), Dramatiq `@actor`, RQ `@job`, APScheduler `@scheduled_job`, fastapi-utils `@repeat_every`, Django `management/commands/*.py` `Command.handle`. TypeScript: NestJS `@Cron/@Interval/@Timeout`, Bull `@Process`. A view may set `ViewModule.count` to decide availability without a dedicated node type.
+- **Suggestions** (`ci_core.suggestions.suggest`): hubs (fan-in ≥ 10), large functions, same-named helpers in several files, models written from ≥ 4 files, mutual imports, possibly-unused functions. Deterministic and cheap; they are review leads.
+- **Docs** (`ci_core.docgen`): `render_docs` → `{filename: markdown}` with Mermaid flowcharts (helper text = node summary) and an `erDiagram`; `write_docs` refuses output paths outside the repository.
 
 ## AI layer
 
@@ -72,7 +79,7 @@ Each diagram is a `ViewModule` in its own file. It declares its id, label, icon 
 - Source stays local. LLM calls require `ALLOW_LLM=true` plus a key or base URL. Every prompt, history turn and tool result is redacted for secrets, and requests are logged (`llm_requests`).
 - Source access is limited to an allowlist of indexed files and protected against path traversal (API, tools, MCP).
 - CORS is limited to localhost dev origins, without credentials. The combined `ci serve --ui` app serves the dashboard and API from one origin. In **`CI_MODE=server`**, clients must send `CI_API_KEY`; the bundled dashboard does not, so put the UI behind your own auth proxy or use local mode / API-only.
-- Remote ingest accepts **public GitHub URLs only** (no tokens). Clone failures become a failed index job; `POST /projects/analyze` returns **500** with the error message, which the ingest form displays.
+- Remote ingest accepts **GitHub HTTPS URLs**. Private repos use `CI_GITHUB_TOKEN` (or `GITHUB_TOKEN`), sent as a per-process `Authorization` header via `GIT_CONFIG_*` env, never in argv, the remote URL, `.git/config` or logs. Clone failures raise `GitCloneError`; `POST /projects/analyze` returns **400** with the git message and a token hint. See [private-repos.md](private-repos.md).
 - LLM text is never rendered as raw HTML. Markdown links only allow http(s) and mailto, plus the app's `node:` and `source:` schemes.
 
 ## Extending

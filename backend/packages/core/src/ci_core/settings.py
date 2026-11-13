@@ -36,6 +36,7 @@ class Settings:
     llm_api_base: str | None = None
     log_level: str = "INFO"
     log_json: bool = False
+    github_token: str | None = field(default=None, repr=False)  # private GitHub clones; never logged
     extras: dict[str, str] = field(default_factory=dict, compare=False)
 
     @property
@@ -77,4 +78,5 @@ def get_settings() -> Settings:
         llm_api_base=os.environ.get("LLM_API_BASE") or None,
         log_level=level,
         log_json=os.environ.get("CI_LOG_JSON", "").lower() in _TRUE,
+        github_token=os.environ.get("CI_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN") or None,
     )

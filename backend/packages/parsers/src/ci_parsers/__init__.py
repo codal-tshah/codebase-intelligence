@@ -1,4 +1,5 @@
 from ci_parsers.files import (
+    GitCloneError,
     clone_git_repo,
     file_sha256,
     git_changed_between,
@@ -27,6 +28,7 @@ __all__ = [
     "ImportInfo",
     "ParseResult",
     "SymbolInfo",
+    "GitCloneError",
     "clone_git_repo",
     "dotted_name",
     "file_sha256",

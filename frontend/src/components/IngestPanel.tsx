@@ -21,7 +21,8 @@ export function IngestPanel({ onAnalyze, busy, error }: Props) {
       <div className="ingest-icon">⎇</div>
       <h2>Connect a repository</h2>
       <p className="muted">
-        Paste a public GitHub URL or an absolute local path. The analyzers detect Python (Django, FastAPI, Flask,
+        Paste a GitHub URL or an absolute local path. Private repositories need <code>CI_GITHUB_TOKEN</code> set
+        on the server (or clone locally and use the path). The analyzers detect Python (Django, FastAPI, Flask,
         SQLAlchemy) and TypeScript/JavaScript (React, Next.js, Express, NestJS) automatically, link frontend calls to
         backend routes, and build an explorable graph. Nothing leaves your machine unless you enable an LLM.
       </p>

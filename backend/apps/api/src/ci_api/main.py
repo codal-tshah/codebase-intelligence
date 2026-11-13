@@ -34,6 +34,7 @@ from ci_core.serializers import node_summary
 from ci_core.settings import get_settings
 from ci_core.source import resolve_source_path
 from ci_core.views.explore import underlying_between
+from ci_parsers import GitCloneError
 from ci_indexer import (
     analyzer_catalog,
     compute_freshness,
@@ -105,7 +106,7 @@ class ChatMessage(BaseModel):
 
 class CreateProjectBody(BaseModel):
     path: str | None = None
-    git_url: str | None = Field(default=None, description="Public GitHub repository URL")
+    git_url: str | None = Field(default=None, description="GitHub repository URL (private repos need CI_GITHUB_TOKEN)")
 
     @field_validator("git_url")
     @classmethod
@@ -142,7 +143,10 @@ def _register(body: "CreateProjectBody") -> ProjectRecord:
                 status_code=403,
                 detail="git_url ingest is disabled in server mode; clone under CI_PROJECT_ROOTS and use path",
             )
-        return create_project_from_git(body.git_url)
+        try:
+            return create_project_from_git(body.git_url)
+        except GitCloneError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     raise HTTPException(status_code=400, detail="path or git_url required")
 
 
@@ -244,6 +248,29 @@ def models(project_ref: str) -> dict:
     pid = _pid(project_ref)
     items = GraphTools(pid).models(limit=500)
     return {"count": len(items), "models": items}
+
+
+@app.get("/projects/{project_ref:path}/background-jobs")
+def background_jobs(project_ref: str) -> dict:
+    """Background tasks, scheduled jobs and management commands with the models they read/write."""
+    items = GraphTools(_pid(project_ref)).jobs()
+    return {"count": len(items), "jobs": items}
+
+
+@app.get("/projects/{project_ref:path}/suggestions")
+def suggestions(project_ref: str, limit: int = Query(default=40, ge=1, le=200)) -> dict:
+    """Optimization and reuse leads derived from the graph."""
+    items = GraphTools(_pid(project_ref)).suggestions(limit=limit)
+    return {"count": len(items), "suggestions": items}
+
+
+@app.get("/projects/{project_ref:path}/docs")
+def generated_docs(project_ref: str) -> dict:
+    """Markdown + Mermaid docs (what `ci docs` writes), returned instead of written to disk."""
+    from ci_core.docgen import render_docs
+
+    project = _require_project(project_ref)
+    return {"files": render_docs(GraphStore(project.id).load_index(), project.name)}
 
 
 @app.get("/projects/{project_ref:path}/summary")
