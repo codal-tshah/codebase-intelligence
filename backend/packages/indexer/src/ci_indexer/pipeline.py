@@ -27,6 +27,25 @@ def _index_lock(project_id: str) -> threading.Lock:
         return _index_locks[project_id]
 
 
+def _try_process_lock(project_id: str):
+    """Cross-process lock (CLI, post-commit hook, API workers all write the same database).
+
+    Returns the locked file handle (close it to release), None where ``fcntl`` is unavailable
+    (Windows: only the in-process lock applies), or False when another process holds it.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        return None
+    fh = open(project_dir(project_id) / "index.lock", "a")  # noqa: SIM115 - held until released
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return False
+    return fh
+
+
 class IndexPipeline:
     """Analyse -> classify changes -> rewrite graph -> refresh embeddings for touched files.
 
@@ -165,12 +184,34 @@ def create_project_from_path(
 def create_project_from_git(git_url: str, work_root: Path | None = None) -> ProjectRecord:
     from ci_core.config import get_data_dir
     from ci_core.settings import get_settings
-    from ci_parsers import clone_git_repo
+    from ci_parsers import GitCloneError, check_git_access, clone_git_repo, normalize_github_url, parse_github_url
 
-    slug = git_url.rstrip("/").split("/")[-1].replace(".git", "")
-    dest = (work_root or get_data_dir() / "sources") / slug
-    clone_git_repo(git_url, dest, token=get_settings().github_token)
+    git_url = normalize_github_url(git_url)
+    parsed = parse_github_url(git_url)
+    repo = (parsed[1] if parsed else git_url.rstrip("/").split("/")[-1]).removesuffix(".git")
+    sources = work_root or get_data_dir() / "sources"
+    dest = sources / (f"{parsed[0]}__{repo}" if parsed else repo)
+    legacy = sources / repo  # clones made before owner-qualified folders; reuse when it is the same remote
+    if not dest.exists() and legacy.is_dir() and _origin_url(legacy) == git_url:
+        dest = legacy
+    token = get_settings().github_token
+    if not (dest / ".git").exists():  # fresh clone: fail fast with a clear reason (re-analysis works offline)
+        access = check_git_access(git_url, token=token)
+        if not access["ok"]:
+            raise GitCloneError(f"cannot access repository: {access['reason']}")
+    clone_git_repo(git_url, dest, token=token)
     return create_project_from_path(dest, git_url=git_url)
+
+
+def _origin_url(root: Path) -> str | None:
+    import subprocess
+
+    from ci_parsers import normalize_github_url
+
+    result = subprocess.run(
+        ["git", "-C", str(root), "remote", "get-url", "origin"], capture_output=True, text=True, check=False
+    )
+    return normalize_github_url(result.stdout.strip()) if result.returncode == 0 else None
 
 
 def run_index_job(
@@ -187,7 +228,12 @@ def run_index_job(
         return job
 
     lock = _index_lock(project_id)
-    if not lock.acquire(blocking=False):
+    process_lock = False
+    if lock.acquire(blocking=False):
+        process_lock = _try_process_lock(project_id)
+        if process_lock is False:
+            lock.release()
+    if process_lock is False:
         job.status = JobStatus.FAILED
         job.error = "another index is already running for this project"
         job.message = "Index failed"
@@ -204,5 +250,7 @@ def run_index_job(
             job.message = "Index failed"
             store.update_job(job)
     finally:
+        if process_lock is not None:
+            process_lock.close()
         lock.release()
     return job

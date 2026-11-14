@@ -10,7 +10,7 @@ Local-first codebase analysis that turns a repository into an explorable knowled
 
 New languages and frameworks plug in as separate packages; see [docs/architecture.md](docs/architecture.md#extending).
 
-**Docs:** [onboarding](docs/onboarding.md) (start here: data flow, views, integration status) · [architecture](docs/architecture.md) · [private repos](docs/private-repos.md) · [latest review](docs/review-2026-11.md) · [fixture audit](docs/audit-report.md)
+**Docs:** [onboarding](docs/onboarding.md) (start here: data flow, views, integration status) · [architecture](docs/architecture.md) · [private repos](docs/private-repos.md) · [latest review](docs/review-2026-11.md) · [competitive notes](docs/competitive-notes.md) · [fixture audit](docs/audit-report.md)
 
 ## Quickstart
 
@@ -59,6 +59,7 @@ PROJECT can be an id, a name, or any path inside the repo. The default is the cu
 
 ```bash
 ci analyze [PATH|URL] [--incremental]     # index (incremental skips unchanged work; private URLs need CI_GITHUB_TOKEN)
+ci hook install|uninstall|status          # git post-commit hook: incremental re-index in the background
 ci projects | ci analyzers                # what's indexed / which analyzers are installed
 ci status [PROJECT]                       # freshness: fresh | dirty | stale
 ci search QUERY [-p PROJECT] [--types Endpoint,Model]
@@ -86,12 +87,12 @@ claude mcp add codebase-intel -- uv run --directory /path/to/codebase-intelligen
 
 Tools:
 - Project management: `list_projects`, `index_project`, `index_status`
-- Exploration: `project_overview`, `search_nodes`, `get_node`, `list_endpoints`, `trace_endpoint`, `get_callers`, `get_callees`, `find_path`, `list_models`
+- Exploration: `project_overview`, `search_nodes`, `build_context` (node + source + callers/callees + models + trace in one call), `find_references`, `get_node`, `list_endpoints`, `trace_endpoint`, `get_callers`, `get_callees`, `find_path`, `list_models`
 - Change analysis: `impact_analysis`, `impact_of_working_tree` (optional `base` git ref, same as CLI)
 - Jobs and review: `list_jobs`, `suggest_optimizations`, `generate_docs` (writes `docs/codebase-map/` into the repo)
 - Source access: `read_source`, `search_code`
 
-**Install in Claude Code or Cursor:** see [integrations/README.md](integrations/README.md) (Claude Code plugin with a `codebase-map` skill, Cursor MCP config and rule).
+**Install in Claude Code or Cursor:** `bash integrations/install.sh`, then see [integrations/README.md](integrations/README.md) (Claude Code plugin with a `codebase-map` skill, Cursor MCP config and rule).
 
 Every tool takes an optional `project` (id, name or path). An unindexed path is indexed on first use (`--no-auto-index` turns that off). The in-app assistant uses the same tool definitions (`ci_ai.toolspec`).
 
@@ -100,6 +101,7 @@ Every tool takes an optional `project` (id, name or path). An unindexed path is 
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /health`, `/layers`, `/analyzers`, `/views` | Liveness and catalogs |
+| `GET /git/check?url=` | Preflight for GitHub ingest (`git ls-remote`): reachable, default branch, whether a token is needed |
 | `GET /projects`, `GET /projects/resolve?ref=`, `POST /projects/analyze` | List projects; resolve id/name/path; ingest `{path}` or `{git_url}` (400 on clone failure) |
 | `GET /projects/{ref}/…` | `{ref}` is project **id**, **name**, or **path** (URL-encoded). Same rules as CLI `-p` |
 | `GET /projects/{ref}/summary`, `/freshness` | Stats, tech stack, patterns, hotspots; index freshness |

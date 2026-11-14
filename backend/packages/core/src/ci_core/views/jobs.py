@@ -29,6 +29,29 @@ def job_nodes(index: GraphIndex) -> list[NodeRecord]:
     return jobs
 
 
+def job_data_access(index: GraphIndex, job_id: str, depth: int = 4) -> tuple[list[str], list[str]]:
+    """(reads, writes): model names reached from a job along CALLS/INJECTS within `depth` hops."""
+    reads: set[str] = set()
+    writes: set[str] = set()
+    seen, frontier = {job_id}, [job_id]
+    for _ in range(depth):
+        nxt = []
+        for cur in frontier:
+            for e in index.outgoing.get(cur, []):
+                target = index.nodes.get(e.target_id)
+                if target is None:
+                    continue
+                if e.edge_type == EdgeType.WRITES_MODEL:
+                    writes.add(target.name)
+                elif e.edge_type == EdgeType.READS_MODEL:
+                    reads.add(target.name)
+                elif e.edge_type in (EdgeType.CALLS, EdgeType.INJECTS) and e.target_id not in seen:
+                    seen.add(e.target_id)
+                    nxt.append(e.target_id)
+        frontier = nxt
+    return sorted(reads), sorted(writes)
+
+
 def build(
     index: GraphIndex, focus: str | None, params: dict[str, Any] | None = None
 ) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
@@ -39,7 +62,9 @@ def build(
         collected |= expand(index, [focus], backward=UPSTREAM, depth=1, limit=MAX_NODES)
     else:
         collected = expand(index, [n.id for n in jobs[:60]], forward=FORWARD, depth=3)
-    nodes = [node_view(index.nodes[i], index) for i in collected if i in index.nodes][:MAX_NODES]
+    # deterministic order so truncation (and generated docs) are stable across runs
+    ordered = sorted((index.nodes[i] for i in collected if i in index.nodes), key=lambda n: (n.source_path or "", n.start_line or 0, n.id))
+    nodes = [node_view(n, index) for n in ordered][:MAX_NODES]
     allowed = {n.id for n in nodes}
     meta = {"job_count": len(jobs), "focused": focused}
     return nodes, edges_between(index, allowed, FORWARD), meta

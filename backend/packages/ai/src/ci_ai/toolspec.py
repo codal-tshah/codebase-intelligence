@@ -100,6 +100,24 @@ TOOLS: tuple[ToolSpec, ...] = (
         lambda t: t.models(),
     ),
     ToolSpec(
+        "build_context",
+        "One call that packs what you need to work on a symbol/endpoint: details, its source, callers and callees with source, models touched, endpoint trace. Prefer this over several get_node/read_source calls.",
+        _obj(
+            {
+                "node": {**_STR, "description": "Node id, name, route or file path"},
+                "max_snippets": {"type": "integer", "minimum": 1, "maximum": 12},
+            },
+            ["node"],
+        ),
+        lambda t, node, max_snippets=6: t.build_context(node, max_snippets=max_snippets),
+    ),
+    ToolSpec(
+        "find_references",
+        "Everything that refers to a symbol (calls, imports, renders, routes, injections, HTTP calls, model reads/writes) with file:line.",
+        _obj({"node": {**_STR, "description": "Node id or name"}}, ["node"]),
+        lambda t, node: t.find_references(node),
+    ),
+    ToolSpec(
         "list_jobs",
         "Background tasks, scheduled jobs (cron/interval) and management commands, with schedule and the models each reads or writes.",
         _obj({}),

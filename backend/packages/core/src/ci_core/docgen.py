@@ -14,7 +14,7 @@ from ci_core.insights import GraphIndex
 from ci_core.models import EdgeType, GraphEdgeView, GraphNodeView, NodeType
 from ci_core.suggestions import suggest
 from ci_core.views import build_view
-from ci_core.views.jobs import job_nodes
+from ci_core.views.jobs import job_data_access, job_nodes
 
 MAX_FLOW_NODES = 40
 MAX_FLOWS = 40
@@ -52,13 +52,13 @@ def mermaid_flowchart(
         left, right = _SHAPE.get(n.node_type, ('["', '"]'))
         lines.append(f"  {ids[n.id]}{left}{_label(n, helper=helper)}{right}")
     seen: set[tuple[str, str, str]] = set()
-    for e in edges:
+    for e in sorted(edges, key=lambda e: (ids.get(e.source, ""), ids.get(e.target, ""), e.edge_type)):
         if e.source in ids and e.target in ids and e.edge_type != "CONTAINS":
             key = (e.source, e.target, e.edge_type)
             if key in seen:
                 continue
             seen.add(key)
-            arrow = "-.->" if (e.confidence or 1) < 0.7 else "-->"
+            arrow = "-.->" if (e.confidence if e.confidence is not None else 1.0) < 0.7 else "-->"
             lines.append(f"  {ids[e.source]} {arrow}|{_EDGE_LABEL.get(e.edge_type, e.edge_type.lower())}| {ids[e.target]}")
     if len(nodes) > max_nodes:
         lines.append(f"  more[\"… {len(nodes) - max_nodes} more nodes (open the dashboard)\"]")
@@ -81,7 +81,7 @@ def _ordered(index: GraphIndex, payload_nodes: list[GraphNodeView], start: str) 
             if e.target_id in by_id and e.target_id not in seen:
                 seen.add(e.target_id)
                 queue.append(e.target_id)
-    order += [n for n in payload_nodes if n.id not in seen]
+    order += sorted((n for n in payload_nodes if n.id not in seen), key=lambda n: (n.source_path or "", n.label, n.id))
     return order
 
 
@@ -93,7 +93,8 @@ def _flow_section(index: GraphIndex, view: str, node_id: str, title: str, meta_l
 
 def _architecture(index: GraphIndex) -> str:
     payload = build_view(index, "architecture")
-    body = mermaid_flowchart(payload.nodes, payload.edges, helper=False, max_nodes=60)
+    nodes = sorted(payload.nodes, key=lambda n: (n.label, n.id))
+    body = mermaid_flowchart(nodes, payload.edges, helper=False, max_nodes=60)
     return "# Architecture\n\nPackages and their dependencies (edge = imports/calls rolled up).\n\n" + body + "\n"
 
 
@@ -121,7 +122,7 @@ def _jobs(index: GraphIndex) -> str | None:
              "| Job | Kind | Framework | Schedule | Writes | Source |", "|---|---|---|---|---|---|"]
     for j in jobs:
         info = j.properties["job"]
-        writes = sorted({index.nodes[e.target_id].name for e in _reach(index, j.id) if e.edge_type == EdgeType.WRITES_MODEL})
+        _, writes = job_data_access(index, j.id)
         parts.append(f"| {_job_title(j)} | {info.get('kind')} | {info.get('framework')} | `{info.get('schedule') or info.get('command') or '-'}` "
                      f"| {', '.join(writes) or '-'} | `{j.source_path}:{j.start_line}` |")
     parts.append("")
@@ -134,21 +135,6 @@ def _jobs(index: GraphIndex) -> str | None:
 def _job_title(j: Any) -> str:
     command = j.properties["job"].get("command")
     return f"{command} ({j.name})" if command else j.name
-
-
-def _reach(index: GraphIndex, start: str, depth: int = 4) -> list[Any]:
-    """Edges reachable from `start` along CALLS/INJECTS, plus the data edges at each step."""
-    out, frontier, seen = [], [start], {start}
-    for _ in range(depth):
-        nxt = []
-        for cur in frontier:
-            for e in index.outgoing.get(cur, []):
-                out.append(e)
-                if e.edge_type in (EdgeType.CALLS, EdgeType.INJECTS) and e.target_id not in seen:
-                    seen.add(e.target_id)
-                    nxt.append(e.target_id)
-        frontier = nxt
-    return [e for e in out if e.target_id in index.nodes]
 
 
 def _data_model(index: GraphIndex) -> str | None:
@@ -220,8 +206,9 @@ def write_docs(index: GraphIndex, project_name: str, root: Path, out_dir: str | 
     """Write the generated docs under ``root`` (refuses paths that escape the repository)."""
     root = root.resolve()
     target = (root / out_dir).resolve()
-    if target != root and root not in target.parents:
-        raise ValueError(f"output directory must be inside the repository: {out_dir}")
+    # Strictly inside: writing into the root itself would overwrite the project's README.md.
+    if root not in target.parents:
+        raise ValueError(f"output directory must be a subdirectory of the repository: {out_dir}")
     target.mkdir(parents=True, exist_ok=True)
     written = []
     for name, text in render_docs(index, project_name).items():

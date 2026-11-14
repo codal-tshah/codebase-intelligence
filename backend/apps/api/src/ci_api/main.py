@@ -34,7 +34,7 @@ from ci_core.serializers import node_summary
 from ci_core.settings import get_settings
 from ci_core.source import resolve_source_path
 from ci_core.views.explore import underlying_between
-from ci_parsers import GitCloneError
+from ci_parsers import GitCloneError, check_git_access
 from ci_indexer import (
     analyzer_catalog,
     compute_freshness,
@@ -188,6 +188,17 @@ def resolve(ref: str = Query(..., min_length=1, max_length=1024)) -> dict:
     if record is None:
         raise HTTPException(status_code=404, detail="no matching project")
     return record.model_dump(mode="json")
+
+
+@app.get("/git/check")
+def git_check(url: str = Query(..., min_length=1, max_length=512)) -> dict:
+    """Preflight for the ingest form: can this server read the GitHub repo (with CI_GITHUB_TOKEN if set)?"""
+    if not _GITHUB_URL.match(url.strip()):
+        raise HTTPException(status_code=422, detail="Must be a valid GitHub repository URL (https://github.com/owner/repo)")
+    if get_settings().mode == "server":
+        raise HTTPException(status_code=403, detail="git_url ingest is disabled in server mode")
+    settings = get_settings()
+    return {**check_git_access(url.strip(), token=settings.github_token), "token_configured": bool(settings.github_token)}
 
 
 @app.post("/projects")
@@ -548,7 +559,8 @@ def create_app(ui_dir: Path | None = None) -> FastAPI:
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
 
-    root = FastAPI(title="Codebase Intelligence", version=app.version)
+    # Starlette doesn't run a mounted sub-app's lifespan, so the combined app runs it itself.
+    root = FastAPI(title="Codebase Intelligence", version=app.version, lifespan=_lifespan)
     root.mount("/api", app)
     ui_dir = ui_dir.resolve()
     if (ui_dir / "assets").is_dir():

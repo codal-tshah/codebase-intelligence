@@ -86,7 +86,9 @@ export function layoutByLayer(
   const byLayer = new Map<string, typeof nodes>();
   for (const n of nodes) {
     const key = n.layer && LAYER_ORDER.includes(n.layer) ? n.layer : "other";
-    byLayer.set(key, [...(byLayer.get(key) ?? []), n]);
+    const list = byLayer.get(key);
+    if (list) list.push(n);
+    else byLayer.set(key, [n]);
   }
   const order = [...LAYER_ORDER, "other"].filter((k) => byLayer.has(k));
   const positions = new Map<string, { x: number; y: number }>();
@@ -96,10 +98,13 @@ export function layoutByLayer(
     const items = [...byLayer.get(key)!].sort((a, b) => b.rank - a.rank || a.id.localeCompare(b.id));
     const colW = Math.max(...items.map((i) => i.width));
     const cols = Math.ceil(items.length / rowsPerColumn);
+    // stack each column by the actual card heights (job/field cards are taller) so rows never overlap
+    let y = LANE_HEADER;
     items.forEach((n, i) => {
       const col = Math.floor(i / rowsPerColumn);
-      const row = i % rowsPerColumn;
-      positions.set(n.id, { x: x + col * (colW + gapX), y: LANE_HEADER + row * (n.height + gapY) });
+      if (i % rowsPerColumn === 0) y = LANE_HEADER;
+      positions.set(n.id, { x: x + col * (colW + gapX), y });
+      y += n.height + gapY;
     });
     const width = cols * colW + (cols - 1) * gapX;
     lanes.push({ id: key, x, width, count: items.length });

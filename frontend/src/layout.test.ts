@@ -22,3 +22,16 @@ describe("layout", () => {
     expect(positions.get("a")!.x).toBeLessThan(positions.get("d")!.x);
   });
 });
+
+describe("layoutByLayer mixed heights", () => {
+  it("stacks cards by their own height so taller cards do not overlap the next row", () => {
+    const nodes = [
+      { id: "a", width: 200, height: 140, layer: "service", rank: 3 },
+      { id: "b", width: 200, height: 70, layer: "service", rank: 2 },
+      { id: "c", width: 200, height: 70, layer: "service", rank: 1 },
+    ];
+    const { positions } = layoutByLayer(nodes, { rowsPerColumn: 8, gapY: 10 });
+    expect(positions.get("b")!.y).toBeGreaterThanOrEqual(positions.get("a")!.y + 140 + 10);
+    expect(positions.get("c")!.y).toBeGreaterThanOrEqual(positions.get("b")!.y + 70 + 10);
+  });
+});

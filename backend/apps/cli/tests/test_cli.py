@@ -68,3 +68,44 @@ def test_cli_jobs_suggest_and_docs(data_dir, fullstack_copy):
     assert res.exit_code == 0, res.output
     assert (fullstack_copy / "docs/codebase-map/api-flows.md").is_file()
     assert runner.invoke(app, ["docs", "-p", str(fullstack_copy), "-o", "../escape"]).exit_code == 1
+
+
+def test_cli_hook_install_is_idempotent_and_preserves_existing_hook(tmp_path):
+    hooks = tmp_path / ".git" / "hooks"
+    hooks.mkdir(parents=True)
+    (hooks / "post-commit").write_text("#!/bin/sh\necho mine\n")
+    for _ in range(2):
+        assert runner.invoke(app, ["hook", "install", "--path", str(tmp_path)]).exit_code == 0
+    text = (hooks / "post-commit").read_text()
+    assert "echo mine" in text and text.count(">>> codebase-intelligence") == 1 and "--incremental" in text
+    assert runner.invoke(app, ["hook", "status", "--path", str(tmp_path)]).output.strip() == "installed"
+    assert runner.invoke(app, ["hook", "uninstall", "--path", str(tmp_path)]).exit_code == 0
+    text = (hooks / "post-commit").read_text()
+    assert "echo mine" in text and "codebase-intelligence" not in text
+    assert runner.invoke(app, ["hook", "install", "--path", str(tmp_path / "nope")]).exit_code == 1
+
+
+def test_cli_hook_runs_before_existing_exit_and_uninstall_is_side_effect_free(tmp_path):
+    hooks = tmp_path / ".git" / "hooks"
+    hooks.mkdir(parents=True)
+    assert runner.invoke(app, ["hook", "uninstall", "--path", str(tmp_path)]).exit_code == 0
+    assert not (hooks / "post-commit").exists()  # nothing installed: nothing written
+    (hooks / "post-commit").write_text("#!/bin/sh\necho mine\nexit 0\n")
+    assert runner.invoke(app, ["hook", "install", "--path", str(tmp_path)]).exit_code == 0
+    text = (hooks / "post-commit").read_text()
+    assert text.index("--incremental") < text.index("exit 0")
+    assert runner.invoke(app, ["hook", "uninstall", "--path", str(tmp_path)]).exit_code == 0
+    assert (hooks / "post-commit").read_text() == "#!/bin/sh\necho mine\nexit 0\n"
+    (hooks / "post-commit").write_text("#!/usr/bin/env python3\nprint('hi')\n")
+    assert runner.invoke(app, ["hook", "install", "--path", str(tmp_path)]).exit_code == 1
+    assert "codebase-intelligence" not in (hooks / "post-commit").read_text()
+
+
+def test_cli_jobs_text_output_lists_detected_jobs(data_dir, fullstack_copy):
+    (fullstack_copy / "api" / "app" / "tasks.py").write_text(
+        "from celery import shared_task\n\n@shared_task\ndef sync_orders():\n    return None\n"
+    )
+    assert runner.invoke(app, ["analyze", str(fullstack_copy)]).exit_code == 0
+    res = runner.invoke(app, ["jobs", "-p", str(fullstack_copy)])
+    assert res.exit_code == 0, res.output
+    assert "sync_orders" in res.output and "tasks.py" in res.output

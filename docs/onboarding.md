@@ -9,6 +9,7 @@ Start here. This page covers what exists, how data flows, and what is integrated
 | [private-repos.md](private-repos.md) | Indexing private GitHub repos with a token |
 | [review-2026-11.md](review-2026-11.md) | Latest audit: what's met, partial, missing |
 | [audit-report.md](audit-report.md) | Fixture validation and earlier backlog |
+| [competitive-notes.md](competitive-notes.md) | How we compare to Understand Anything, the nu demo and CIS; adopt/defer/skip; backlog |
 | [../integrations/README.md](../integrations/README.md) | Install into Claude Code (plugin + skill) or Cursor (MCP + rule) |
 
 ## Stack

@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import os
+import re
 import base64
 import subprocess
 from pathlib import Path
@@ -154,6 +155,62 @@ def _git_auth_env(token: str | None) -> dict[str, str]:
     return env
 
 
+_GITHUB_REPO = re.compile(r"^https?://(?:www\.)?github\.com/([\w.-]+)/([\w.-]+?)(?:\.git)?/?$", re.I)
+
+
+def parse_github_url(git_url: str) -> tuple[str, str] | None:
+    """(owner, repo) for a github.com repository URL, else None."""
+    m = _GITHUB_REPO.match(git_url.strip())
+    return (m.group(1), m.group(2)) if m else None
+
+
+def normalize_github_url(git_url: str) -> str:
+    """Canonical ``https://github.com/owner/repo`` (the form the token header is scoped to)."""
+    parsed = parse_github_url(git_url)
+    return f"https://github.com/{parsed[0]}/{parsed[1]}" if parsed else git_url.strip()
+
+
+def _auth_failed(stderr: str) -> bool:
+    err = stderr.lower()
+    return any(s in err for s in ("not found", "authentication", "could not read username", "403", "401"))
+
+
+def check_git_access(git_url: str, *, token: str | None = None, timeout: float = 20.0) -> dict[str, object]:
+    """Cheap reachability check (``git ls-remote``) before cloning.
+
+    Returns ``{"ok": True, "default_branch": ...}`` or ``{"ok": False, "reason": ..., "needs_token": bool}``.
+    A rejected token falls back to anonymous access (public repos keep working with a stale token).
+    Never includes the token.
+    """
+    git_url = normalize_github_url(git_url)
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", "--symref", git_url, "HEAD"],
+            capture_output=True, text=True, env=_git_auth_env(token), timeout=timeout, check=False,
+        )
+        if result.returncode != 0 and token and _auth_failed(result.stderr or ""):
+            anonymous = check_git_access(git_url, token=None, timeout=timeout)
+            if anonymous["ok"]:
+                return {**anonymous, "warning": "CI_GITHUB_TOKEN was rejected; the repository is public"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "reason": "timed out reaching the repository", "needs_token": False}
+    if result.returncode == 0:
+        branch = None
+        for line in result.stdout.splitlines():
+            if line.startswith("ref: refs/heads/"):
+                branch = line.split("\t", 1)[0].removeprefix("ref: refs/heads/")
+        return {"ok": True, "default_branch": branch, "authenticated": bool(token)}
+    if _auth_failed(result.stderr or ""):
+        reason = (
+            "repository not found or the token can't read it"
+            if token
+            else "repository not found or private: set CI_GITHUB_TOKEN on the server"
+        )
+        return {"ok": False, "reason": reason, "needs_token": not token}
+    last = (result.stderr or "").strip().splitlines()[-1:] or ["unknown error"]
+    return {"ok": False, "reason": last[0], "needs_token": False}
+
+
 def clone_git_repo(git_url: str, dest: Path, *, token: str | None = None) -> str | None:
     """Shallow-clone (or fast-forward an existing clone of) a GitHub repo.
 
@@ -166,9 +223,16 @@ def clone_git_repo(git_url: str, dest: Path, *, token: str | None = None) -> str
         if result.returncode == 0:
             subprocess.run(["git", "-C", str(dest), "pull", "--ff-only"], capture_output=True, env=env, check=False)
             return git_head_sha(dest)
+    git_url = normalize_github_url(git_url)
     result = subprocess.run(
         ["git", "clone", "--depth", "1", git_url, str(dest)], capture_output=True, text=True, env=env, check=False
     )
+    if result.returncode != 0 and token and _auth_failed(result.stderr or ""):
+        # stale/over-scoped token: a public repo should still clone anonymously
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", git_url, str(dest)],
+            capture_output=True, text=True, env=_git_auth_env(None), check=False,
+        )
     if result.returncode != 0:
         detail = (result.stderr or "").strip().splitlines()[-1:] or ["unknown error"]
         hint = "" if token else " If the repository is private, set CI_GITHUB_TOKEN (see docs/private-repos.md)."
@@ -203,6 +267,10 @@ def git_dirty_files(root: Path) -> list[str] | None:
 
 def git_changed_between(root: Path, base_sha: str, head: str = "HEAD") -> list[str] | None:
     if not (root / ".git").exists():
+        return None
+    # `base` comes from API/MCP callers: a leading "-" would be parsed as a git option
+    # (e.g. --output=<file> writes anywhere), so only accept refs.
+    if base_sha.startswith("-") or head.startswith("-"):
         return None
     result = _git(root, "diff", "--name-only", f"{base_sha}..{head}")
     if result.returncode != 0:

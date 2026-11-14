@@ -21,10 +21,9 @@ from ci_core.views._common import MAX_NODES, edge_view, edges_between, node_view
 
 log = logging.getLogger(__name__)
 
-Builder = Callable[
-    [GraphIndex, str | None, dict[str, Any] | None],
-    tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]],
-]
+# (index, focus_node_id) or (index, focus_node_id, params). Plugin views written against the
+# original two-argument signature keep working: `params` is only passed when it is set.
+Builder = Callable[..., tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]]
 
 
 @dataclass(frozen=True)
@@ -116,7 +115,7 @@ def build_view(
 ) -> GraphViewPayload:
     module = get_view(view) or get_view("layers")
     assert module is not None
-    nodes, edges, meta = module.build(index, focus_node_id, params)
+    nodes, edges, meta = module.build(index, focus_node_id, params) if params else module.build(index, focus_node_id)
     present = {n.layer for n in nodes if n.layer}
     present_layers = []
     for entry in layer_catalog():

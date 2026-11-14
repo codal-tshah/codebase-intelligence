@@ -98,6 +98,8 @@ def test_docs_render_mermaid_with_helper_text_and_stay_in_repo(tmp_path):
     assert (root / "docs/map/README.md") in written
     with pytest.raises(ValueError):
         write_docs(index, "demo", root, "../outside")
+    with pytest.raises(ValueError):  # the repo root itself would overwrite its README.md
+        write_docs(index, "demo", root, ".")
 
 
 def test_suggestions_flag_duplicates_hubs_and_unused():

@@ -26,13 +26,21 @@
 - It is sent as an HTTP `Authorization` header to `github.com` for that one `git` process only, via `GIT_CONFIG_*` environment variables (`ci_parsers.files._git_auth_env`).
 - It is **not** in the command line (`ps`), the remote URL, the clone's `.git/config`, logs, API responses or error messages. `Settings.github_token` is excluded from `repr`.
 - `GIT_TERMINAL_PROMPT=0`, so a missing or wrong token fails immediately instead of hanging.
-- Clones live in `$CI_DATA_DIR/sources/<repo>` (default `~/.codebase-intelligence/sources`). Re-indexing the same URL runs `git pull --ff-only` with the same token.
+- Clones live in `$CI_DATA_DIR/sources/<owner>__<repo>` (default `~/.codebase-intelligence/sources`), so same-named repos from different owners don't collide. Older `sources/<repo>` clones are reused when their `origin` matches. Re-indexing the same URL runs `git pull --ff-only` with the same token and skips the access check, so it works offline.
+- URLs are normalised to `https://github.com/<owner>/<repo>` (`http://`, `www.` and `.git` are accepted), which is the only host the token header is sent to.
+- If the token is rejected (expired, or not granted for this repo) and the repository is public, the check and clone fall back to anonymous access; `/git/check` returns a `warning`.
+
+## Preflight
+
+The dashboard's ingest form calls `GET /git/check?url=` as you type a GitHub URL (`git ls-remote` with the same token handling). It shows *Reachable · default branch …* or the reason it can't read the repo, and blocks *Analyze* until access works. `POST /projects/analyze` runs the same check before cloning.
 
 ## Errors
 
 | Response | Meaning | Fix |
 |---|---|---|
-| `400 git clone failed: … not found. If the repository is private, set CI_GITHUB_TOKEN` | No token, or the token can't see the repo | Set the token; check repo access and org approval |
+| `400 cannot access repository: repository not found or private: set CI_GITHUB_TOKEN on the server` | Preflight failed: no token, or the repo doesn't exist | Set the token and restart the API |
+| `400 cannot access repository: repository not found or the token can't read it` | Token set, but it lacks access | Add the repo to the fine-grained token; get org approval |
+| `400 git clone failed: …` | Preflight passed but the clone failed (network, disk) | Retry; check the API log |
 | `400 git clone failed: … Authentication failed` | Expired or revoked token | Regenerate it |
 | `403 git_url ingest is disabled in server mode` | `CI_MODE=server` | Clone yourself under `CI_PROJECT_ROOTS` and index by `path` |
 

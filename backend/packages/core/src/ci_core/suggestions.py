@@ -34,7 +34,9 @@ def _item(kind: str, severity: str, title: str, detail: str, nodes: list[NodeRec
 
 def _is_test(n: NodeRecord) -> bool:
     path = (n.source_path or "").lower()
-    return n.properties.get("layer") == "test" or "/tests/" in f"/{path}" or "test_" in path or ".test." in path or ".spec." in path
+    # `test_` must start a path segment: a plain substring match also hid latest_*.py, contest_*.py, ...
+    test_segment = any(seg.startswith("test_") for seg in path.split("/"))
+    return n.properties.get("layer") == "test" or "/tests/" in f"/{path}" or test_segment or ".test." in path or ".spec." in path
 
 
 def suggest(index: GraphIndex, *, limit: int = 40) -> list[dict[str, Any]]:

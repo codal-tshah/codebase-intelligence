@@ -202,6 +202,9 @@ def test_impact_with_git_base(client, fullstack_copy):
     report = c.post(f"/projects/{pid}/impact", json={"base": "HEAD~1", "depth": 3}).json()
     assert report["source"] == "git-ref" and report["affected"]
     assert c.post(f"/projects/{pid}/impact", json={"base": "no-such-ref"}).status_code == 400
+    out = fullstack_copy / "injected"
+    assert c.post(f"/projects/{pid}/impact", json={"base": f"--output={out}"}).status_code == 400
+    assert not list(fullstack_copy.glob("injected*"))  # never parsed as a git option
 
 
 def test_resolve_by_name_and_path_and_request_id(client):

@@ -1232,6 +1232,17 @@ input[type="checkbox"] {
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 
+/* Larger invisible hit area: at typical Explore zoom the 28px button is ~14px on screen. */
+.arch-chevron {
+  position: relative;
+}
+
+.arch-chevron::before {
+  position: absolute;
+  inset: -8px;
+  content: "";
+}
+
 .arch-chevron:hover {
   background: var(--sunken);
   color: var(--text);
@@ -2721,4 +2732,9 @@ details[open] > summary::before {
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 400;
+}
+
+.ingest-access {
+  margin: 6px 0 0;
+  font-size: 12.5px;
 }

@@ -33,7 +33,7 @@ def test_mcp_lists_tools_and_answers_against_path(data_dir, fullstack_copy):
     tools = asyncio.run(server.list_tools())
     names = {t.name for t in tools}
     assert {"project_overview", "trace_endpoint", "impact_analysis", "list_models", "index_project",
-            "list_jobs", "suggest_optimizations", "generate_docs"} <= names
+            "list_jobs", "suggest_optimizations", "generate_docs", "build_context", "find_references"} <= names
 
     overview = _payload(_call(server, "project_overview", {}))  # auto-indexes the path
     assert "fastapi" in overview["frameworks"] and overview["counts"]["Endpoint"] >= 5

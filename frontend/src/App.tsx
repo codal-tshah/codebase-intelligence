@@ -235,6 +235,8 @@ function Dashboard() {
   const exploreLayoutGenRef = useRef(0);
   const exploreSelectedIdRef = useRef<string | null>(null);
   exploreSelectedIdRef.current = selectedId;
+  const selectedEdgeIdRef = useRef<string | null>(null);
+  selectedEdgeIdRef.current = selectedEdgeId;
   const exploreClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exploreLastToggleId = useRef<string | null>(null);
   const exploreFitReason = useRef<"initial" | "view" | "reset" | null>(null);
@@ -354,20 +356,24 @@ function Dashboard() {
     const params = new URLSearchParams();
     if (focusNodeId) params.set("focus_node_id", focusNodeId);
     if (view === "explore") {
-      if (exploreExpanded.length) params.set("expanded", encodeExpandedIds(exploreExpanded));
+      // Full list (not the hash-capped encoding): a truncated list would silently drop expansions.
+      if (exploreExpanded.length) params.set("expanded", exploreExpanded.join(","));
       for (const [nid, off] of Object.entries(exploreChildOffsets)) {
         if (off > 0) params.append("extra_child_offsets", `${nid}=${off}`);
       }
     }
+    // reloadKey is bumped by re-index / reload, so cached payloads from before it are never reused.
     const cacheKey =
       view === "explore"
-        ? exploreCacheKey(exploreExpanded, exploreChildOffsets)
+        ? `${projectId}|${reloadKey}|${exploreCacheKey(exploreExpanded, exploreChildOffsets)}`
         : `${view}|${focusNodeId ?? ""}`;
     if (view === "explore") {
       const cached = exploreGraphCache.current.get(cacheKey);
       if (cached) {
         setPayload(cached);
         setGraphLoading(false);
+        // graphLoading may already be false, so the effect that clears this wouldn't re-run.
+        setExploreLoadingId(null);
         return;
       }
     }
@@ -571,6 +577,9 @@ function Dashboard() {
   // Non-Explore views re-render on selection (cheap dagre/lane layout + highlight). Explore keeps
   // selection out of this effect so a click never triggers an ELK relayout.
   const nonExploreSelectedId = displayed && displayed.view !== "explore" ? selectedId : null;
+  // Same for the neighbourhood highlight (it changes on every click once the fetch lands) and the
+  // selected edge: in Explore they are read from refs and restyled by the highlight effect below.
+  const nonExploreNeighborHighlight = displayed && displayed.view !== "explore" ? canvasNeighborHighlight : undefined;
 
   /** Structure + ELK: omit selection/neighbour highlight so clicking doesn't relayout. */
   useEffect(() => {
@@ -588,8 +597,8 @@ function Dashboard() {
         filter,
         selectedId: nonExploreSelectedId,
         overlay,
-        exploreNeighborIds: canvasNeighborHighlight ?? null,
-        selectedEdgeId,
+        exploreNeighborIds: nonExploreNeighborHighlight ?? null,
+        selectedEdgeId: selectedEdgeIdRef.current,
         exploreLoadingId,
         onExploreToggle: toggleExploreExpand,
         onExploreLoadMore: loadMoreStructuralPage,
@@ -606,7 +615,7 @@ function Dashboard() {
       selectedId: exploreSelectedIdRef.current,
       overlay,
       exploreNeighborIds: canvasNeighborHighlightRef.current ?? null,
-      selectedEdgeId,
+      selectedEdgeId: selectedEdgeIdRef.current,
       exploreLoadingId,
       onExploreToggle: toggleExploreExpand,
       onExploreLoadMore: loadMoreStructuralPage,
@@ -637,7 +646,7 @@ function Dashboard() {
         selectedId: exploreSelectedIdRef.current,
         overlay,
         exploreNeighborIds: canvasNeighborHighlightRef.current ?? null,
-        selectedEdgeId,
+        selectedEdgeId: selectedEdgeIdRef.current,
         exploreLoadingId,
         onExploreToggle: toggleExploreExpand,
         onExploreLoadMore: loadMoreStructuralPage,
@@ -706,13 +715,12 @@ function Dashboard() {
     };
   }, [
     nonExploreSelectedId,
-    canvasNeighborHighlight,
+    nonExploreNeighborHighlight,
     displayed,
     layers,
     hiddenLayers,
     filter,
     overlay,
-    selectedEdgeId,
     exploreLoadingId,
     toggleExploreExpand,
     loadMoreStructuralPage,
@@ -802,7 +810,7 @@ function Dashboard() {
       setRightTab("inspector");
       setPanelOpen(true);
       const params = new URLSearchParams({ source: edge.source, target: edge.target });
-      if (exploreExpanded.length) params.set("expanded", encodeExpandedIds(exploreExpanded));
+      if (exploreExpanded.length) params.set("expanded", exploreExpanded.join(","));
       for (const [nid, off] of Object.entries(exploreChildOffsets)) {
         if (off > 0) params.append("extra_child_offsets", `${nid}=${off}`);
       }

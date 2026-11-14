@@ -2,7 +2,9 @@
 
 Install Codebase Intelligence into Claude Code or Cursor so any project can generate its codebase map (architecture, API flows, jobs, ER diagram, suggestions) as Markdown + Mermaid inside the repo.
 
-Prerequisite: clone this repository and run `cd backend && uv sync --all-packages`. `uv` must be on your `PATH`.
+**Quick install:** `bash integrations/install.sh` from a checkout (or run it standalone with `CI_REPO_URL` set; it clones into `~/.codebase-intelligence-src`). It runs `uv sync`, builds the dashboard if `npm` exists, and prints the steps below.
+
+Manual prerequisite: clone this repository and run `cd backend && uv sync --all-packages`. `uv` must be on your `PATH`.
 
 ## Claude Code (plugin)
 
@@ -12,7 +14,7 @@ claude plugin marketplace add /absolute/path/to/codebase-intelligence
 claude plugin install codebase-intel@codebase-intelligence
 ```
 
-Inside any repository, ask "generate the codebase map" (the `codebase-map` skill), or call the MCP tools directly: `generate_docs`, `list_jobs`, `suggest_optimizations`, `trace_endpoint`, `list_models`.
+Inside any repository, ask "generate the codebase map" (the `codebase-map` skill), or call the MCP tools directly: `build_context` (one-call context pack before editing), `find_references`, `generate_docs`, `list_jobs`, `suggest_optimizations`, `trace_endpoint`, `list_models`.
 
 The plugin's MCP server runs `uv run --project $CI_HOME/backend ci mcp`. It keeps your repository as the working directory, so that repository is the default project and is indexed on first use.
 
@@ -28,4 +30,5 @@ The plugin's MCP server runs `uv run --project $CI_HOME/backend ci mcp`. It keep
 cd /path/to/your/repo
 uv run --project "$CI_HOME/backend" ci analyze .
 uv run --project "$CI_HOME/backend" ci docs          # writes docs/codebase-map/
+uv run --project "$CI_HOME/backend" ci hook install  # re-index after each commit (background)
 ```
