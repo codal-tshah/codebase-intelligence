@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from pathlib import Path
 
 from ci_core.config import project_dir
@@ -14,6 +15,16 @@ from ci_indexer.changes import ChangeSet, classify_changes
 from ci_parsers import git_head_sha
 
 log = logging.getLogger("ci_indexer")
+
+_index_locks: dict[str, threading.Lock] = {}
+_index_locks_guard = threading.Lock()
+
+
+def _index_lock(project_id: str) -> threading.Lock:
+    with _index_locks_guard:
+        if project_id not in _index_locks:
+            _index_locks[project_id] = threading.Lock()
+        return _index_locks[project_id]
 
 
 class IndexPipeline:
@@ -174,12 +185,23 @@ def run_index_job(
         store.update_job(job)
         return job
 
-    try:
-        IndexPipeline(project_id).run(job, force=not incremental)
-    except Exception as exc:  # noqa: BLE001
-        log.exception("index failed", extra={"project_id": project_id, "job_id": job.id})
+    lock = _index_lock(project_id)
+    if not lock.acquire(blocking=False):
         job.status = JobStatus.FAILED
-        job.error = str(exc)
+        job.error = "another index is already running for this project"
         job.message = "Index failed"
         store.update_job(job)
+        return job
+
+    try:
+        try:
+            IndexPipeline(project_id).run(job, force=not incremental)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("index failed", extra={"project_id": project_id, "job_id": job.id})
+            job.status = JobStatus.FAILED
+            job.error = str(exc)
+            job.message = "Index failed"
+            store.update_job(job)
+    finally:
+        lock.release()
     return job

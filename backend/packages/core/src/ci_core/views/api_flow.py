@@ -22,7 +22,9 @@ FORWARD = {
 UPSTREAM = {EdgeType.HTTP_CALLS, EdgeType.CALLS, EdgeType.RENDERS}
 
 
-def build(index: GraphIndex, focus: str | None) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
+def build(
+    index: GraphIndex, focus: str | None, params: dict[str, Any] | None = None
+) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
     endpoints = [n for n in index.nodes.values() if n.node_type == NodeType.ENDPOINT]
     endpoints.sort(key=lambda n: (n.source_path or "", n.start_line or 0, n.name))
     focused = bool(focus and focus in index.nodes)

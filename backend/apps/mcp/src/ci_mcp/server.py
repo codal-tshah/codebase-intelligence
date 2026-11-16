@@ -130,16 +130,25 @@ def build_server(default_project: str | None = None, *, auto_index: bool = True)
     def impact_analysis(target: str, depth: int = 3, project: str | None = None) -> dict:
         return call(project, "impact_analysis", target=target, depth=depth)
 
-    @server.tool(description="Impact of the current uncommitted/unindexed changes in the working tree.")
-    def impact_of_working_tree(depth: int = 3, project: str | None = None) -> dict:
+    @server.tool(description="Impact of uncommitted changes or of all files changed since a git ref (e.g. origin/main).")
+    def impact_of_working_tree(depth: int = 3, base: str | None = None, project: str | None = None) -> dict:
         from ci_core.insights import impact_for_request
         from ci_indexer import compute_freshness
+        from ci_parsers import git_changed_between
 
         record = resolver.resolve(project)
         tools = resolver.tools(project)
-        changed = compute_freshness(record.id, Path(record.root_path)).get("changed_files", [])
+        root = Path(record.root_path)
+        if base:
+            diff = git_changed_between(root, base)
+            if diff is None:
+                return {"error": f"could not diff against {base!r}"}
+            changed = diff
+        else:
+            changed = compute_freshness(record.id, root).get("changed_files", [])
         report = impact_for_request(tools.index, files=changed, depth=depth)
         report["affected"] = report["affected"][:40]
+        report["source"] = "git-ref" if base else "working-tree"
         return report
 
     @server.tool(description="Shortest dependency path between two nodes (names or ids).")

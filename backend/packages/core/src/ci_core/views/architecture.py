@@ -30,7 +30,9 @@ def package_of(index: GraphIndex) -> dict[str, str]:
     return result
 
 
-def build(index: GraphIndex, focus: str | None) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
+def build(
+    index: GraphIndex, focus: str | None, params: dict[str, Any] | None = None
+) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
     packages = [n for n in index.nodes.values() if n.node_type == NodeType.PACKAGE]
     if not packages:
         packages = [n for n in index.nodes.values() if n.node_type == NodeType.MODULE][:MAX_NODES]

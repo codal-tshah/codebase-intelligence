@@ -36,7 +36,7 @@ flowchart LR
    - remaining ties go to the endpoint sharing the most directories with the caller (the same service in a monorepo)
    - matched calls become `HTTP_CALLS` edges, and absolute URLs to other hosts become `ExternalService` nodes
 4. **Store**: the graph is rewritten atomically. Chunks are re-embedded only for touched files. Fingerprints (content plus structural hash per file, plus the combined analyzer version) decide between SKIP, PARTIAL, ARCHITECTURE and FULL.
-5. **Serve**: the API, CLI and MCP read the same store. `GraphStore.load_index()` caches the parsed graph in-process until the DB file changes, and engines are cached per database.
+5. **Serve**: the API, CLI and MCP read the same store. `GraphStore.load_index()` caches the parsed graph in-process until the DB file changes, and engines are cached per database. A **per-project index lock** in `run_index_job` is also process-local — run a **single worker** for API/CLI (see README deployment).
 
 ## Graph model
 
@@ -47,10 +47,11 @@ flowchart LR
 
 ## View modules (`ci_core.views`)
 
-Each diagram is a `ViewModule` in its own file. It declares its id, label, icon and group; `requires` (node types that make it available); `best_for` (node types it should open for, which drives navigation); and whether it is `focusable`. The UI renders whatever `/projects/{id}/views` returns.
+Each diagram is a `ViewModule` in its own file. It declares its id, label, icon and group; `requires` (node types that make it available); `best_for` (node types it should open for, which drives navigation); and whether it is `focusable`. The UI renders whatever `/projects/{ref}/views` returns (`ref` = id, name, or path).
 
 | Module | Shows | Focus |
 |--------|-------|-------|
+| `explore` | Packages → modules → symbols with expand/collapse and lifted dependency edges | – |
 | `layers` | Modules, routes, models and services by layer | – |
 | `architecture` | Packages with weighted dependency roll-ups | – |
 | `api-flow` | Route → handler → services → models/external, plus client callers | Endpoint: full UI → DB trace |
@@ -70,7 +71,8 @@ Each diagram is a `ViewModule` in its own file. It declares its id, label, icon 
 
 - Source stays local. LLM calls require `ALLOW_LLM=true` plus a key or base URL. Every prompt, history turn and tool result is redacted for secrets, and requests are logged (`llm_requests`).
 - Source access is limited to an allowlist of indexed files and protected against path traversal (API, tools, MCP).
-- CORS is limited to localhost dev origins, without credentials. The combined `ci serve --ui` app serves the dashboard and API from one origin.
+- CORS is limited to localhost dev origins, without credentials. The combined `ci serve --ui` app serves the dashboard and API from one origin. In **`CI_MODE=server`**, clients must send `CI_API_KEY`; the bundled dashboard does not, so put the UI behind your own auth proxy or use local mode / API-only.
+- Remote ingest accepts **public GitHub URLs only** (no tokens). Clone failures become a failed index job; `POST /projects/analyze` returns **500** with the error message, which the ingest form displays.
 - LLM text is never rendered as raw HTML. Markdown links only allow http(s) and mailto, plus the app's `node:` and `source:` schemes.
 
 ## Extending
@@ -104,6 +106,7 @@ Reuse the shared vocabulary (`NodeType`, `EdgeType`, the layers in `ci_core.laye
 
 ## Limitations
 
+- On API startup, `fail_orphaned_running_jobs()` marks stale `RUNNING` jobs as failed after a crash (single-process assumption).
 - Static analysis only. Reflection, dynamic routing, runtime DI containers, and URLs built from runtime config can be missed. Inferred edges have confidence below 0.7 and are drawn dashed.
 - Call resolution is name- and import-based, not type-checked: there is no Pyright or tsserver integration yet.
 - Frontend → backend matching works on paths. A base URL taken from env/config is skipped when it is a leading template substitution; otherwise it is not resolved.

@@ -10,7 +10,9 @@ from ci_core.views import ViewModule, register_view
 from ci_core.views._common import MAX_NODES, edges_between, node_view
 
 
-def build(index: GraphIndex, focus: str | None) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
+def build(
+    index: GraphIndex, focus: str | None, params: dict[str, Any] | None = None
+) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
     services = [n for n in index.nodes.values() if n.node_type == NodeType.EXTERNAL_SERVICE]
     if focus and focus in index.nodes and index.nodes[focus].node_type == NodeType.EXTERNAL_SERVICE:
         services = [index.nodes[focus]]

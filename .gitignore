@@ -11,3 +11,11 @@ frontend/dist/
 .DS_Store
 .env
 *.db
+*.tsbuildinfo
+.vscode/
+
+# local browser-test artifacts
+playwright-*.png
+playwright-*.log
+playwright-*.yml
+.cursor/

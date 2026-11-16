@@ -115,6 +115,7 @@ def build_project_summary(project_id: str) -> dict:
         "summary": summary,
         "techStack": tech_stack,
         "patterns": patterns,
+        "preferExploreView": len(nodes) >= 800,
         "stats": {
             "files": len(files),
             "lines": f"{line_count / 1000:.1f}k" if line_count >= 1000 else str(line_count),

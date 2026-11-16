@@ -160,8 +160,48 @@ def test_server_mode_requires_key_and_confines_paths(data_dir, project_copy, tmp
     ok = {"Authorization": "Bearer s3cret"}
     assert c.get("/projects", headers=ok).status_code == 200
     assert c.post("/projects/analyze", json={"path": str(tmp_path)}, headers=ok).status_code == 403
+    assert (
+        c.post(
+            "/projects/analyze",
+            json={"git_url": "https://github.com/example/example"},
+            headers=ok,
+        ).status_code
+        == 403
+    )
     res = c.post("/projects/analyze", json={"path": str(project_copy)}, headers=ok)
     assert res.status_code == 200 and res.headers["x-request-id"]
+
+
+def test_project_routes_resolve_by_name_and_subdirectory(client):
+    name = client.get("/projects").json()[0]["name"]
+    assert client.get(f"/projects/{name}/summary").status_code == 200
+    sub = str(client.root / "shop").replace("\\", "/")
+    assert client.get(f"/projects/{sub}/freshness").status_code == 200
+
+
+def test_impact_with_git_base(client, fullstack_copy):
+    import subprocess
+
+    def git(*args):
+        subprocess.run(
+            ["git", "-C", str(fullstack_copy), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+            check=True,
+            capture_output=True,
+        )
+
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+    db = fullstack_copy / "api" / "app" / "db.py"
+    db.write_text(db.read_text() + "\n# touched\n")
+    git("commit", "-qam", "change")
+    c = TestClient(app)
+    res = c.post("/projects/analyze", json={"path": str(fullstack_copy)})
+    assert res.status_code == 200
+    pid = res.json()["project"]["id"]
+    report = c.post(f"/projects/{pid}/impact", json={"base": "HEAD~1", "depth": 3}).json()
+    assert report["source"] == "git-ref" and report["affected"]
+    assert c.post(f"/projects/{pid}/impact", json={"base": "no-such-ref"}).status_code == 400
 
 
 def test_resolve_by_name_and_path_and_request_id(client):

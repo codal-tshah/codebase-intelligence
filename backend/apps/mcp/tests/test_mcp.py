@@ -46,3 +46,30 @@ def test_mcp_lists_tools_and_answers_against_path(data_dir, fullstack_copy):
 
     projects = _payload(_call(server, "list_projects", {}))
     assert len(projects["projects"]) == 1
+
+
+def test_mcp_impact_of_working_tree_with_git_base(data_dir, fullstack_copy):
+    import subprocess
+
+    from ci_indexer import create_project_from_path, run_index_job
+
+    def git(*args):
+        subprocess.run(
+            ["git", "-C", str(fullstack_copy), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+            check=True,
+            capture_output=True,
+        )
+
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+    db = fullstack_copy / "api" / "app" / "db.py"
+    db.write_text(db.read_text() + "\n# touched\n")
+    git("commit", "-qam", "change")
+
+    project = create_project_from_path(fullstack_copy)
+    assert run_index_job(project.id).status.value == "completed"
+
+    server = build_server(str(fullstack_copy), auto_index=False)
+    report = _payload(_call(server, "impact_of_working_tree", {"base": "HEAD~1", "depth": 3}))
+    assert report.get("source") == "git-ref" and report.get("affected")

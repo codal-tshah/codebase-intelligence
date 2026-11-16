@@ -12,7 +12,9 @@ from ci_core.views._common import edges_between, node_view
 ACCESS = {EdgeType.READS_MODEL, EdgeType.WRITES_MODEL, EdgeType.QUERIES}
 
 
-def build(index: GraphIndex, focus: str | None) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
+def build(
+    index: GraphIndex, focus: str | None, params: dict[str, Any] | None = None
+) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
     models = [n for n in index.nodes.values() if n.node_type == NodeType.MODEL]
     model_ids = {m.id for m in models}
     fields = [
