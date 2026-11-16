@@ -10,7 +10,7 @@ Local-first codebase analysis that turns a repository into an explorable knowled
 
 New languages and frameworks plug in as separate packages; see [docs/architecture.md](docs/architecture.md#extending).
 
-**Docs:** [onboarding](docs/onboarding.md) (start here: data flow, views, integration status) · [architecture](docs/architecture.md) · [private repos](docs/private-repos.md) · [latest review](docs/review-2026-11.md) · [competitive notes](docs/competitive-notes.md) · [fixture audit](docs/audit-report.md)
+**Docs:** [user guide](docs/user-guide.md) · [onboarding](docs/onboarding.md) (start here: data flow, views, integration status) · [architecture](docs/architecture.md) · [design system](docs/DESIGN.md) · [security](docs/SECURITY.md) · [private repos](docs/private-repos.md) · [latest report](docs/REPORT.md) · [gaps & roadmap](docs/GAPS.md) · [decisions](docs/DECISIONS.md) · [competitive notes](docs/competitive-notes.md) · [research](docs/RESEARCH.md) · [audit](docs/audit-report.md) · [contributing](CONTRIBUTING.md) · [changelog](CHANGELOG.md)
 
 ## Quickstart
 
@@ -29,6 +29,10 @@ uv run ci serve                                # API on :8000 (no auto-reload: r
 cd ../frontend && npm run dev                  # UI on :5173, proxies /api
 ```
 
+Checks: `uv run ruff check . && uv run pytest -q` (backend) · `npm run lint && npm test && npm run build && npm run test:e2e` (frontend; E2E uses your installed Chrome).
+
+Works offline: the dashboard bundles its fonts and makes no third-party requests. For a shared host set `CI_MODE=server`, `CI_API_KEY` and `CI_PROJECT_ROOTS`; the dashboard then asks for the key once per tab ([security](docs/SECURITY.md)).
+
 ## Dashboard
 
 - **Diagrams**: the sidebar lists the modules the server reports (`/projects/{ref}/views`). Modules with nothing to show for the project are disabled.
@@ -38,20 +42,23 @@ cd ../frontend && npm run dev                  # UI on :5173, proxies /api
   - Data: Data model
   - Integrations
 - **End-to-end flows**: focus an endpoint in *API flow* and the diagram runs from UI component → hook → API client → route → handler → services → models/external services. Flow cards show each function's summary as helper text.
-- **API explorer** (`API` tab): every route with method, handler, guards and dependencies, models read or written, and the client code that calls it. *Trace flow* opens the end-to-end view.
+- **API explorer** (*Routes* tab): every route with method, handler, guards and dependencies, models read or written, and the client code that calls it. *Trace flow* opens the end-to-end view.
 - **Inspector**:
   - summary, layer, confidence, relations, and outgoing HTTP calls linked to their endpoints
   - source with line numbers and the symbol highlighted, plus *open in editor* (VS Code)
-  - *Explain ✦* asks the assistant about the selected node
+  - *Ask about this* asks the assistant about the selected node
 - **Assistant** (`Ask` tab):
   - streams answers that show their grounding steps
   - `[Name](node:…)` links jump to the node in the right diagram, and `file:line` links open the source
   - citation chips; *show all on graph* highlights everything cited
+- **Improve** tab: refactoring and reuse leads (hotspots, large functions, duplicated helpers, scattered model writes, import cycles, possibly-unused code); click a node to open it.
 - **Tour, impact, path**:
   - a guided reading order
   - blast radius of a node or of your uncommitted changes
   - the shortest dependency path between two nodes
-- **Deep links**: the URL hash keeps project, view, focus and selection (*Copy link*). Press `/` to search and `Esc` to clear overlays.
+- **Deep links**: the URL hash keeps project, view, focus, selection and Explore expansion (*Copy link*); pasting a link into an open tab navigates. Press `/` to search and `Esc` to clear overlays.
+- **Export** the current view as SVG, PNG, Mermaid, Markdown or JSON (client-side), or the full graph as JSON.
+- **Readability**: semantic zoom (names only when zoomed out), focus mode (fade unrelated nodes on selection), node-type tints with icons, dashed + labelled inferred nodes, keyboard navigation (Tab/Enter on nodes). See the [user guide](docs/user-guide.md).
 
 ## CLI
 
@@ -86,7 +93,7 @@ claude mcp add codebase-intel -- uv run --directory /path/to/codebase-intelligen
 ```
 
 Tools:
-- Project management: `list_projects`, `index_project`, `index_status`
+- Project management: `list_projects`, `index_project` (local path or GitHub URL), `index_status`
 - Exploration: `project_overview`, `search_nodes`, `build_context` (node + source + callers/callees + models + trace in one call), `find_references`, `get_node`, `list_endpoints`, `trace_endpoint`, `get_callers`, `get_callees`, `find_path`, `list_models`
 - Change analysis: `impact_analysis`, `impact_of_working_tree` (optional `base` git ref, same as CLI)
 - Jobs and review: `list_jobs`, `suggest_optimizations`, `generate_docs` (writes `docs/codebase-map/` into the repo)
@@ -134,7 +141,15 @@ Every variable is validated at startup by `ci_core.settings`; copy [.env.example
 | `ALLOW_LLM` | `true` to enable the agentic assistant and LLM summaries |
 | `LLM_MODEL`, `LLM_API_KEY`, `LLM_API_BASE` | Any LiteLLM model; a self-hosted base URL keeps code on-prem |
 
-**Deployment:** `docker build -t codebase-intelligence . && docker run -p 8000:8000 -v ci-data:/data codebase-intelligence` serves the dashboard and API. Run a **single worker**: the graph cache, DB engines, and **per-project index lock** are process-local (no cross-worker exclusion). In server mode the dashboard does not send an API key, so put it behind your own auth proxy, or use `CI_MODE=local` with `ci serve --ui`, or use the API and MCP only.
+**Deployment (Docker, verified 2026-11-14):**
+
+```bash
+docker build -t codebase-intelligence .
+docker run -d -p 8000:8000 -v ci-data:/data -v /path/to/repo:/repos/app:ro codebase-intelligence
+docker exec <container> ci analyze /repos/app      # or "Add a repository" in the dashboard (path or GitHub URL)
+```
+
+The image (~1.1 GB, mostly the optional LLM client libraries) runs as a non-root user, keeps data in `/data`, and has a `HEALTHCHECK` on `/api/health`. For a shared host add `-e CI_MODE=server -e CI_API_KEY=… -e CI_PROJECT_ROOTS=/repos`; the dashboard then asks for the key. Run a **single worker**: the graph cache is per process (the index lock is a cross-process file lock). See [docs/SECURITY.md](docs/SECURITY.md).
 
 Without an LLM, the assistant answers deterministically from graph tools, in the same linked format. Add a `.ciignore` (gitignore syntax) at the project root to exclude files. Remote ingest supports **GitHub over HTTPS**: public repos as-is, private repos with `CI_GITHUB_TOKEN`. Other hosts and SSH URLs aren't supported; clone them yourself and index the path. A failed clone returns `400` with the git error and a token hint.
 

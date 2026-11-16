@@ -1,6 +1,6 @@
 import { MarkerType, Position, type Edge, type Node } from "@xyflow/react";
 import { buildExploreLayoutModel, type ExploreLayoutInput } from "./explore/layoutExplore";
-import { ACCENT, EDGE_STYLE, EXPLORE_DOWNSTREAM, EXPLORE_UPSTREAM, IMPACT_COLORS, layerColor } from "./graphTheme";
+import { ACCENT, EDGE_STYLE, EXPLORE_DOWNSTREAM, EXPLORE_UPSTREAM, IMPACT_COLORS, JOB_COLOR, layerColor } from "./graphTheme";
 import { LANE_HEADER, layoutByLayer, layoutNodes } from "./layout";
 import type { GraphPayload, Layer } from "./types";
 
@@ -32,6 +32,8 @@ export type ArchNodeData = {
   exploreLoading?: boolean;
   onExploreChevronClick?: () => void;
   onExploreLoadMore?: () => void;
+  /** Heuristic (low-confidence) node: drawn dashed and labelled "inferred". */
+  inferred?: boolean;
   [key: string]: unknown;
 };
 
@@ -56,6 +58,8 @@ export type FlowOptions = {
   exploreLoadingId?: string | null;
   onExploreToggle?: (id: string) => void;
   onExploreLoadMore?: (id: string) => void;
+  /** Focus mode: fade nodes unrelated to the selection (default on). Off = highlight only. */
+  dimUnrelated?: boolean;
 };
 
 const WIDTH = 216;
@@ -252,7 +256,7 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
       } else if (hl.has(n.id)) {
         state = "overlay";
         ring = "#55708F";
-      } else {
+      } else if (opts.dimUnrelated !== false) {
         state = "dim";
       }
     }
@@ -290,7 +294,8 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
             : n.label,
         nodeType: n.node_type,
         layer: n.layer,
-        color: layerColor(opts.layers, n.layer),
+        // Background/scheduled jobs get the queue/job tint whatever their layer.
+        color: props.job ? JOB_COLOR : layerColor(opts.layers, n.layer),
         complexity: n.complexity,
         path: n.source_path,
         summary: n.summary,
@@ -303,6 +308,7 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
         state,
         ring,
         badge,
+        inferred: (n.confidence ?? 1) < 0.7 || Boolean(props.inferred),
         exploreExpandable: exploreMode ? exp : undefined,
         exploreExpanded: exploreMode ? Boolean(props.explore_expanded) : undefined,
         exploreGroup: exploreMode ? isGroup : undefined,
@@ -357,7 +363,7 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
       if (e.target === sel) exploreRole = "upstream";
       else if (e.source === sel) exploreRole = "downstream";
       incident = e.source === sel || e.target === sel;
-      dim = !(incident || (hl.has(e.source) && hl.has(e.target)));
+      dim = opts.dimUnrelated !== false && !(incident || (hl.has(e.source) && hl.has(e.target)));
     }
     const lowConfidence = (e.confidence ?? 1) < 0.7;
     const strokeBase =
@@ -402,7 +408,7 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
         stroke: strokeBase,
         strokeWidth: incident ? Math.max(wStroke, 2) : wStroke,
         strokeDasharray: style.dashed || lowConfidence ? "5 4" : undefined,
-        opacity: dim ? 0.12 : incident ? 1 : 0.7,
+        opacity: dim ? 0.16 : incident ? 1 : 0.7,
       },
     };
   });

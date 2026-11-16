@@ -74,6 +74,22 @@ Each diagram is a `ViewModule` in its own file. It declares its id, label, icon 
 - `ci_ai.llm`: `LLM_MODEL`, `LLM_API_KEY` and `LLM_API_BASE` (self-hosted, OpenAI-compatible) are passed explicitly.
 - Hash embeddings are a local stand-in. Swapping in a real embedding model needs no schema change.
 
+## Dashboard modules
+
+```mermaid
+flowchart LR
+  api[api.ts<br/>fetch + API key] --> app[App.tsx<br/>state, routing, panels]
+  app --> flow[flow.ts<br/>payload → cards, tints, focus mode]
+  app --> el[explore/useExploreLayout.ts<br/>layout + camera]
+  el --> lay[layout.ts dagre / lanes]
+  el --> elk[explore/layoutExplore.ts nested ELK]
+  app --> st[explore/useExploreState.ts<br/>expand reducer + history]
+  app --> ex[export/exportView.ts<br/>SVG · PNG · Mermaid · Markdown · JSON]
+  app --> comps[components/*<br/>ArchNode, Inspector, ChatPanel, ExportMenu, ApiKeyPrompt…]
+```
+
+Semantic zoom is a CSS class (`zoom-far|mid|near`) on the graph pane, driven by one React Flow store selector. Design tokens and contrast rules are in [DESIGN.md](DESIGN.md).
+
 ## Security defaults
 
 - Source stays local. LLM calls require `ALLOW_LLM=true` plus a key or base URL. Every prompt, history turn and tool result is redacted for secrets, and requests are logged (`llm_requests`).

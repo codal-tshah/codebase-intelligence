@@ -118,7 +118,7 @@ export function CommandPalette({ open, projectId, views, actions, onClose, onPic
           />
           <kbd>esc</kbd>
         </div>
-        <ul className="palette-list" id="palette-list" role="listbox" ref={list}>
+        <ul className="palette-list" id="palette-list" role="listbox" aria-label="Results" ref={list}>
           {searching && hits.length === 0 ? (
             <li className="palette-status">
               <span className="skeleton" style={{ width: "40%" }} />

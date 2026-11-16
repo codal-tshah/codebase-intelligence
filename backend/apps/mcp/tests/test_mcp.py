@@ -77,3 +77,28 @@ def test_mcp_impact_of_working_tree_with_git_base(data_dir, fullstack_copy):
     server = build_server(str(fullstack_copy), auto_index=False)
     report = _payload(_call(server, "impact_of_working_tree", {"base": "HEAD~1", "depth": 3}))
     assert report.get("source") == "git-ref" and report.get("affected")
+
+
+def test_mcp_index_project_accepts_github_url(data_dir, fullstack_copy, monkeypatch):
+    import pytest
+
+    import ci_indexer
+    from ci_indexer import create_project_from_path
+
+    cloned = []
+
+    def fake_git(url, work_root=None):  # no network in tests: "clone" = register the fixture copy
+        cloned.append(url)
+        return create_project_from_path(fullstack_copy, git_url=url)
+
+    monkeypatch.setattr(ci_indexer, "create_project_from_git", fake_git)
+    server = build_server(str(fullstack_copy))
+    out = _payload(_call(server, "index_project", {"path": "https://github.com/example/shop"}))
+    assert cloned == ["https://github.com/example/shop"] and out["status"] == "completed"
+
+    monkeypatch.setenv("CI_MODE", "server")
+    monkeypatch.setenv("CI_API_KEY", "k")
+    monkeypatch.setenv("CI_PROJECT_ROOTS", str(fullstack_copy))
+    with pytest.raises(Exception) as err:
+        _call(server, "index_project", {"path": "https://github.com/example/shop"})
+    assert "disabled in server mode" in f"{err.value} {err.value.__cause__}"

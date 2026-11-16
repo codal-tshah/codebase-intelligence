@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import {
   Background,
   BackgroundVariant,
@@ -12,6 +11,7 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useStore,
   type Edge,
   type Node,
 } from "@xyflow/react";
@@ -21,9 +21,10 @@ import {
   BookOpen,
   Check,
   ChevronsLeft,
-  Download,
   Filter,
+  Focus,
   GitFork,
+  Lightbulb,
   Link as LinkIcon,
   MessageSquare,
   PanelRightClose,
@@ -34,8 +35,11 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { API, getJson, postJson } from "./api";
+import { getJson, postJson } from "./api";
+import { ApiKeyPrompt } from "./components/ApiKeyPrompt";
 import { ArchNode, LaneLabel } from "./components/ArchNode";
+import { EdgeLegend } from "./components/EdgeLegend";
+import { ExportMenu } from "./components/ExportMenu";
 import { ChatPanel } from "./components/ChatPanel";
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { EndpointsPanel } from "./components/EndpointsPanel";
@@ -45,14 +49,15 @@ import { IngestPanel } from "./components/IngestPanel";
 import { Inspector } from "./components/Inspector";
 import { LayerLegend } from "./components/LayerLegend";
 import { PathPanel } from "./components/PathPanel";
+import { SuggestionsPanel } from "./components/SuggestionsPanel";
 import { ProjectSummaryCard, type ProjectSummary } from "./components/ProjectSummaryCard";
 import { TourPanel } from "./components/TourPanel";
-import { buildFlow, type ArchNodeData, type Overlay } from "./flow";
+import { type ArchNodeData, type Overlay } from "./flow";
 import { ExploreGraphCache, exploreCacheKey } from "./explore/exploreGraphCache";
 import { decodeExpandedIds, encodeExpandedIds } from "./explore/hash";
-import { layoutExploreNodes } from "./explore/layoutExplore";
+import { useExploreLayout, type ExploreFitReason } from "./explore/useExploreLayout";
 import { createExploreState, exploreReducer } from "./explore/useExploreState";
-import { DEFAULT_LAYERS, VIEW_META } from "./graphTheme";
+import { DEFAULT_LAYERS, VIEW_META, zoomBucket } from "./graphTheme";
 import { ViewIcon } from "./icons";
 import type {
   EndpointInfo,
@@ -76,7 +81,7 @@ import type {
 const ZOOM_KEYS = ["Meta", "Control"];
 const NODE_TYPES = { arch: ArchNode, lane: LaneLabel };
 
-type RightTab = "inspector" | "endpoints" | "tour" | "impact" | "path" | "assistant";
+type RightTab = "inspector" | "endpoints" | "tour" | "impact" | "path" | "assistant" | "suggestions";
 /** Primary tabs first; analysis tools are quieter and also reachable from ⌘K and node actions. */
 const TABS: { id: RightTab; label: string; secondary?: boolean }[] = [
   { id: "inspector", label: "Details" },
@@ -85,6 +90,7 @@ const TABS: { id: RightTab; label: string; secondary?: boolean }[] = [
   { id: "tour", label: "Tour", secondary: true },
   { id: "impact", label: "Impact", secondary: true },
   { id: "path", label: "Path", secondary: true },
+  { id: "suggestions", label: "Improve", secondary: true },
 ];
 
 function readPref<T>(key: string, fallback: T): T {
@@ -152,24 +158,6 @@ function writeHash(state: HashState) {
   if (window.location.hash !== next) window.history.replaceState(null, "", next);
 }
 
-/** Keep ELK positions/dimensions; apply latest highlight/selection styling from a fresh `buildFlow`. */
-function mergeExploreLayoutPositions(
-  laidOut: Node<ArchNodeData>[],
-  styled: { nodes: Node<ArchNodeData>[]; edges: Edge[] },
-): { nodes: Node<ArchNodeData>[]; edges: Edge[] } {
-  const posById = new Map(laidOut.map((n) => [n.id, n.position]));
-  const dimById = new Map(
-    laidOut.map((n) => [n.id, { width: n.width as number | undefined, height: n.height as number | undefined }]),
-  );
-  const nodes = styled.nodes.map((n) => {
-    const p = posById.get(n.id);
-    const d = dimById.get(n.id);
-    if (!p) return n;
-    return { ...n, position: p, width: d?.width ?? n.width, height: d?.height ?? n.height };
-  });
-  return { nodes, edges: styled.edges };
-}
-
 // ---------------------------------------------------------------- overlays
 
 function impactToPayload(r: ImpactReport): GraphPayload {
@@ -200,7 +188,9 @@ function pathToPayload(r: PathResult): GraphPayload {
 }
 
 function Dashboard() {
-  const { fitView, fitBounds, getNodes } = useReactFlow();
+  const { fitView, getNodes } = useReactFlow();
+  // Semantic zoom: re-render only when the zoom crosses a level, not on every wheel tick.
+  const zoomLevel = useStore((st) => zoomBucket(st.transform[2]));
   const initialHash = useRef<HashState>(readHash());
   const viewChosenRef = useRef<boolean>(Boolean(initialHash.current.v));
   const [projects, setProjects] = useState<Project[]>([]);
@@ -231,16 +221,12 @@ function Dashboard() {
     loading: boolean;
   } | null>(null);
   const exploreGraphCache = useRef(new ExploreGraphCache(20));
-  const exploreLaidOutFlowRef = useRef<{ nodes: Node<ArchNodeData>[]; edges: Edge[]; gen: number } | null>(null);
-  const exploreLayoutGenRef = useRef(0);
-  const exploreSelectedIdRef = useRef<string | null>(null);
-  exploreSelectedIdRef.current = selectedId;
-  const selectedEdgeIdRef = useRef<string | null>(null);
-  selectedEdgeIdRef.current = selectedEdgeId;
   const exploreClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exploreLastToggleId = useRef<string | null>(null);
-  const exploreFitReason = useRef<"initial" | "view" | "reset" | null>(null);
+  const exploreFitReason = useRef<ExploreFitReason>(null);
   const [focusDepth, setFocusDepth] = useState(1);
+  const [dimUnrelated, setDimUnrelated] = useState<boolean>(() => readPref("ci.dimUnrelated", true));
+  useEffect(() => writePref("ci.dimUnrelated", dimUnrelated), [dimUnrelated]);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
   const [source, setSource] = useState<SourceSnippet | null>(null);
   const [highlight, setHighlight] = useState<[number, number] | null>(null);
@@ -480,8 +466,6 @@ function Dashboard() {
   const canvasNeighborHighlight =
     selectedId && exploreNeighborIds !== null && !overlay ? exploreNeighborIds : undefined;
 
-  const canvasNeighborHighlightRef = useRef(canvasNeighborHighlight);
-  canvasNeighborHighlightRef.current = canvasNeighborHighlight;
 
   useEffect(() => {
     if (!selectedId || !projectId || overlay) {
@@ -574,208 +558,28 @@ function Dashboard() {
     exploreFitReason.current = null;
   }, []);
 
-  // Non-Explore views re-render on selection (cheap dagre/lane layout + highlight). Explore keeps
-  // selection out of this effect so a click never triggers an ELK relayout.
-  const nonExploreSelectedId = displayed && displayed.view !== "explore" ? selectedId : null;
-  // Same for the neighbourhood highlight (it changes on every click once the fetch lands) and the
-  // selected edge: in Explore they are read from refs and restyled by the highlight effect below.
-  const nonExploreNeighborHighlight = displayed && displayed.view !== "explore" ? canvasNeighborHighlight : undefined;
-
-  /** Structure + ELK: omit selection/neighbour highlight so clicking doesn't relayout. */
-  useEffect(() => {
-    if (!displayed) {
-      setNodes([]);
-      setEdges([]);
-      exploreLaidOutFlowRef.current = null;
-      return;
-    }
-    if (displayed.view !== "explore") {
-      exploreLaidOutFlowRef.current = null;
-      const flow = buildFlow(displayed, {
-        layers,
-        hiddenLayers,
-        filter,
-        selectedId: nonExploreSelectedId,
-        overlay,
-        exploreNeighborIds: nonExploreNeighborHighlight ?? null,
-        selectedEdgeId: selectedEdgeIdRef.current,
-        exploreLoadingId,
-        onExploreToggle: toggleExploreExpand,
-        onExploreLoadMore: loadMoreStructuralPage,
-      });
-      setEdges(flow.edges);
-      setNodes(flow.nodes);
-      return;
-    }
-
-    const flow = buildFlow(displayed, {
-      layers,
-      hiddenLayers,
-      filter,
-      selectedId: exploreSelectedIdRef.current,
-      overlay,
-      exploreNeighborIds: canvasNeighborHighlightRef.current ?? null,
-      selectedEdgeId: selectedEdgeIdRef.current,
-      exploreLoadingId,
-      onExploreToggle: toggleExploreExpand,
-      onExploreLoadMore: loadMoreStructuralPage,
-    });
-    setEdges(flow.edges);
-
-    if (!flow.exploreLayoutInput) {
-      setNodes(flow.nodes);
-      exploreLaidOutFlowRef.current = null;
-      return;
-    }
-
-    const layoutGen = ++exploreLayoutGenRef.current;
-    const firstLayout = exploreLaidOutFlowRef.current === null;
-    let cancelled = false;
-    void layoutExploreNodes(flow.exploreLayoutInput).then((pos) => {
-      if (cancelled || layoutGen !== exploreLayoutGenRef.current) return;
-      const dur = reducedMotion ? 0 : 180;
-      const withPos = flow.nodes.map((n) => {
-        const lp = pos.get(n.id);
-        if (!lp) return n;
-        return { ...n, position: { x: lp.x, y: lp.y }, width: lp.width, height: lp.height };
-      });
-      const styledFlow = buildFlow(displayed, {
-        layers,
-        hiddenLayers,
-        filter,
-        selectedId: exploreSelectedIdRef.current,
-        overlay,
-        exploreNeighborIds: canvasNeighborHighlightRef.current ?? null,
-        selectedEdgeId: selectedEdgeIdRef.current,
-        exploreLoadingId,
-        onExploreToggle: toggleExploreExpand,
-        onExploreLoadMore: loadMoreStructuralPage,
-      });
-      const merged = mergeExploreLayoutPositions(withPos, styledFlow);
-      exploreLaidOutFlowRef.current = { nodes: merged.nodes, edges: merged.edges, gen: layoutGen };
-
-      flushSync(() => {
-        setNodes(merged.nodes);
-        setEdges(merged.edges);
-      });
-
-      const scheduleFit = () =>
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (layoutGen !== exploreLayoutGenRef.current) return;
-            // While an expand/collapse is still fetching, this layout shows the *old* payload:
-            // don't move the camera or consume the toggle marker yet.
-            if (exploreLoadingId) return;
-            const tid = exploreLastToggleId.current;
-            const reason = exploreFitReason.current;
-            const fitOpts = {
-              padding: 0.18,
-              duration: dur,
-              minZoom: 0.35,
-              maxZoom: 1.6 as number | undefined,
-              nodes: merged.nodes,
-              includeHiddenNodes: true,
-            };
-            if (reason === "view" || reason === "reset") {
-              exploreFitReason.current = null;
-              void fitView(fitOpts);
-            } else if (tid) {
-              // Fit to the toggled group's own box (its children live inside it). Computed from the
-              // layout result, not from React Flow's measurements, which lag one frame after resize.
-              const byId = new Map(merged.nodes.map((x) => [x.id, x]));
-              const target = byId.get(tid);
-              const isGroup = merged.nodes.some((x) => x.parentId === tid);
-              if (target && isGroup) {
-                let x = target.position.x;
-                let y = target.position.y;
-                let parent = target.parentId ? byId.get(target.parentId) : undefined;
-                while (parent) {
-                  x += parent.position.x;
-                  y += parent.position.y;
-                  parent = parent.parentId ? byId.get(parent.parentId) : undefined;
-                }
-                const w = Number(target.width ?? target.style?.width ?? 216);
-                const h = Number(target.height ?? target.style?.height ?? 78);
-                void fitBounds({ x, y, width: w, height: h }, { padding: 0.12, duration: dur });
-              } else {
-                // Collapsed: the graph shrank, so show the whole (smaller) picture rather than empty space.
-                void fitView(fitOpts);
-              }
-              exploreLastToggleId.current = null;
-            } else if (firstLayout) {
-              void fitView(fitOpts);
-            }
-            // Otherwise (selection, edge click, loading indicator, overlay) keep the camera where the user left it.
-          });
-        });
-      scheduleFit();
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    nonExploreSelectedId,
-    nonExploreNeighborHighlight,
+  useExploreLayout({
     displayed,
+    view,
+    projectId,
+    focusNodeId,
     layers,
     hiddenLayers,
     filter,
     overlay,
+    selectedId,
+    neighborHighlight: canvasNeighborHighlight,
+    selectedEdgeId,
     exploreLoadingId,
-    toggleExploreExpand,
-    loadMoreStructuralPage,
+    dimUnrelated,
+    onExploreToggle: toggleExploreExpand,
+    onExploreLoadMore: loadMoreStructuralPage,
     setNodes,
     setEdges,
     reducedMotion,
-    fitView,
-    fitBounds,
-  ]);
-
-  /** Explore only: update highlights when selection / neighbourhood changes — keep ELK positions. */
-  useEffect(() => {
-    if (view !== "explore" || !displayed || displayed.view !== "explore") return;
-    const base = exploreLaidOutFlowRef.current;
-    if (!base || base.gen !== exploreLayoutGenRef.current) return;
-    const flow = buildFlow(displayed, {
-      layers,
-      hiddenLayers,
-      filter,
-      selectedId,
-      overlay,
-      exploreNeighborIds: canvasNeighborHighlight ?? null,
-      selectedEdgeId,
-      exploreLoadingId,
-      onExploreToggle: toggleExploreExpand,
-      onExploreLoadMore: loadMoreStructuralPage,
-    });
-    const merged = mergeExploreLayoutPositions(base.nodes, flow);
-    exploreLaidOutFlowRef.current = { ...merged, gen: base.gen };
-    setNodes(merged.nodes);
-    setEdges(merged.edges);
-  }, [
-    view,
-    displayed,
-    layers,
-    hiddenLayers,
-    filter,
-    selectedId,
-    overlay,
-    canvasNeighborHighlight,
-    selectedEdgeId,
-    exploreLoadingId,
-    toggleExploreExpand,
-    loadMoreStructuralPage,
-    setNodes,
-    setEdges,
-  ]);
-
-  const exploreLayoutSig = `${projectId}|${displayed?.view}|${focusNodeId}|${displayed?.nodes.length}|${hiddenLayers.size}|${filter}`;
-  useEffect(() => {
-    if (view === "explore") return;
-    const dur = reducedMotion ? 0 : 300;
-    const t = setTimeout(() => void fitView({ padding: 0.15, duration: dur }), 60);
-    return () => clearTimeout(t);
-  }, [exploreLayoutSig, fitView, reducedMotion, view]);
+    lastToggleId: exploreLastToggleId,
+    fitReason: exploreFitReason,
+  });
 
   // ---- source --------------------------------------------------------------------------------
   const loadSource = useCallback(
@@ -945,6 +749,24 @@ function Dashboard() {
       view === "explore" && exploreExpanded.length ? encodeExpandedIds(exploreExpanded) : undefined;
     writeHash({ p: projectId, v: view, f: focusNodeId, n: selectedId ?? undefined, e });
   }, [projectId, view, focusNodeId, selectedId, exploreExpanded]);
+
+  // A link pasted into an open tab (or back/forward) changes only the hash: apply it.
+  // writeHash uses replaceState, which doesn't fire hashchange, so this only sees external edits.
+  useEffect(() => {
+    const onHash = () => {
+      const h = readHash();
+      if (h.p && h.p !== projectId && projects.some((p) => p.id === h.p)) setProjectId(h.p);
+      if (h.v) {
+        viewChosenRef.current = true;
+        setView(h.v);
+      }
+      setFocusNodeId(h.f);
+      exploreDispatch({ type: "set", expanded: h.e ? decodeExpandedIds(h.e) : [] });
+      if (h.n) void selectNode(h.n);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [projectId, projects, selectNode]);
 
   // ⌘K / "/" palette · ⌘J ask · ⌘\ details pane · Esc clears overlays
   useEffect(() => {
@@ -1119,6 +941,7 @@ function Dashboard() {
       icon: <GitFork size={16} strokeWidth={1.5} aria-hidden />,
       run: () => (selectedId ? openTab("impact") : showWorkingTreeImpact()),
     },
+    { id: "suggestions", label: "Show refactoring suggestions", icon: <Lightbulb size={16} strokeWidth={1.5} aria-hidden />, run: () => openTab("suggestions") },
     { id: "reindex", label: "Re-index project", icon: <RefreshCw size={16} strokeWidth={1.5} aria-hidden />, run: () => void reindex() },
     { id: "copy", label: "Copy link to this view", icon: <LinkIcon size={16} strokeWidth={1.5} aria-hidden />, run: copyLink },
     { id: "panel", label: panelOpen ? "Hide details pane" : "Show details pane", hint: "⌘\\", run: () => setPanelOpen((o) => !o) },
@@ -1188,9 +1011,14 @@ function Dashboard() {
               <button type="button" className="icon-btn" onClick={copyLink} title="Copy link to this view" aria-label="Copy link to this view">
                 {copied ? <Check size={16} strokeWidth={1.5} aria-hidden /> : <LinkIcon size={16} strokeWidth={1.5} aria-hidden />}
               </button>
-              <a className="icon-btn" href={`${API}/projects/${projectId}/export`} download title="Export graph as JSON" aria-label="Export graph as JSON">
-                <Download size={16} strokeWidth={1.5} aria-hidden />
-              </a>
+<ExportMenu
+                projectId={projectId}
+                projectName={activeProject?.name ?? "project"}
+                viewLabel={currentView?.label ?? view}
+                payload={displayed}
+                nodes={nodes}
+                edges={edges}
+              />
               <button type="button" className="icon-btn" onClick={() => setShowIngest(true)} title="Add a repository" aria-label="Add a repository">
                 <Plus size={16} strokeWidth={1.5} aria-hidden />
               </button>
@@ -1247,6 +1075,7 @@ function Dashboard() {
             </nav>
 
             <LayerLegend layers={visibleLayers} hidden={hiddenLayers} onToggle={toggleLayer} />
+            {displayed && displayed.nodes.length > 0 ? <EdgeLegend /> : null}
 
             {projects.length === 0 ? (
               <div className="empty-hint">
@@ -1272,22 +1101,6 @@ function Dashboard() {
                 <h2>{currentView?.label ?? view}</h2>
                 <span className="muted canvas-desc">{currentView?.description}</span>
               </div>
-              {view === "explore" && !special && exploreBreadcrumbs.length > 0 ? (
-                <nav className="explore-breadcrumbs" aria-label="Selection path">
-                  {exploreBreadcrumbs.map((c, i) => (
-                    <span key={c.id} className="explore-crumb-wrap">
-                      {i > 0 ? <span className="explore-crumb-sep" aria-hidden /> : null}
-                      <button
-                        type="button"
-                        className={`link-btn explore-crumb ${selectedId === c.id ? "active" : ""}`}
-                        onClick={() => onExploreBreadcrumbClick(c.id)}
-                      >
-                        {c.label}
-                      </button>
-                    </span>
-                  ))}
-                </nav>
-              ) : null}
               <label className="search-field">
                 <Filter size={14} strokeWidth={1.5} aria-hidden className="search-icon" />
                 <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter diagram" aria-label="Filter the diagram" />
@@ -1369,6 +1182,16 @@ function Dashboard() {
                   Highlighted {chatIds.length} <X size={12} strokeWidth={1.5} aria-hidden />
                 </button>
               ) : null}
+              <button
+                type="button"
+                className="icon-btn toggle-btn"
+                aria-pressed={dimUnrelated}
+                onClick={() => setDimUnrelated((d) => !d)}
+                title={dimUnrelated ? "Focus mode on: unrelated nodes fade when you select" : "Focus mode off: selection only highlights"}
+                aria-label="Fade nodes unrelated to the selection"
+              >
+                <Focus size={16} strokeWidth={1.5} aria-hidden />
+              </button>
               <button type="button" className="icon-btn" onClick={() => setReloadKey((k) => k + 1)} title="Reload diagram" aria-label="Reload diagram">
                 <RefreshCw size={16} strokeWidth={1.5} aria-hidden />
               </button>
@@ -1383,7 +1206,19 @@ function Dashboard() {
               </button>
             </div>
 
-            <div className="graph-pane">
+            <div
+              className={`graph-pane zoom-${zoomLevel}`}
+              onKeyDown={(e) => {
+                // Enter on a focused node opens it (React Flow focuses node wrappers with Tab).
+                if (e.key !== "Enter") return;
+                const el = (e.target as HTMLElement).closest?.(".react-flow__node");
+                const id = el?.getAttribute("data-id");
+                if (!id || id.startsWith("__lane:") || e.target !== el) return;
+                e.preventDefault();
+                setPanelOpen(true);
+                void selectNode(id);
+              }}
+            >
               {graphLoading ? (
                 <div className="graph-skeleton" aria-busy="true" aria-label="Loading diagram">
                   {[0, 1, 2, 3, 4].map((i) => (
@@ -1480,6 +1315,24 @@ function Dashboard() {
                 />
                 <Controls showInteractive={false} />
                 <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#DCD8CF" />
+              {view === "explore" && !special && exploreBreadcrumbs.length > 0 ? (
+                <Panel position="top-left">
+                <nav className="explore-breadcrumbs" aria-label="Selection path">
+                  {exploreBreadcrumbs.map((c, i) => (
+                    <span key={c.id} className="explore-crumb-wrap">
+                      {i > 0 ? <span className="explore-crumb-sep" aria-hidden /> : null}
+                      <button
+                        type="button"
+                        className={`link-btn explore-crumb ${selectedId === c.id ? "active" : ""}`}
+                        onClick={() => onExploreBreadcrumbClick(c.id)}
+                      >
+                        {c.label}
+                      </button>
+                    </span>
+                  ))}
+                </nav>
+                </Panel>
+              ) : null}
                 {specialBanner ? (
                   <Panel position="top-left" className="graph-legend">
                     <span className="overlay-title">{specialBanner}</span>
@@ -1510,6 +1363,7 @@ function Dashboard() {
                   role="tab"
                   aria-selected={rightTab === t.id}
                   className={`${rightTab === t.id ? "active" : ""} ${t.secondary ? "secondary" : ""}`}
+                  title={t.id === "suggestions" ? "Refactoring and reuse suggestions" : undefined}
                   onClick={() => setRightTab(t.id)}
                 >
                   {t.label}
@@ -1586,6 +1440,9 @@ function Dashboard() {
                   onPickNode={(id) => void selectNode(id)}
                 />
               ) : null}
+              {rightTab === "suggestions" ? (
+                <SuggestionsPanel projectId={projectId} reloadKey={reloadKey} onPickNode={(id) => void navigateById(id)} />
+              ) : null}
               {/* kept mounted so the conversation survives tab switches */}
               <div className="assistant-host" style={{ display: rightTab === "assistant" ? "flex" : "none" }}>
                 <ChatPanel
@@ -1602,6 +1459,7 @@ function Dashboard() {
           </aside>
         </div>
       )}
+      <ApiKeyPrompt />
       <CommandPalette
         open={paletteOpen}
         projectId={projectId}

@@ -27,7 +27,7 @@ describe("buildExploreLayoutModel", () => {
   });
 });
 
-import { layoutExploreNodes } from "./layoutExplore";
+import { GROUP_TITLE, layoutExploreNodes } from "./layoutExplore";
 
 type Box = { x: number; y: number; width: number; height: number };
 const overlaps = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
@@ -100,5 +100,35 @@ describe("layoutExploreNodes (wide groups)", () => {
       for (const b of kids) if (a !== b) expect(overlaps(a, b)).toBe(false);
     }
     expect(pos.get("m2")!.x).toBeGreaterThan(pos.get("m1")!.x); // edges still read left to right
+  });
+});
+
+describe("Explore group title space", () => {
+  it("never places a child inside the parent's title row, at any depth", async () => {
+    const g = (id: string, parent: string | null, expanded: boolean): GraphNode => ({
+      id,
+      label: id,
+      node_type: parent ? "Module" : "Package",
+      properties: { parent_id: parent, explore_expanded: expanded, explore_expandable: true },
+    });
+    const nodes: GraphNode[] = [
+      g("root", null, true),
+      g("l1", "root", true),
+      g("l2", "l1", true),
+      g("l3", "l2", true),
+      g("leaf", "l3", false),
+      g("sib", "root", false),
+    ];
+    const pos = await layoutExploreNodes({ graphNodes: nodes, graphEdges: [] });
+    for (const n of nodes) {
+      const parent = n.properties?.parent_id as string | null;
+      if (!parent) continue;
+      const c = pos.get(n.id)!;
+      const p = pos.get(parent)!;
+      expect(c.y).toBeGreaterThanOrEqual(GROUP_TITLE);
+      // child stays inside its parent box (positions are parent-relative)
+      expect(c.x + c.width).toBeLessThanOrEqual(p.width + 0.5);
+      expect(c.y + c.height).toBeLessThanOrEqual(p.height + 0.5);
+    }
   });
 });

@@ -106,3 +106,41 @@ describe("buildFlow helper text", () => {
     expect(flow.nodes.find((n) => n.id === "f")?.data.helper).toBeUndefined();
   });
 });
+
+describe("buildFlow focus mode and node flags", () => {
+  const base = { layers: [], hiddenLayers: new Set<string>(), filter: "", overlay: null };
+  const payload: GraphPayload = {
+    view: "call-graph",
+    nodes: [
+      { id: "a", label: "a", node_type: "Function", properties: {} },
+      { id: "b", label: "b", node_type: "Function", properties: {}, confidence: 0.5 },
+      { id: "j", label: "nightly", node_type: "Function", properties: { job: { kind: "periodic" } } },
+    ],
+    edges: [],
+  };
+
+  it("does not dim unrelated nodes when focus mode is off", () => {
+    const flow = buildFlow(payload, { ...base, selectedId: "a", dimUnrelated: false });
+    expect(flow.nodes.find((n) => n.id === "b")?.data.state).toBe("default");
+    expect(flow.nodes.find((n) => n.id === "a")?.data.state).toBe("selected");
+  });
+
+  it("dims unrelated nodes by default", () => {
+    const flow = buildFlow(payload, { ...base, selectedId: "a" });
+    expect(flow.nodes.find((n) => n.id === "b")?.data.state).toBe("dim");
+  });
+
+  it("flags low-confidence nodes as inferred and tints jobs", () => {
+    const flow = buildFlow(payload, { ...base, selectedId: null });
+    expect(flow.nodes.find((n) => n.id === "b")?.data.inferred).toBe(true);
+    expect(flow.nodes.find((n) => n.id === "a")?.data.inferred).toBe(false);
+    expect(flow.nodes.find((n) => n.id === "j")?.data.color).toBe("#9A5466");
+  });
+});
+
+describe("zoomBucket", () => {
+  it("maps zoom to semantic levels", async () => {
+    const { zoomBucket } = await import("./graphTheme");
+    expect([0.2, 0.49, 0.5, 0.89, 0.9, 1.5].map(zoomBucket)).toEqual(["far", "far", "mid", "mid", "near", "near"]);
+  });
+});

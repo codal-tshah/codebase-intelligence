@@ -4,7 +4,7 @@ import json
 
 from ci_ai.embeddings import embed_query
 from ci_core.config import project_dir
-from ci_core.db import GraphStore
+from ci_core.db import GraphStore, _db_signature, db_path_for_project
 from ci_core.insights import top_ranked
 from ci_core.layers import layer_catalog
 from ci_core.models import EdgeType, NodeType
@@ -29,7 +29,26 @@ _FRAMEWORK_LABELS = {
 }
 
 
+# project id -> ((db signature, llm on, framework), summary). The summary scans every node and runs
+# a chunk search (~1s on 18k nodes); it only changes when the index (or LLM setting) changes.
+_SUMMARY_CACHE: dict[str, tuple[tuple, dict]] = {}
+
+
 def build_project_summary(project_id: str) -> dict:
+    """Project overview for the dashboard/CLI, cached until the project's index changes."""
+    project = get_registered_project(project_id)
+    sig = _db_signature(db_path_for_project(project_id)) if project is not None else None
+    key = (sig, llm_enabled(), project.framework if project else None)
+    cached = _SUMMARY_CACHE.get(project_id)
+    if sig is not None and cached is not None and cached[0] == key:
+        return json.loads(json.dumps(cached[1]))  # callers may mutate their copy
+    result = _build_project_summary(project_id)
+    if sig is not None:
+        _SUMMARY_CACHE[project_id] = (key, result)
+    return result
+
+
+def _build_project_summary(project_id: str) -> dict:
     project = get_registered_project(project_id)
     if project is None:
         return {

@@ -21,8 +21,9 @@ export function LayerLegend({ layers, hidden, onToggle }: Props) {
               <button
                 type="button"
                 className={`legend-item ${off ? "off" : ""}`}
+                aria-pressed={!off}
                 onClick={() => onToggle(l.id)}
-                title={l.description || `Toggle ${l.name}`}
+                title={l.description || `${off ? "Show" : "Hide"} ${l.name}`}
               >
                 <span className="legend-dot" style={{ background: LAYER_COLORS[l.id] ?? l.color }} />
                 <span className="legend-name">{l.name}</span>

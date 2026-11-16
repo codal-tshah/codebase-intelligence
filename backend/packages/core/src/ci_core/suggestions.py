@@ -113,5 +113,22 @@ def suggest(index: GraphIndex, *, limit: int = 40) -> list[dict[str, Any]]:
                          "Possibly dead code. Static analysis can miss dynamic calls, reflection and external "
                          "entry points, so confirm before deleting.", unused[:15]))
 
-    out.sort(key=lambda s: (SEVERITY_ORDER[s["severity"]], s["kind"], s["title"]))
-    return out[:limit]
+    return _balanced(out, limit)
+
+
+def _balanced(items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    """Top `limit` items, ranked by severity, without one kind crowding out the rest.
+
+    On large repos there are hundreds of hotspots; a plain severity sort would return only those.
+    Each kind first gets an equal share (its most severe items), then leftovers fill by severity.
+    """
+    rank = lambda s: (SEVERITY_ORDER[s["severity"]], s["kind"], s["title"])  # noqa: E731
+    items = sorted(items, key=rank)
+    by_kind: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for it in items:
+        by_kind[it["kind"]].append(it)
+    share = max(1, limit // max(1, len(by_kind)))
+    picked = [it for group in by_kind.values() for it in group[:share]]
+    chosen = {id(it) for it in picked}
+    picked += [it for it in items if id(it) not in chosen][: max(0, limit - len(picked))]
+    return sorted(picked, key=rank)[:limit]

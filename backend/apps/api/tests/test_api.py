@@ -170,6 +170,25 @@ def test_server_mode_requires_key_and_confines_paths(data_dir, project_copy, tmp
     )
     res = c.post("/projects/analyze", json={"path": str(project_copy)}, headers=ok)
     assert res.status_code == 200 and res.headers["x-request-id"]
+    pid = res.json()["project"]["id"]
+    src = c.get(f"/projects/{pid}/source", params={"path": "shop/views.py"}, headers=ok)
+    assert src.status_code == 200 and "abs_path" not in src.json()  # no server paths leak to clients
+
+
+def test_graph_and_source_params_are_bounded(client):
+    pid = client.project_id
+    too_many = ",".join(f"n{i}" for i in range(501))
+    assert client.get(f"/projects/{pid}/graph/explore", params={"expanded": too_many}).status_code == 422
+    assert client.get(f"/projects/{pid}/graph/explore", params={"expanded": "a,b"}).status_code == 200
+    offsets = [f"n{i}=10" for i in range(201)]
+    assert client.get(f"/projects/{pid}/graph/explore", params={"extra_child_offsets": offsets}).status_code == 422
+    long_id = "x" * 513
+    assert client.get(f"/projects/{pid}/graph/neighborhood", params={"node_id": long_id}).status_code == 422
+    assert client.get(f"/projects/{pid}/graph/edges", params={"source": long_id, "target": "a"}).status_code == 422
+    assert client.get(f"/projects/{pid}/nodes/{long_id}").status_code == 422
+    assert client.get(f"/projects/{pid}/source", params={"path": "a" * 1025}).status_code == 422
+    assert client.get(f"/projects/{pid}/source", params={"path": "shop/views.py", "end": 0}).status_code == 422
+    assert client.get(f"/projects/{pid}/graph/{'v' * 300}").status_code == 404
 
 
 def test_project_routes_resolve_by_name_and_subdirectory(client):
@@ -215,3 +234,42 @@ def test_resolve_by_name_and_path_and_request_id(client):
     assert res.json()["id"] == client.project_id and res.headers["x-request-id"]
     assert client.get("/projects/resolve", params={"ref": "nope"}).status_code == 404
     assert client.get("/health", headers={"X-Request-ID": "abc123"}).headers["x-request-id"] == "abc123"
+
+
+def test_summary_is_cached_until_the_index_changes(client, monkeypatch):
+    import ci_ai.summarize as summarize
+
+    calls = []
+    real = summarize._build_project_summary
+    monkeypatch.setattr(summarize, "_build_project_summary", lambda pid: calls.append(pid) or real(pid))
+    summarize._SUMMARY_CACHE.clear()
+    first = client.get(f"/projects/{client.project_id}/summary").json()
+    second = client.get(f"/projects/{client.project_id}/summary").json()
+    assert first == second and len(calls) == 1
+    (client.root / "shop" / "extra_view.py").write_text("def ping():\n    return 1\n")
+    job = client.post(f"/projects/{client.project_id}/index").json()
+    assert job["status"] in {"pending", "running", "completed"}
+    import time
+
+    for _ in range(100):
+        if client.get(f"/projects/{client.project_id}/jobs/{job['id']}").json()["status"] not in {"pending", "running"}:
+            break
+        time.sleep(0.05)
+    client.get(f"/projects/{client.project_id}/summary")
+    assert len(calls) == 2  # rebuilt after the index changed
+
+
+def test_health_is_public_when_mounted_under_api(data_dir, tmp_path, monkeypatch):
+    """Docker HEALTHCHECK hits /api/health on the combined app; server mode must not 401 it."""
+    from ci_api.main import create_app
+
+    monkeypatch.setenv("CI_MODE", "server")
+    monkeypatch.setenv("CI_API_KEY", "s3cret")
+    monkeypatch.setenv("CI_PROJECT_ROOTS", str(tmp_path))
+    ui = tmp_path / "ui"
+    (ui / "assets").mkdir(parents=True)
+    (ui / "index.html").write_text("<!doctype html><title>t</title>")
+    c = TestClient(create_app(ui_dir=ui))
+    assert c.get("/api/health").status_code == 200
+    assert c.get("/api/projects").status_code == 401
+    assert c.get("/api/projects", headers={"X-API-Key": "s3cret"}).status_code == 200

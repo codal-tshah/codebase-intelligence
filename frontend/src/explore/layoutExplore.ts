@@ -2,7 +2,8 @@ import type { GraphEdge, GraphNode } from "../types";
 
 const WIDTH = 216;
 const BASE_HEIGHT = 78;
-const GROUP_TITLE = 40;
+/** Height reserved above a group's children for its single-row title (.arch-group-head + padding). */
+export const GROUP_TITLE = 52;
 const GROUP_PAD = 16;
 const GROUP_MIN_W = 260;
 const GROUP_MIN_INNER_H = 100;

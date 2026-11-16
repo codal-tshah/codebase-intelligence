@@ -4,6 +4,91 @@ Companion to README and [architecture.md](architecture.md). Chunks 4–8 from th
 
 ---
 
+## 0. Enterprise-readiness audit (2026-11-14)
+
+Read-only audit before the enterprise pass. Follow-ups:
+- research: [RESEARCH.md](RESEARCH.md)
+- prioritised gaps: [GAPS.md](GAPS.md)
+- what changed and how it was verified: [REPORT.md](REPORT.md)
+- screenshots: `ui-review/before/` (state found) and `ui-review/after/` (after the pass)
+
+### How it runs
+
+- **Backend:** uv workspace, Python 3.12. `ci analyze <path|url>` indexes into per-project SQLite under `$CI_DATA_DIR`. `ci serve` runs the FastAPI app on :8000; `--ui dist` also serves the built dashboard. `ci mcp` serves agents over stdio.
+- **Frontend:** Vite and React 18. `npm run dev` serves on :5173 and proxies `/api` to :8000.
+- **Indexed for this audit:**
+  - `fullstack_app`: 86 nodes, 156 edges, 0.7s
+  - NetBox (2,319 files): 18,674 nodes, 35,462 edges. 28.4s including clone; 15.9s full re-index; 6.6s incremental no-op.
+
+### Screens
+
+1. **Shell:** top bar (project picker, ⌘K search, copy link, export, add repo, Ask), sidebar (views by group, layer legend and filter), centre (overview card, toolbar, React Flow canvas), right pane (Details, Routes, Ask, Tour, Impact, Path).
+2. **Views:** Explore, Layers, Architecture, API flow, Jobs, Call graph, Components, Data model, Integrations. Only views with content are listed.
+3. **Ingest:** URL or path, live GitHub access check.
+4. **Overlays:** command palette, impact, path, tour, chat highlights, freshness banner.
+
+### Components
+
+The node card (`ArchNode`, lane labels), `Inspector`, `ChatPanel` and `MarkdownContent`, `CommandPalette`, `EndpointsPanel`, `TourPanel`, `ImpactPanel`, `PathPanel`, `IngestPanel`, `FreshnessBanner`, `LayerLegend` and `ProjectSummaryCard`.
+
+Logic modules:
+- `flow.ts`: payload to React Flow nodes
+- `layout.ts`: dagre and lane layouts
+- `explore/*`: ELK nesting, reducer, hash, cache
+- `highlight.ts`: code highlighting
+- `sse.ts`: chat stream parsing
+
+### Styling
+
+One hand-written stylesheet (`styles.css`, ~2.7k lines) with CSS custom-property tokens:
+- palette: warm paper, ink, one teal accent
+- spacing on a 4px scale
+- 150–200ms motion
+- reduced-motion support
+
+Graph colours live in `graphTheme.ts`; icons are Lucide via `icons.tsx`. No CSS framework.
+
+### Test coverage at audit time
+
+- **Backend:** 121 pytest tests (API, CLI, MCP, indexer, analyzers, jobs, git), plus ruff.
+- **Frontend:** 26 vitest unit tests (flow, layouts, Explore reducer, hash, SSE, highlight).
+- **Not covered:** no ESLint, no browser E2E, no accessibility check. The Docker image had never been built.
+
+### Known issues: verified against the running app
+
+| Known issue | Found | Evidence |
+|---|---|---|
+| Explore on large repos dims too much on selection | **Yes**: siblings at 0.32 opacity are unreadable | `before/large-explore-selected.png` |
+| Group overlap at depth ≥ 2 | **Different bug**: no sibling overlap (unit-tested), but the expanded group's ~70px header sat under its children because only 40px was reserved, so the group name was hidden | `before/large-explore-expanded.png`, `before/large-explore-selected.png` |
+| CONTAINS edges clutter nested groups | **Already fixed** (filtered when nested); verified | `flow.ts` `drawnEdges` |
+| Tiny unreadable text at fit zoom | **Yes**: Layers on NetBox (220 nodes) and API flow are unreadable at fit | `before/large-layers.png`, `before/fullstack-api-flow.png` |
+| Toolbar eats canvas height | **Yes**: two rows in Explore with breadcrumbs, and at 1280px | `before/large-explore-selected.png`, `before/laptop-1280-explore.png` |
+| Details pane duplicates path / "No source" for packages | **Yes**: path shown up to 3× (qualified name, path line, code header); empty `__init__` shows a blank code block; packages have no source and Contains is collapsed when > 6 children | `before/large-explore-selected.png` |
+| `App.tsx` ≈ 1,600 lines | **Yes**: 1,632 | |
+| Google Fonts from a CDN | **Yes**: `index.html` | |
+| No ESLint, axe or browser E2E | **Yes** | |
+| Docker image never built | **Yes** | |
+| Dashboard sends no API key in server mode | **Yes**: every request 401s | |
+| Index lock and graph cache per process | Lock is now cross-process (`fcntl`, earlier pass); **graph cache is still per process** | `pipeline.py` |
+
+### Other findings
+
+- Jobs and Explore shared the fallback globe icon.
+- An emoji glyph was used as the ingest icon, and a `⏱` emoji on job cards.
+- Raw layer colours used as text fail AA (data 3.6:1, config 3.3:1).
+- `--text-3` was 4.41:1 on `--sunken`; `--warning` was 4.24:1 on `--warning-soft`.
+- Editing the URL hash in an open tab didn't navigate.
+- `/source` returned the server's absolute path in server mode.
+- Graph params (`expanded`, node ids, `path`) were unbounded.
+- `pip-audit`: 13 CVEs in transitive `filelock`.
+- **Keyboard and accessibility gaps:**
+  - a focused graph node couldn't be opened with Enter
+  - the scrollable code `<pre>` couldn't take keyboard focus
+  - the palette listbox was unlabelled
+  - the selection state relied on colour (1px border plus glow)
+
+---
+
 ## 4. Fixture validation checklist
 
 Fixtures: `backend/benchmarks/fixtures/synthetic_django`, `backend/benchmarks/fixtures/fullstack_app`.
@@ -31,7 +116,7 @@ Fixtures: `backend/benchmarks/fixtures/synthetic_django`, `backend/benchmarks/fi
 |-------|-----|----------|
 | Dashboard “Trace flow” on API explorer | No dedicated REST `trace` route; trace via graph focus + `/endpoints` payload or CLI/MCP `trace_endpoint` | P1 doc (README already points to UI; optional `GET …/trace` later) |
 | Real LLM agent | Only `test_agent.py` with fake LiteLLM | P1 manual smoke, not fixture |
-| Dashboard E2E (hash, tour overlay, ⌘K) | Manual checklist §9.2; no Playwright | P2 |
+| Dashboard E2E (hash, tour overlay, ⌘K) | **Shipped 2026-11-14:** Playwright specs in `frontend/e2e/` (hash, ⌘K, Explore, Ask, export, axe, offline); tour overlay still manual | — |
 
 Run locally:
 
@@ -65,11 +150,11 @@ uv run ci analyze benchmarks/fixtures/fullstack_app
 | Mode | Behavior | Surfaces |
 |------|----------|----------|
 | Non-GitHub URL | API 422 validation; IngestPanel shows form error | API + UI aligned |
-| Private / auth-required repo | `git clone` fails → index job failed | API `POST /projects/analyze` **500** with `detail` = job error; IngestPanel shows `ingestError` |
+| Private / auth-required repo | Access preflight + clone with `CI_GITHUB_TOKEN`; without access → `GitCloneError` | API **400** with the reason; IngestPanel shows it live (`/git/check`) and on submit ([private-repos.md](private-repos.md)) |
 | Path outside `CI_PROJECT_ROOTS` (`CI_MODE=server`) | 403 on `path` ingest | API; CLI `_require` same roots via settings |
 | `git_url` in server mode | **403** (clone only allowed in local mode) | API `_register`; use path under allowed roots |
 
-**P0/P1 ingest:** No P0 if tests pass. **P1:** private GitHub unsupported; UI error messages could surface clone stderr more clearly.
+**Ingest (updated 2026-11-14):** private GitHub supported via a server-side token; clone failures surface as 400 with a reason in the UI.
 
 ---
 
@@ -122,11 +207,11 @@ README tools + **`impact_of_working_tree`** (uses `impact_for_request`, not `imp
 | Feature | In plan.md? | In product today? | Suggested priority |
 |---------|-------------|-------------------|---------------------|
 | Dedicated code review / lint integration | Implied (quality) | No (static graph only) | P2 |
-| Private GitHub / OAuth / GitHub App | §4.4 Git URL | Public URL clone only | P1 if server deploy |
+| Private GitHub / OAuth / GitHub App | §4.4 Git URL | Token via env (`CI_GITHUB_TOKEN`); no OAuth/App | P2 (OAuth/App) |
 | PR / webhook auto-index | §4.4, §8 | No | P2 |
 | Semantic embeddings default | §4.2 | Hash vectors; LLM optional | P2 |
 | `impact --base` on REST API | Impact analysis use case | **Shipped:** `ImpactBody.base`, MCP `base`, tests in §4 | — |
-| Playwright / dashboard E2E | — | pytest + manual | P2 |
+| Playwright / dashboard E2E | — | **Shipped 2026-11-14** (`frontend/e2e/`) | — |
 | OpenAPI → TS client | — | Hand-written `frontend/src/api.ts` | P3 |
 | Java / PHP analyzers | §3 later stacks | Entry points ready | P3 |
 | Runtime tracing / OpenAPI ingest | §4.4 optional | Not implemented | P3 |
@@ -141,7 +226,7 @@ Legend: **Y** = supported and tested or exercised in UI; **P** = partial (differ
 | Capability | Web | CLI | MCP | API |
 |------------|-----|-----|-----|-----|
 | Analyze / index (path) | Y (IngestPanel, re-index) | Y `ci analyze` | Y `index_project` | Y `POST …/analyze`, `POST …/index` |
-| Analyze / index (public GitHub URL) | Y | Y | — (path only after clone) | Y local mode; **403** server mode |
+| Analyze / index (public GitHub URL) | Y | Y | Y `index_project` (local mode) | Y local mode; **403** server mode |
 | List / resolve projects | Y | Y `ci projects` | Y `list_projects` | Y `GET /projects`, `/resolve` |
 | Freshness (dirty / stale) | Y badge | Y `ci status` | — | Y `GET …/freshness` |
 | Search nodes | Y `/` palette | Y `ci search` | Y `search_nodes` | Y `GET …/search` |
@@ -173,13 +258,13 @@ Run: `(cd frontend && npm run build) && cd backend && uv run ci serve --ui ../fr
 
 | Check | Result (2026-11-06) |
 |-------|---------------------|
-| Hash link restores project, view, focus, selection (*Copy link*) | **Pass** (implemented in `App.tsx` hash sync; not Playwright) |
+| Hash link restores project, view, focus, selection (*Copy link*) | **Pass** (E2E since 2026-11-14, incl. pasting into an open tab) |
 | Tour tab loads steps and highlights nodes on graph | **Pass** (TourPanel + `GET …/tour`) |
 | Impact tab: working tree blast radius | **Pass** (`ImpactPanel` → `POST …/impact`) |
 | Impact overlay on graph after impact run | **Pass** (`setImpact` / graph styling in `App.tsx`) |
-| Inspector *Explain ✦* opens Ask with focus | **Pass** (Inspector → chat focus) |
-| API tab lists routes; *Trace flow* switches to api-flow | **Pass** (`EndpointsPanel.onTraceEndpoint`) |
+| Inspector *Ask about this* opens Ask with focus | **Pass** (Inspector → chat focus) |
+| Routes tab lists routes; *Trace flow* switches to api-flow | **Pass** (`EndpointsPanel.onTraceEndpoint`) |
 | `/` opens search palette; `Esc` clears overlays | **Pass** (`App.tsx` key handlers) |
-| Failed GitHub ingest shows error text in ingest form | **Pass** (500 `detail` → `ingestError`) |
+| Failed GitHub ingest shows error text in ingest form | **Pass** (400 `detail` → `ingestError`, `role="alert"`) |
 
-Automated gate: `cd backend && uv run pytest -q && uv run ruff check .` and `cd frontend && npm test && npm run build`.
+Automated gate: `cd backend && uv run pytest -q && uv run ruff check .` and `cd frontend && npm run lint && npm test && npm run build && npm run test:e2e`.

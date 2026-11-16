@@ -15,7 +15,7 @@
 
   --text: #1d1c19;
   --text-2: #55524a;
-  --text-3: #716d63;
+  --text-3: #6b675d; /* ≥4.5:1 on every surface and node tint (docs/DESIGN.md) */
 
   --accent: #1f5c56;
   --accent-hover: #174843;
@@ -23,12 +23,18 @@
   --on-accent: #ffffff;
 
   --success: #3d7550;
-  --warning: #94671e;
+  --warning: #8a5f1c;
   --error: #a1412e;
   --warning-soft: #f4ecdd;
 
+  /* Node tints: soft fill + slightly darker border/label derived from the node's layer colour
+     (--layer, set per node). Never saturated; text keeps --text on top. See docs/DESIGN.md. */
+  --tint-fill: 7%;
+  --tint-border: 35%;
+  --tint-label: 72%;
+
   --font-ui: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Newsreader", ui-serif, Georgia, serif;
+  --font-display: "Newsreader Variable", "Newsreader", ui-serif, Georgia, serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --s1: 4px;
@@ -369,7 +375,9 @@ input[type="checkbox"] {
 }
 
 .badge-layer {
-  background: transparent;
+  border-color: color-mix(in srgb, var(--layer) var(--tint-border), var(--divider));
+  background: color-mix(in srgb, var(--layer) var(--tint-fill), var(--surface));
+  color: color-mix(in srgb, var(--layer) var(--tint-label), var(--text));
 }
 
 .badge-warn {
@@ -603,6 +611,7 @@ input[type="checkbox"] {
   display: flex;
   flex-direction: column;
   gap: var(--s5);
+  min-height: 0;
   padding: var(--s4) var(--s2);
   border-right: 1px solid var(--divider);
   overflow: auto;
@@ -843,49 +852,28 @@ input[type="checkbox"] {
   }
 }
 
+/* Always one row: the description truncates first, then the Explore hint hides. */
 .canvas-toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--s2);
-  min-height: 48px;
-  padding: var(--s2) var(--s3) var(--s2) var(--s5);
+  height: 48px;
+  min-width: 0;
+  padding: 0 var(--s3) 0 var(--s5);
   border-bottom: 1px solid var(--divider);
 }
 
-.canvas-toolbar--explore {
-  row-gap: var(--s1);
+.canvas-toolbar > * {
+  flex-shrink: 0;
 }
 
-.explore-breadcrumbs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s1);
-  width: 100%;
-  flex-basis: 100%;
-  padding: 0 var(--s3);
-  margin: -4px 0 0;
-  font-size: 12px;
-  line-height: 1.35;
+.canvas-toolbar > .canvas-title {
+  flex: 1 1 auto;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
-.explore-crumb-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s1);
-}
-
-.explore-crumb-sep::before {
-  content: "›";
-  color: var(--text-3);
-  font-weight: 500;
-}
-
-.explore-crumb.active {
-  color: var(--accent);
-  font-weight: 500;
-}
 
 .explore-edge-card {
   margin-bottom: var(--s4);
@@ -925,29 +913,30 @@ input[type="checkbox"] {
 
 .canvas-toolbar-explore {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: var(--s2);
-  width: 100%;
-  flex-basis: 100%;
-  padding-top: 2px;
-  border-top: 1px solid var(--divider);
-  margin-top: 2px;
+  gap: var(--s1);
+  padding-left: var(--s2);
+  border-left: 1px solid var(--divider);
 }
 
 .canvas-toolbar-explore .explore-hint {
-  flex: 1 1 200px;
-  min-width: 0;
   font-size: 12px;
-  line-height: 1.35;
+  white-space: nowrap;
+}
+
+@media (max-width: 1500px) {
+  .canvas-toolbar-explore .explore-hint {
+    display: none;
+  }
 }
 
 .canvas-toolbar-explore .explore-depth {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   font-size: 12px;
-  margin-left: auto;
+  white-space: nowrap;
 }
 
 .canvas-toolbar-explore .explore-depth select {
@@ -959,34 +948,6 @@ input[type="checkbox"] {
   color: var(--text);
 }
 
-.explore-breadcrumbs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s1);
-  width: 100%;
-  flex-basis: 100%;
-  padding: 0 var(--s5);
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.explore-crumb-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s1);
-}
-
-.explore-crumb-sep::before {
-  content: "›";
-  color: var(--text-3);
-}
-
-.explore-crumb.active {
-  font-weight: 500;
-  color: var(--accent);
-}
 
 .link-inline {
   padding: 0;
@@ -1167,9 +1128,9 @@ input[type="checkbox"] {
   width: 100%;
   height: 100%;
   padding: 10px 12px 10px 14px;
-  border: 1px solid var(--divider);
+  border: 1px solid color-mix(in srgb, var(--layer) var(--tint-border), var(--divider));
   border-radius: var(--r-md);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--layer) var(--tint-fill), var(--surface));
   transition:
     border-color var(--t-fast) var(--ease),
     opacity var(--t-med) var(--ease),
@@ -1188,12 +1149,50 @@ input[type="checkbox"] {
 }
 
 .arch-node:hover {
-  border-color: var(--divider-strong);
+  border-color: color-mix(in srgb, var(--layer) 55%, var(--divider-strong));
 }
 
-.arch-node--selected {
+/* Selected: accent-soft fill, 2px accent border (1px border + 1px inset, no layout shift) and an
+   accent bar, so the state never relies on colour alone. */
+.arch-node--selected,
+.arch-node--selected:hover {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--accent-soft);
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.arch-node--selected::before {
+  top: 6px;
+  bottom: 6px;
+  width: 4px;
+  background: var(--accent);
+}
+
+/* Keyboard focus on a graph node (React Flow focuses the wrapper). */
+.react-flow__node:focus-visible {
+  outline: none;
+}
+
+.react-flow__node:focus-visible > .arch-node {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Inferred / heuristic nodes: dashed outline plus an explicit label. */
+.arch-node--inferred {
+  border-style: dashed;
+}
+
+.arch-inferred {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  color: var(--text-3);
+  font-size: 10px;
+  font-style: italic;
+  line-height: 14px;
 }
 
 .arch-node--overlay {
@@ -1201,8 +1200,9 @@ input[type="checkbox"] {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring, var(--accent)) 25%, transparent);
 }
 
+/* Focus mode: unrelated nodes fade but stay legible enough to keep context. */
 .arch-node--dim {
-  opacity: 0.32;
+  opacity: 0.45;
 }
 
 .arch-node-top {
@@ -1249,9 +1249,47 @@ input[type="checkbox"] {
 }
 
 .arch-node--explore-group {
-  border-color: var(--divider-strong);
-  background: var(--sunken);
-  padding-top: 12px;
+  border-color: color-mix(in srgb, var(--layer) 30%, var(--divider-strong));
+  background: color-mix(in srgb, var(--layer) 4%, var(--sunken));
+  padding: 10px 10px 10px 14px;
+}
+
+.arch-node--explore-group.arch-node--selected {
+  background: color-mix(in srgb, var(--accent) 8%, var(--sunken));
+}
+
+/* One row: icon, name, type · count, chevron. Height must fit GROUP_TITLE in layoutExplore.ts. */
+.arch-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  height: 30px;
+  min-width: 0;
+  color: var(--text-2);
+}
+
+.arch-group-name {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arch-group-meta {
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arch-more-chip--group {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
 }
 
 .arch-node-explore-meta {
@@ -1318,7 +1356,8 @@ input[type="checkbox"] {
 }
 
 .arch-node-layer {
-  color: var(--layer);
+  /* raw layer colours are 3.3–4.8:1 on tints; the darkened mix is ≥5:1 */
+  color: color-mix(in srgb, var(--layer) var(--tint-label), var(--text));
   font-weight: 500;
 }
 
@@ -1357,6 +1396,9 @@ input[type="checkbox"] {
 }
 
 .arch-node-job {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   overflow: hidden;
   color: var(--text-2);
   font-family: var(--font-mono);
@@ -1451,9 +1493,16 @@ body.resizing .panel-resize {
 .panel-tabs {
   display: flex;
   align-items: stretch;
-  gap: var(--s4);
+  gap: var(--s3);
   padding: 0 var(--s4);
+  overflow-x: auto;
   border-bottom: 1px solid var(--divider);
+  scrollbar-width: none;
+}
+
+.panel-tabs button {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .panel-tabs button {
@@ -1746,7 +1795,7 @@ details[open] > summary::before {
 .code-ln {
   flex: 0 0 44px;
   padding-right: var(--s3);
-  color: #b5b0a5;
+  color: var(--text-3);
   text-align: right;
   user-select: none;
 }
@@ -1915,7 +1964,7 @@ details[open] > summary::before {
   align-items: center;
   gap: var(--s1);
   margin-bottom: var(--s1);
-  color: var(--text-3);
+  color: var(--text-2);
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.06em;
@@ -2664,25 +2713,8 @@ details[open] > summary::before {
   font-size: 20px;
   line-height: 28px;
 }
-.canvas-toolbar--explore {
-  flex-wrap: wrap;
-  row-gap: var(--s1);
-}
-.canvas-toolbar--explore .canvas-title {
-  flex: 0 0 auto;
-}
-.canvas-toolbar--explore .explore-breadcrumbs {
-  flex: 1 1 160px;
-  width: auto;
-  flex-basis: auto;
-  min-width: 0;
-  padding: 0;
-  flex-wrap: nowrap;
-  overflow: hidden;
-  white-space: nowrap;
-}
 .canvas-toolbar--explore .search-field input {
-  width: 150px;
+  width: 140px;
 }
 .canvas-toolbar-explore {
   flex: 0 1 auto;
@@ -2737,4 +2769,272 @@ details[open] > summary::before {
 .ingest-access {
   margin: 6px 0 0;
   font-size: 12.5px;
+}
+
+/* =============================================================================================
+   Semantic zoom (graph-pane class from App): far = names only, larger; mid = no helper text.
+   ============================================================================================= */
+.zoom-far .arch-node:not(.arch-node--explore-group) .arch-node-top,
+.zoom-far .arch-node-path,
+.zoom-far .arch-node-helper,
+.zoom-far .arch-node-job,
+.zoom-far .arch-fields,
+.zoom-far .arch-inferred,
+.zoom-far .react-flow__edge-textwrapper,
+.zoom-mid .arch-node-helper {
+  display: none;
+}
+
+.zoom-far .arch-node:not(.arch-node--explore-group) {
+  display: flex;
+  align-items: center;
+}
+
+.zoom-far .arch-node-name {
+  margin: 0;
+  font-size: 28px;
+  line-height: 34px;
+}
+
+.zoom-far .arch-group-name {
+  font-size: 22px;
+}
+
+.zoom-far .arch-group-meta {
+  display: none;
+}
+
+/* =============================================================================================
+   Explore breadcrumbs (on-canvas panel), edge legend, API-key dialog
+   ============================================================================================= */
+.explore-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  max-width: min(720px, 70vw);
+  padding: 4px var(--s3);
+  overflow: hidden;
+  border: 1px solid var(--divider);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.explore-crumb-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  min-width: 0;
+}
+
+.explore-crumb {
+  overflow: hidden;
+  max-width: 220px;
+  text-overflow: ellipsis;
+}
+
+.explore-crumb-sep::before {
+  content: "›";
+  color: var(--text-3);
+}
+
+.explore-crumb.active {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.edge-legend {
+  margin: 0;
+  padding: 0 var(--s2);
+  list-style: none;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.edge-legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  height: 24px;
+}
+
+.edge-legend svg {
+  flex-shrink: 0;
+}
+
+.auth-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  width: min(440px, 100%);
+  padding: var(--s5);
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.auth-dialog h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 400;
+}
+
+.auth-dialog input {
+  height: var(--control-h);
+  padding: 0 var(--s3);
+  border: 1px solid var(--divider-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+.auth-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.field-label {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.overview--compact {
+  padding: var(--s3) var(--s5);
+}
+
+.overview--compact .overview-title {
+  font-size: 20px;
+  line-height: 28px;
+}
+
+.export-menu {
+  position: relative;
+}
+
+.export-menu-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 248px;
+  margin: 0;
+  padding: var(--s1);
+  border: 1px solid var(--divider);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  list-style: none;
+}
+
+.export-menu-list button {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s3);
+  width: 100%;
+  height: 32px;
+  padding: 0 var(--s3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+}
+
+.export-menu-list button span {
+  white-space: nowrap;
+}
+
+.export-menu-list button:hover,
+.export-menu-list button:focus-visible {
+  background: var(--sunken);
+}
+
+.toggle-btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Zoomed out, arrowheads are sub-pixel noise and the costliest part of repainting ~1.5k edges
+   while panning; drop them and rasterise edges faster. (A will-change layer was tried and
+   rejected: on large graphs it exhausted Chrome's tile memory and left the UI unpainted.) */
+.zoom-far .react-flow__edge-path {
+  marker-end: none;
+  shape-rendering: optimizeSpeed;
+}
+
+/* Suggestions panel */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4);
+}
+
+.suggestion-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.suggestion {
+  padding: var(--s3);
+  border: 1px solid var(--divider);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.suggestion-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: 12px;
+}
+
+.suggestion-title {
+  margin-top: var(--s1);
+  font-weight: 500;
+}
+
+.suggestion-detail {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.suggestion .relations {
+  margin-top: var(--s2);
+  padding: 0;
+  border: 0;
+}
+
+.severity {
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
+  text-transform: capitalize;
+}
+
+.severity--high {
+  color: var(--error);
+}
+
+.severity--medium {
+  color: var(--warning);
+}
+
+.severity--low {
+  color: var(--text-3);
 }

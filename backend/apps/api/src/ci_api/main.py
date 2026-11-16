@@ -82,7 +82,9 @@ async def request_context(request, call_next):
     token = request_id.set(rid)
     try:
         settings = get_settings()
-        if settings.mode == "server" and request.method != "OPTIONS" and request.url.path != "/health":
+        # Under `ci serve --ui` the API is mounted at /api, so the path arrives as /api/health.
+        path = request.url.path.removeprefix(request.scope.get("root_path", "") or "")
+        if settings.mode == "server" and request.method != "OPTIONS" and path not in ("/health", "/api/health"):
             supplied = request.headers.get("x-api-key") or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
             if not settings.api_key or not hmac.compare_digest(supplied, settings.api_key):
                 return JSONResponse({"detail": "invalid or missing API key"}, status_code=401, headers={"X-Request-ID": rid})
@@ -94,6 +96,20 @@ async def request_context(request, call_next):
         return JSONResponse({"detail": "internal error", "request_id": rid}, status_code=500, headers={"X-Request-ID": rid})
     finally:
         request_id.reset(token)
+
+
+# Bounds for graph/source query params: node ids are short hashes or dotted names, and the
+# dashboard never expands more than a few hundred groups. Anything larger is a mistake or abuse.
+MAX_ID = 512
+MAX_EXPANDED = 500
+MAX_OFFSETS = 200
+
+
+def _check_expanded(expanded: str | None, offsets: list[str] | None) -> None:
+    if expanded and expanded.count(",") + 1 > MAX_EXPANDED:
+        raise HTTPException(status_code=422, detail=f"expanded: at most {MAX_EXPANDED} node ids")
+    if offsets and len(offsets) > MAX_OFFSETS:
+        raise HTTPException(status_code=422, detail=f"extra_child_offsets: at most {MAX_OFFSETS} entries")
 
 
 _GITHUB_URL = re.compile(r"^https?://(www\.)?github\.com/[\w.-]+/[\w.-]+/?(\.git)?$", re.I)
@@ -322,8 +338,8 @@ def get_job(project_ref: str, job_id: str) -> dict:
 @app.get("/projects/{project_ref:path}/graph/neighborhood")
 def graph_neighborhood(
     project_ref: str,
-    node_id: str = Query(..., min_length=1),
-    direction: str = Query("both"),
+    node_id: str = Query(..., min_length=1, max_length=MAX_ID),
+    direction: str = Query("both", max_length=8),
     depth: int = Query(1, ge=1, le=3),
 ) -> dict:
     d = direction.lower()
@@ -339,8 +355,8 @@ def graph_neighborhood(
 @app.get("/projects/{project_ref:path}/graph/edges")
 def graph_explore_underlying_edges(
     project_ref: str,
-    source: str = Query(..., min_length=1, description="Visible explore node id (aggregated arc source)"),
-    target: str = Query(..., min_length=1, description="Visible explore node id (aggregated arc target)"),
+    source: str = Query(..., min_length=1, max_length=MAX_ID, description="Visible explore node id (aggregated arc source)"),
+    target: str = Query(..., min_length=1, max_length=MAX_ID, description="Visible explore node id (aggregated arc target)"),
     expanded: str | None = Query(
         default=None,
         description="Same expanded= list as /graph/explore so lifting matches the canvas",
@@ -353,6 +369,7 @@ def graph_explore_underlying_edges(
 ) -> dict:
     from ci_core.views.explore import _parse_offsets_param
 
+    _check_expanded(expanded, extra_child_offsets)
     store = GraphStore(_pid(project_ref))
     index = store.load_index()
     if source not in index.nodes or target not in index.nodes:
@@ -367,7 +384,7 @@ def graph_explore_underlying_edges(
 def get_graph(
     project_ref: str,
     view: str,
-    focus_node_id: str | None = Query(default=None),
+    focus_node_id: str | None = Query(default=None, max_length=MAX_ID),
     expanded: str | None = Query(default=None, description="Comma-separated node ids expanded in explore view"),
     extra_child_offsets: list[str] | None = Query(
         default=None,
@@ -375,7 +392,8 @@ def get_graph(
     ),
 ) -> dict:
     if get_view(view) is None:
-        raise HTTPException(status_code=404, detail=f"unknown view {view!r}")
+        raise HTTPException(status_code=404, detail=f"unknown view {view[:64]!r}")
+    _check_expanded(expanded, extra_child_offsets)
     params: dict | None = None
     if expanded or extra_child_offsets:
         params = {}
@@ -438,8 +456,8 @@ def search(
 @app.get("/projects/{project_ref:path}/path")
 def shortest_path(
     project_ref: str,
-    source: str = Query(..., description="Source node id"),
-    target: str = Query(..., description="Target node id"),
+    source: str = Query(..., max_length=MAX_ID, description="Source node id"),
+    target: str = Query(..., max_length=MAX_ID, description="Target node id"),
     max_hops: int = Query(12, ge=1, le=30),
 ) -> dict:
     index = GraphStore(_pid(project_ref)).load_index()
@@ -478,6 +496,8 @@ def impact(project_ref: str, body: ImpactBody) -> dict:
 
 @app.get("/projects/{project_ref:path}/nodes/{node_id}")
 def get_node(project_ref: str, node_id: str) -> dict:
+    if len(node_id) > MAX_ID:
+        raise HTTPException(status_code=422, detail="node id too long")
     index = GraphStore(_pid(project_ref)).load_index()
     node = index.nodes.get(node_id)
     if node is None:
@@ -505,9 +525,9 @@ def get_node(project_ref: str, node_id: str) -> dict:
 @app.get("/projects/{project_ref:path}/source")
 def get_source(
     project_ref: str,
-    path: str = Query(...),
+    path: str = Query(..., min_length=1, max_length=1024),
     start: int = Query(1, ge=1),
-    end: int | None = None,
+    end: int | None = Query(default=None, ge=1),
 ) -> dict:
     project = _require_project(project_ref)
     allowed = GraphStore(project.id).indexed_paths()
@@ -516,7 +536,7 @@ def get_source(
         raise HTTPException(status_code=404, detail="not an indexed source file")
     lines = candidate.read_text(encoding="utf-8", errors="replace").splitlines()
     end_line = min(end or start + 80, len(lines), start + 400)
-    return {
+    out = {
         "path": path,
         "start": start,
         "end": end_line,
@@ -525,6 +545,9 @@ def get_source(
         "abs_path": str(candidate),
         "content": "\n".join(lines[start - 1 : end_line]),
     }
+    if get_settings().mode == "server":
+        out.pop("abs_path")  # don't reveal the server's filesystem layout to API clients
+    return out
 
 
 def _language_for(path: str) -> str:

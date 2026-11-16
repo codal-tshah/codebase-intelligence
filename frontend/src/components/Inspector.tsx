@@ -66,6 +66,7 @@ export function Inspector({
           onAsk={onAsk}
           explore={explore}
           onToggleExplore={onToggleExplore}
+          hasSource={Boolean(source)}
         />
       ) : null}
       {source || !detail ? <SourceView source={source} highlight={highlight} /> : null}
@@ -114,7 +115,7 @@ function ExploreEdgeCard({
       <p className="muted">
         Confidence {Math.round((edge.confidence ?? 1) * 100)}%
         {weight > 1 ? ` · weight ${weight}` : ""}
-        {Boolean(props.aggregated) ? " · aggregated" : ""}
+        {props.aggregated ? " · aggregated" : ""}
       </p>
       {Object.keys(byType).length > 0 ? (
         <div className="chip-row">
@@ -163,7 +164,8 @@ function NodeCard({
   onAsk,
   explore,
   onToggleExplore,
-}: Omit<Props, "source" | "highlight" | "detail"> & { detail: NodeDetail }) {
+  hasSource,
+}: Omit<Props, "source" | "highlight" | "detail"> & { detail: NodeDetail; hasSource: boolean }) {
   const { node, edges, neighbors } = detail;
   const props = node.properties ?? {};
   const layerId = props.layer as string | undefined;
@@ -173,6 +175,7 @@ function NodeCard({
   const httpCalls = (props.http_calls as HttpCallInfo[] | undefined) ?? [];
   const route = (props.route as string | undefined) ?? undefined;
   const confidence = node.confidence ?? 1;
+  const isContainer = node.node_type === "Package" || node.node_type === "Project";
 
   const grouped = new Map<string, { id: string; dir: "out" | "in"; low: boolean }[]>();
   for (const e of edges as { edge_type: string; source_id: string; target_id: string; confidence?: number }[]) {
@@ -204,7 +207,7 @@ function NodeCard({
             {node.node_type}
           </span>
           {layer ? (
-            <span className="badge badge-layer" style={{ borderColor: layerColor(layers, layer.id), color: layerColor(layers, layer.id) }}>
+            <span className="badge badge-layer" style={{ ["--layer" as string]: layerColor(layers, layer.id) }}>
               {layer.name}
             </span>
           ) : null}
@@ -218,12 +221,11 @@ function NodeCard({
         </div>
         <h2>{node.name}</h2>
         {summary ? <p className="detail-summary">{summary}</p> : null}
-        {node.qualified_name &&
-        node.qualified_name !== node.source_path &&
-        node.qualified_name !== node.source_path?.replace(/\.[^./]+$/, "") ? (
+        {node.qualified_name && !sameAsPath(node.qualified_name, node.source_path) ? (
           <p className="mono muted">{node.qualified_name}</p>
         ) : null}
-        {node.source_path ? (
+        {/* the source block below already shows the path */}
+        {node.source_path && !hasSource ? (
           <p className="file-path">
             {node.source_path}
             {node.start_line ? `:${node.start_line}` : ""}
@@ -311,12 +313,12 @@ function NodeCard({
       {grouped.size > 0 ? (
         <div className="relations">
           {[...grouped.entries()].sort(([a], [b]) => (a === "Contains" ? -1 : b === "Contains" ? 1 : 0)).map(([label, items]) => (
-            <details key={label} open={items.length <= 6}>
+            <details key={label} open={label === "Contains" || items.length <= 6}>
               <summary>
                 {label} <span className="muted">{items.length}</span>
               </summary>
               <ul>
-                {items.slice(0, 40).map((it) => {
+                {items.slice(0, label === "Contains" ? 200 : 40).map((it) => {
                   const n = neighbors[it.id];
                   if (!n) return null;
                   return (
@@ -333,12 +335,25 @@ function NodeCard({
                   );
                 })}
               </ul>
+              {items.length > (label === "Contains" ? 200 : 40) ? (
+                <p className="muted pad">+{items.length - (label === "Contains" ? 200 : 40)} more · use ⌘K to find one</p>
+              ) : null}
             </details>
           ))}
         </div>
+      ) : isContainer ? (
+        <p className="muted code-empty">No indexed children under this {node.node_type.toLowerCase()}.</p>
       ) : null}
     </>
   );
+}
+
+/** "a.b.c" vs "a/b/c.py" (or a path that merely ends with it) is the same information twice. */
+function sameAsPath(qualified: string, path?: string | null): boolean {
+  if (!path) return false;
+  const noExt = path.replace(/\.[^./]+$/, "");
+  const dotted = qualified.replace(/\./g, "/");
+  return qualified === path || qualified === noExt || noExt.endsWith(dotted) || noExt.endsWith(`${dotted}/__init__`);
 }
 
 function SourceView({ source, highlight }: { source: SourceSnippet | null; highlight: [number, number] | null }) {
@@ -349,6 +364,13 @@ function SourceView({ source, highlight }: { source: SourceSnippet | null; highl
   );
   if (!source) {
     return <p className="muted code-empty">No indexed source file for this selection.</p>;
+  }
+  if (!source.content.trim()) {
+    return (
+      <p className="muted code-empty">
+        <span className="mono">{source.path}</span> is empty.
+      </p>
+    );
   }
   const at = highlight?.[0] ?? source.start;
   const editorHref = source.abs_path ? `vscode://file/${source.abs_path}:${at}` : undefined;
@@ -385,7 +407,8 @@ function SourceView({ source, highlight }: { source: SourceSnippet | null; highl
           ) : null}
         </span>
       </div>
-      <pre className="code-lines">
+      {/* focusable so keyboard users can scroll long lines (WCAG 2.1.1) */}
+      <pre className="code-lines" tabIndex={0} aria-label={`${source.path} lines ${source.start} to ${source.end}`}>
         {tokens.map((line, i) => {
           const n = source.start + i;
           const hot = highlight && n >= highlight[0] && n <= highlight[1];

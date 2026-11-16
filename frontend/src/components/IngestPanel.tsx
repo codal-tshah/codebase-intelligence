@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Check, GitBranch } from "lucide-react";
 import { getJson } from "../api";
 
 type Props = {
@@ -46,7 +47,9 @@ export function IngestPanel({ onAnalyze, busy, error }: Props) {
 
   return (
     <div className="ingest-panel">
-      <div className="ingest-icon">⎇</div>
+      <div className="ingest-icon" aria-hidden>
+        <GitBranch size={20} strokeWidth={1.5} />
+      </div>
       <h2>Connect a repository</h2>
       <p className="muted">
         Paste a GitHub URL or an absolute local path. Private repositories need <code>CI_GITHUB_TOKEN</code> set
@@ -75,7 +78,7 @@ export function IngestPanel({ onAnalyze, busy, error }: Props) {
         {isGit && access && access !== "checking" ? (
           access.ok ? (
             <p className="muted ingest-access">
-              ✓ Reachable{access.default_branch ? ` · default branch ${access.default_branch}` : ""}
+              <Check size={12} strokeWidth={1.5} aria-hidden /> Reachable{access.default_branch ? ` · default branch ${access.default_branch}` : ""}
               {access.token_configured ? " · using server token" : ""}
             </p>
           ) : (
@@ -85,7 +88,11 @@ export function IngestPanel({ onAnalyze, busy, error }: Props) {
             </p>
           )
         ) : null}
-        {error ? <p className="form-error">{error}</p> : null}
+        {error ? (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        ) : null}
         <button type="submit" className="btn primary wide" disabled={!valid || busy || blocked}>
           {busy ? "Indexing repository…" : isPath ? "Analyze local project" : "Analyze repository"}
         </button>

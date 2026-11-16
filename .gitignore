@@ -19,3 +19,16 @@ playwright-*.png
 playwright-*.log
 playwright-*.yml
 .cursor/
+frontend/test-results/
+frontend/playwright-report/
+
+# UI review screenshots: regenerate locally with `cd frontend && npm run screenshots -- <dir>`.
+# Only the ones embedded in docs/user-guide.md are committed.
+docs/ui-review/before/
+docs/ui-review/after/*
+!docs/ui-review/after/fullstack-explore-expanded.png
+!docs/ui-review/after/fullstack-export-menu.png
+!docs/ui-review/after/fullstack-select-node.png
+!docs/ui-review/after/ingest.png
+!docs/ui-review/after/server-mode-api-key.png
+!docs/ui-review/after/tab-improve.png

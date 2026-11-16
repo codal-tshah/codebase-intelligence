@@ -4,11 +4,14 @@ Start here. This page covers what exists, how data flows, and what is integrated
 
 | Doc | Read it for |
 |---|---|
+| [user-guide.md](user-guide.md) | Using the dashboard (with screenshots) |
 | [onboarding.md](onboarding.md) (this) | Stack, data flow, run locally, view catalog, integration status |
 | [architecture.md](architecture.md) | Pipeline internals, graph model, extending with analyzers/views |
 | [private-repos.md](private-repos.md) | Indexing private GitHub repos with a token |
-| [review-2026-11.md](review-2026-11.md) | Latest audit: what's met, partial, missing |
+| [review-2026-11.md](review-2026-11.md) | Meeting-requirements review (statuses updated 2026-11-14) |
 | [audit-report.md](audit-report.md) | Fixture validation and earlier backlog |
+| [REPORT.md](REPORT.md), [GAPS.md](GAPS.md) | Latest enterprise pass: what changed, how verified, roadmap |
+| [DESIGN.md](DESIGN.md), [SECURITY.md](SECURITY.md), [DECISIONS.md](DECISIONS.md) | Tokens and contrast, security model and audits, recorded decisions |
 | [competitive-notes.md](competitive-notes.md) | How we compare to Understand Anything, the nu demo and CIS; adopt/defer/skip; backlog |
 | [../integrations/README.md](../integrations/README.md) | Install into Claude Code (plugin + skill) or Cursor (MCP + rule) |
 
@@ -52,7 +55,7 @@ Gates before a PR:
 
 ```bash
 cd backend && uv run pytest -q && uv run ruff check .
-cd frontend && npm test && npm run build
+cd frontend && npm run lint && npm test && npm run build && npm run test:e2e
 ```
 
 ## View catalog
@@ -91,8 +94,8 @@ All env vars are validated in `ci_core.settings`; the full list with defaults is
 | Feature | Backend | Frontend | CLI | MCP | Tests | What's left |
 |---|---|---|---|---|---|---|
 | Index local path | ✅ | ✅ | ✅ | ✅ | ✅ | |
-| Index public GitHub URL | ✅ | ✅ | ✅ | ❌ | ✅ | MCP `index_project` takes a path only |
-| Index private GitHub URL | ✅ token via env | ⚠️ server-side token only | ✅ | ❌ | ✅ unit | Not exercised against a real private repo yet (no access) |
+| Index public GitHub URL | ✅ | ✅ | ✅ | ✅ `index_project` | ✅ | |
+| Index private GitHub URL | ✅ token via env | ⚠️ server-side token only | ✅ | ✅ token via env | ✅ unit | Not exercised against a real private repo yet (no access) |
 | Incremental index, freshness | ✅ | ✅ | ✅ | ✅ | ✅ | |
 | Flat views (layers, architecture, api-flow, call-graph, components, er, integrations) | ✅ | ✅ | – | – | ✅ | |
 | Explore (expand, lifted edges, budget) | ✅ | ✅ | ❌ | ❌ | ✅ | No CLI/MCP equivalent |
@@ -100,11 +103,12 @@ All env vars are validated in `ci_core.settings`; the full list with defaults is
 | Selection highlight | – | ✅ all views | – | – | ✅ vitest | |
 | Search, path, tour, impact | ✅ | ✅ | ✅ | ✅ | ✅ | |
 | Background / scheduled jobs | ✅ | ✅ Jobs view | ✅ `ci jobs` | ✅ `list_jobs` | ✅ | Celery beat dicts, `scheduler.add_job(...)` calls and node-cron aren't detected yet |
-| Optimization suggestions | ✅ | ❌ no panel yet | ✅ `ci suggest` | ✅ `suggest_optimizations` | ✅ | Heuristic; no performance (N+1, missing index) rules yet |
+| Optimization suggestions | ✅ | ✅ *Improve* tab | ✅ `ci suggest` | ✅ `suggest_optimizations` | ✅ + E2E | Heuristic; no performance (N+1, missing index) rules yet |
 | Diagrams written into the repo (Mermaid) | ✅ `/docs` | – | ✅ `ci docs` | ✅ `generate_docs` | ✅ | |
 | Claude Code plugin / Cursor rule | – | – | – | ✅ | ✅ `claude plugin validate` | Not published to a shared marketplace |
 | Endpoints / trace / models | ✅ | ✅ | ✅ | ✅ | ✅ | |
 | Assistant (graph tools; LLM optional) | ✅ | ✅ | ✅ `ci ask` | ✅ same tools | ✅ | |
 | Source view (allowlisted, traversal-safe) | ✅ | ✅ | – | ✅ | ✅ | |
-| Server-mode auth (API key) | ✅ | ❌ UI sends no key | – | – | ✅ | Needs an auth proxy or UI key support |
-| Deep links | – | ⚠️ | – | – | ⚠️ | Editing the hash in an open tab doesn't navigate (no `hashchange` listener) |
+| Server-mode auth (API key) | ✅ | ✅ key prompt, per-tab session | – | – | ✅ pytest + manual browser run | SSO/RBAC via a proxy (roadmap) |
+| Deep links | – | ✅ incl. `hashchange` | – | – | ✅ E2E | |
+| Export current view (SVG/PNG/Mermaid/Markdown/JSON) | ✅ full JSON | ✅ client-side | ✅ `ci export`, `ci docs` | ✅ `generate_docs` | ✅ vitest + E2E | |
