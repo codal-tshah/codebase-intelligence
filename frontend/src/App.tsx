@@ -17,11 +17,11 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
-  ArrowLeft,
+  Activity,
   BookOpen,
   Check,
-  ChevronsLeft,
   Filter,
+  FolderCog,
   Focus,
   GitFork,
   Lightbulb,
@@ -37,7 +37,9 @@ import {
 } from "lucide-react";
 import { getJson, postJson } from "./api";
 import { ApiKeyPrompt } from "./components/ApiKeyPrompt";
+import { ApiEndpointList } from "./components/ApiEndpointList";
 import { ArchNode, LaneLabel } from "./components/ArchNode";
+import { RoutedEdge } from "./components/RoutedEdge";
 import { EdgeLegend } from "./components/EdgeLegend";
 import { ExportMenu } from "./components/ExportMenu";
 import { ChatPanel } from "./components/ChatPanel";
@@ -52,6 +54,13 @@ import { PathPanel } from "./components/PathPanel";
 import { SuggestionsPanel } from "./components/SuggestionsPanel";
 import { ProjectSummaryCard, type ProjectSummary } from "./components/ProjectSummaryCard";
 import { TourPanel } from "./components/TourPanel";
+import { TraceControl } from "./components/TraceControl";
+import { ProjectSwitcher } from "./components/ProjectSwitcher";
+import { ProjectsPage } from "./components/ProjectsPage";
+import { SavedViewsMenu } from "./components/SavedViewsMenu";
+import { runIndexJob } from "./indexJobs";
+import { ExploreToolbar } from "./explore/ExploreToolbar";
+import { DEFAULT_TRACE, type TraceSettings } from "./trace";
 import { type ArchNodeData, type Overlay } from "./flow";
 import { ExploreGraphCache, exploreCacheKey } from "./explore/exploreGraphCache";
 import { decodeExpandedIds, encodeExpandedIds } from "./explore/hash";
@@ -65,13 +74,13 @@ import type {
   GraphPayload,
   UnderlyingEdgesPayload,
   ImpactReport,
-  NeighborhoodPayload,
   Job,
   Layer,
   GraphEdge,
   NodeDetail,
   PathResult,
   Project,
+  ProjectOverview,
   SearchHit,
   SourceSnippet,
   TourStep,
@@ -80,6 +89,7 @@ import type {
 
 const ZOOM_KEYS = ["Meta", "Control"];
 const NODE_TYPES = { arch: ArchNode, lane: LaneLabel };
+const EDGE_TYPES = { routed: RoutedEdge };
 
 type RightTab = "inspector" | "endpoints" | "tour" | "impact" | "path" | "assistant" | "suggestions";
 /** Primary tabs first; analysis tools are quieter and also reachable from ⌘K and node actions. */
@@ -212,7 +222,6 @@ function Dashboard() {
   );
   const exploreExpanded = exploreState.expanded;
   const exploreChildOffsets = exploreState.childOffsets;
-  const [exploreNeighborIds, setExploreNeighborIds] = useState<Set<string> | null>(null);
   const [exploreLoadingId, setExploreLoadingId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [exploreEdgeDetail, setExploreEdgeDetail] = useState<{
@@ -224,7 +233,9 @@ function Dashboard() {
   const exploreClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exploreLastToggleId = useRef<string | null>(null);
   const exploreFitReason = useRef<ExploreFitReason>(null);
-  const [focusDepth, setFocusDepth] = useState(1);
+  const [trace, setTrace] = useState<TraceSettings>(DEFAULT_TRACE);
+  const [levelBusy, setLevelBusy] = useState(false);
+  const [levelNote, setLevelNote] = useState<string | null>(null);
   const [dimUnrelated, setDimUnrelated] = useState<boolean>(() => readPref("ci.dimUnrelated", true));
   useEffect(() => writePref("ci.dimUnrelated", dimUnrelated), [dimUnrelated]);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
@@ -249,6 +260,14 @@ function Dashboard() {
   const [reindexing, setReindexing] = useState(false);
 
   const [ingestBusy, setIngestBusy] = useState(false);
+  const [ingestProgress, setIngestProgress] = useState<string | null>(null);
+  const [showProjects, setShowProjects] = useState<false | "projects" | "activity" | "status">(false);
+  const [overview, setOverview] = useState<ProjectOverview[] | null>(null);
+  const refreshOverview = useCallback(() => {
+    getJson<ProjectOverview[]>("/projects/overview")
+      .then(setOverview)
+      .catch(() => undefined);
+  }, []);
   const [ingestError, setIngestError] = useState<string | null>(null);
   const [showIngest, setShowIngest] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -262,6 +281,16 @@ function Dashboard() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   const activeProject = projects.find((p) => p.id === projectId);
+  const traceCounts = useMemo(() => {
+    let up = 0;
+    let down = 0;
+    for (const n of nodes) {
+      const r = n.data?.traceRole;
+      if (r === "up" || r === "both") up++;
+      if (r === "down" || r === "both") down++;
+    }
+    return { up, down };
+  }, [nodes]);
   const currentView = views.find((v) => v.id === view);
 
   // ---- bootstrap -----------------------------------------------------------------------------
@@ -276,7 +305,8 @@ function Dashboard() {
         setShowIngest(data.length === 0);
       })
       .catch(() => setShowIngest(true));
-  }, []);
+    refreshOverview();
+  }, [refreshOverview]);
 
   const loadSummary = useCallback(async (id: string) => {
     setSummaryLoading(true);
@@ -309,8 +339,30 @@ function Dashboard() {
     void loadFreshness(projectId);
     const onFocus = () => void loadFreshness(projectId);
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    // Poll while visible so a `git pull` (stale badge) or a re-index done elsewhere (git hook,
+    // auto-refresh, CLI) shows up without a manual reload.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadFreshness(projectId);
+    }, 30_000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(timer);
+    };
   }, [projectId, loadSummary, loadFreshness]);
+
+  // The index was rebuilt outside this tab (hook / auto-refresh / CLI): reload views and summary.
+  const lastIndexedAt = useRef<{ id: string; at?: string } | null>(null);
+  useEffect(() => {
+    const at = freshness?.indexed_at;
+    const prev = lastIndexedAt.current;
+    lastIndexedAt.current = { id: projectId, at };
+    if (prev && prev.id === projectId && prev.at && at && prev.at !== at) {
+      exploreGraphCache.current = new ExploreGraphCache(20);
+      setReloadKey((k) => k + 1);
+      void loadSummary(projectId);
+      refreshOverview();
+    }
+  }, [freshness?.indexed_at, projectId, loadSummary, refreshOverview]);
 
   // view catalog (availability depends on what the analyzers found in this project)
   useEffect(() => {
@@ -463,32 +515,6 @@ function Dashboard() {
     return layers.filter((l) => counts.has(l.id)).map((l) => ({ ...l, count: counts.get(l.id) }));
   }, [layers, payload]);
 
-  const canvasNeighborHighlight =
-    selectedId && exploreNeighborIds !== null && !overlay ? exploreNeighborIds : undefined;
-
-
-  useEffect(() => {
-    if (!selectedId || !projectId || overlay) {
-      setExploreNeighborIds(null);
-      return;
-    }
-    let cancelled = false;
-    getJson<NeighborhoodPayload>(
-      `/projects/${projectId}/graph/neighborhood?node_id=${encodeURIComponent(selectedId)}&direction=both&depth=${focusDepth}`,
-    )
-      .then((nh) => {
-        if (cancelled || nh.error) return;
-        const raw = nh.reachable_ids ?? [...nh.neighbors_in, ...nh.neighbors_out];
-        setExploreNeighborIds(new Set(raw.filter((id) => id !== selectedId)));
-      })
-      .catch(() => {
-        if (!cancelled) setExploreNeighborIds(new Set());
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedId, projectId, focusDepth, overlay, payload?.nodes.length]);
-
   type ExploreCrumb = { id: string; label: string };
   const exploreBreadcrumbs = useMemo((): ExploreCrumb[] => {
     if (view !== "explore" || !selectedId || !payload) return [];
@@ -558,6 +584,57 @@ function Dashboard() {
     exploreFitReason.current = null;
   }, []);
 
+  const exploreMeta = payload?.view === "explore" ? payload.metadata?.explore : undefined;
+  const selectedExpandable = useMemo(() => {
+    if (view !== "explore" || !selectedId || !payload) return null;
+    const n = payload.nodes.find((x) => x.id === selectedId);
+    return n && n.properties?.explore_expandable ? n : null;
+  }, [view, selectedId, payload]);
+
+  /** Open the whole tree (or the selected package) down to `level`; the server applies the node budget. */
+  const expandToLevel = useCallback(
+    async (level: number) => {
+      if (!projectId) return;
+      setLevelBusy(true);
+      setLevelNote(null);
+      try {
+        const params = new URLSearchParams({ expand_to_level: String(level) });
+        if (exploreExpanded.length) params.set("expanded", exploreExpanded.join(","));
+        if (selectedExpandable) params.set("level_root", selectedExpandable.id);
+        const data = await getJson<GraphPayload>(`/projects/${projectId}/graph/explore?${params}`);
+        const meta = data.metadata?.explore;
+        const next = meta?.expanded ?? [];
+        // Seed the cache so the reducer's new expanded set renders without a second request.
+        exploreGraphCache.current.set(`${projectId}|${reloadKey}|${exploreCacheKey(next, {})}`, data);
+        exploreFitReason.current = selectedExpandable ? null : "reset";
+        if (selectedExpandable) exploreLastToggleId.current = selectedExpandable.id;
+        exploreDispatch({ type: "set", expanded: next, childOffsets: {} });
+        if (meta?.level_capped) {
+          setLevelNote(
+            `Opened to level ${meta.level_reached ?? "?"}: a full level ${(meta.level_reached ?? 1) + 1} is too big to draw, so only its busiest packages were opened. Select a package and use “Open in selection” to go deeper.`,
+          );
+        }
+      } catch (e) {
+        setLevelNote(e instanceof Error ? e.message : "Could not open levels");
+      } finally {
+        setLevelBusy(false);
+      }
+    },
+    [projectId, exploreExpanded, selectedExpandable, reloadKey],
+  );
+
+  /** Keep only expansions above `level` (level 1 = just the top packages). */
+  const collapseToLevel = useCallback(
+    (level: number) => {
+      const depths = exploreMeta?.expanded_depths ?? {};
+      const keep = exploreExpanded.filter((id) => (depths[id] ?? 1) < level);
+      exploreFitReason.current = "reset";
+      setLevelNote(null);
+      exploreDispatch({ type: "set", expanded: keep, childOffsets: {} });
+    },
+    [exploreExpanded, exploreMeta],
+  );
+
   useExploreLayout({
     displayed,
     view,
@@ -568,7 +645,7 @@ function Dashboard() {
     filter,
     overlay,
     selectedId,
-    neighborHighlight: canvasNeighborHighlight,
+    trace,
     selectedEdgeId,
     exploreLoadingId,
     dimUnrelated,
@@ -634,6 +711,17 @@ function Dashboard() {
       setExploreEdgeDetail(null);
     }
   }, [view]);
+
+  /** Drop the node/edge selection (keeps the diagram, its expansions and any overlay). */
+  const clearSelection = useCallback(() => {
+    if (exploreClickTimer.current) clearTimeout(exploreClickTimer.current);
+    setSelectedId(null);
+    setDetail(null);
+    setSource(null);
+    setHighlight(null);
+    setSelectedEdgeId(null);
+    setExploreEdgeDetail(null);
+  }, []);
 
   const selectNode = useCallback(
     async (id: string) => {
@@ -768,6 +856,9 @@ function Dashboard() {
     return () => window.removeEventListener("hashchange", onHash);
   }, [projectId, projects, selectNode]);
 
+  const overlayActive = useRef(false);
+  overlayActive.current = Boolean(impact || pathResult || chatIds.length);
+
   // ⌘K / "/" palette · ⌘J ask · ⌘\ details pane · Esc clears overlays
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -785,14 +876,19 @@ function Dashboard() {
         e.preventDefault();
         setPanelOpen((o) => !o);
       } else if (e.key === "Escape" && !typing) {
-        setImpact(null);
-        setPathResult(null);
-        setChatIds([]);
+        // First Esc leaves an overlay (impact / path / chat highlight); the next clears the selection.
+        if (overlayActive.current) {
+          setImpact(null);
+          setPathResult(null);
+          setChatIds([]);
+        } else {
+          clearSelection();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [clearSelection]);
 
   // ---- actions -------------------------------------------------------------------------------
   const resetSelection = () => {
@@ -808,7 +904,6 @@ function Dashboard() {
     setFocusNodeId(undefined);
     exploreDispatch({ type: "clearExplore" });
     exploreGraphCache.current = new ExploreGraphCache(20);
-    setExploreNeighborIds(null);
     setSelectedEdgeId(null);
     setExploreEdgeDetail(null);
   };
@@ -833,6 +928,17 @@ function Dashboard() {
     setTourIds(step.node_ids);
   };
 
+  const pickFlowEndpoint = useCallback(
+    (ep: EndpointInfo) => {
+      setImpact(null);
+      setPathResult(null);
+      setTourIds([]);
+      setFocusNodeId(ep.id);
+      void selectNode(ep.id);
+    },
+    [selectNode],
+  );
+
   const onTraceEndpoint = (ep: EndpointInfo) => {
     setImpact(null);
     setPathResult(null);
@@ -845,30 +951,60 @@ function Dashboard() {
   const handleAnalyze = async (target: { git_url?: string; path?: string }) => {
     setIngestBusy(true);
     setIngestError(null);
+    setIngestProgress(target.git_url ? "Cloning repository…" : "Registering project…");
     try {
-      const body = await postJson<{ project: Project; summary: ProjectSummary }>("/projects/analyze", target);
+      // Register (clone) first, then index as a background job so progress can be shown.
+      const project = await postJson<Project>("/projects", target);
+      const job: Job = await runIndexJob(project.id, {
+        incremental: false,
+        onProgress: (j) => setIngestProgress(`${Math.round((j.progress ?? 0) * 100)}% · ${j.message || "Indexing…"}`),
+      });
+      if (job.status === "failed") throw new Error(job.error ?? "Indexing failed");
       setProjects(await getJson<Project[]>("/projects"));
+      refreshOverview();
       resetSelection();
-      setProjectId(body.project.id);
-      setSummary(body.summary);
+      setProjectId(project.id);
       setShowIngest(false);
+      setShowProjects(false);
       setReloadKey((k) => k + 1);
     } catch (e) {
       setIngestError(e instanceof Error ? e.message : "Analyze failed");
     } finally {
       setIngestBusy(false);
+      setIngestProgress(null);
     }
   };
 
-  const reindex = async () => {
+  /** A project was removed (projects page): drop every cache that could still show it. */
+  const onProjectRemoved = (id: string) => {
+    exploreGraphCache.current = new ExploreGraphCache(20);
+    refreshOverview();
+    const rest = projects.filter((p) => p.id !== id);
+    setProjects(rest);
+    if (id === projectId) {
+      resetSelection();
+      setPayload(null);
+      setSummary(null);
+      setFreshness(null);
+      setNodes([]);
+      setEdges([]);
+      const next = rest[0];
+      setProjectId(next?.id ?? "");
+      writeHash(next ? { p: next.id, v: view } : {});
+      if (!next) {
+        setShowProjects(false);
+        setShowIngest(true);
+      }
+    }
+  };
+
+  const reindex = async (incremental = true) => {
     if (!projectId) return;
     setReindexing(true);
     try {
-      let job = await postJson<Job>(`/projects/${projectId}/index?incremental=true`, {});
-      while (job.status === "pending" || job.status === "running") {
-        await new Promise((r) => setTimeout(r, 700));
-        job = await getJson<Job>(`/projects/${projectId}/jobs/${job.id}`);
-      }
+      const job = await runIndexJob(projectId, { incremental });
+      exploreGraphCache.current = new ExploreGraphCache(20);
+      refreshOverview();
       if (job.status === "failed") setGraphError(job.error ?? "Re-index failed");
       setImpact(null);
       setReloadKey((k) => k + 1);
@@ -942,10 +1078,14 @@ function Dashboard() {
       run: () => (selectedId ? openTab("impact") : showWorkingTreeImpact()),
     },
     { id: "suggestions", label: "Show refactoring suggestions", icon: <Lightbulb size={16} strokeWidth={1.5} aria-hidden />, run: () => openTab("suggestions") },
-    { id: "reindex", label: "Re-index project", icon: <RefreshCw size={16} strokeWidth={1.5} aria-hidden />, run: () => void reindex() },
+    { id: "reindex", label: "Re-index changed files", icon: <RefreshCw size={16} strokeWidth={1.5} aria-hidden />, run: () => void reindex(true) },
     { id: "copy", label: "Copy link to this view", icon: <LinkIcon size={16} strokeWidth={1.5} aria-hidden />, run: copyLink },
     { id: "panel", label: panelOpen ? "Hide details pane" : "Show details pane", hint: "⌘\\", run: () => setPanelOpen((o) => !o) },
     { id: "add", label: "Add a repository", icon: <Plus size={16} strokeWidth={1.5} aria-hidden />, run: () => setShowIngest(true) },
+    { id: "projects", label: "Manage projects (rename, settings, remove)", icon: <FolderCog size={16} strokeWidth={1.5} aria-hidden />, run: () => setShowProjects("projects") },
+    { id: "activity", label: "Activity log", icon: <Activity size={16} strokeWidth={1.5} aria-hidden />, run: () => setShowProjects("activity") },
+    { id: "status", label: "Server status", run: () => setShowProjects("status") },
+    { id: "full-reindex", label: "Full re-index (rebuild from scratch)", run: () => void reindex(false) },
   ];
 
   const startResize = (e: React.PointerEvent) => {
@@ -977,22 +1117,20 @@ function Dashboard() {
         </div>
 
         {projects.length > 0 ? (
-          <label className="project-select">
-            <span className="sr-only">Project</span>
-            <select
-              value={projectId}
-              onChange={(e) => {
-                resetSelection();
-                setProjectId(e.target.value);
-              }}
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <ProjectSwitcher
+            projects={projects}
+            overview={overview}
+            projectId={projectId}
+            onOpen={refreshOverview}
+            onPick={(id) => {
+              resetSelection();
+              setShowProjects(false);
+              setShowIngest(false);
+              setProjectId(id);
+            }}
+            onManage={() => setShowProjects("projects")}
+            onAdd={() => setShowIngest(true)}
+          />
         ) : null}
 
         {projectId && !showIngest ? (
@@ -1008,6 +1146,16 @@ function Dashboard() {
         <div className="topbar-controls">
           {projectId && !showIngest ? (
             <>
+              <SavedViewsMenu
+                projectId={projectId}
+                describe={`${currentView?.label ?? view}${detail?.node.name ? ` · ${detail.node.name}` : ""}`}
+                current={() => ({
+                  v: view,
+                  n: selectedId ?? undefined,
+                  f: focusNodeId,
+                  e: view === "explore" && exploreExpanded.length ? encodeExpandedIds(exploreExpanded) : undefined,
+                })}
+              />
               <button type="button" className="icon-btn" onClick={copyLink} title="Copy link to this view" aria-label="Copy link to this view">
                 {copied ? <Check size={16} strokeWidth={1.5} aria-hidden /> : <LinkIcon size={16} strokeWidth={1.5} aria-hidden />}
               </button>
@@ -1032,11 +1180,41 @@ function Dashboard() {
         </div>
       </header>
 
-      <FreshnessBanner freshness={freshness} busy={reindexing} onReindex={reindex} onShowImpact={showWorkingTreeImpact} />
+      {showProjects && !showIngest ? null : (
+        <FreshnessBanner freshness={freshness} busy={reindexing} onReindex={() => void reindex(true)} onShowImpact={showWorkingTreeImpact} />
+      )}
 
-      {showIngest ? (
+      {showProjects && !showIngest ? (
+        <ProjectsPage
+          currentId={projectId}
+          initialTab={showProjects}
+          onOpen={(id) => {
+            if (id !== projectId) {
+              resetSelection();
+              setProjectId(id);
+            }
+            setShowProjects(false);
+          }}
+          onAdd={() => setShowIngest(true)}
+          onRemoved={onProjectRemoved}
+          onRenamed={() => {
+            void getJson<Project[]>("/projects").then(setProjects);
+            refreshOverview();
+          }}
+          onIndexed={(id) => {
+            refreshOverview();
+            if (id === projectId) {
+              exploreGraphCache.current = new ExploreGraphCache(20);
+              setReloadKey((k) => k + 1);
+              void loadSummary(id);
+              void loadFreshness(id);
+            }
+          }}
+          onClose={() => setShowProjects(false)}
+        />
+      ) : showIngest ? (
         <main className="ingest-layout">
-          <IngestPanel onAnalyze={handleAnalyze} busy={ingestBusy} error={ingestError} />
+          <IngestPanel onAnalyze={handleAnalyze} busy={ingestBusy} error={ingestError} progress={ingestProgress} />
           {projects.length > 0 ? (
             <button type="button" className="btn ghost ingest-back" onClick={() => setShowIngest(false)}>
               Back to workspace
@@ -1106,71 +1284,19 @@ function Dashboard() {
                 <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter diagram" aria-label="Filter the diagram" />
               </label>
               {view === "explore" && !special ? (
-                <div className="canvas-toolbar-explore" role="group" aria-label="Explore controls">
-                  <span className="muted explore-hint">
-                    {exploreExpanded.length ? `${exploreExpanded.length} expanded` : "Chevron expands · double-click zooms"}
-                  </span>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={exploreBack}
-                    disabled={!exploreState.history.length}
-                    title="Back"
-                    aria-label="Back one expand"
-                  >
-                    <ArrowLeft size={16} strokeWidth={1.5} aria-hidden />
-                  </button>
-                  <button type="button" className="icon-btn" onClick={resetExploreTop} title="Reset to top level" aria-label="Reset explore">
-                    <ChevronsLeft size={16} strokeWidth={1.5} aria-hidden />
-                  </button>
-                  <label className="muted explore-depth">
-                    Collapse to
-                    <select
-                      aria-label="Collapse explore to level"
-                      onChange={(e) => {
-                        const lv = Number(e.target.value);
-                        e.target.value = "";
-                        if (!lv) return;
-                        exploreDispatch({
-                          type: "collapseToLevel",
-                          level: lv,
-                          orderedAncestors: orderedAncestorPath,
-                        });
-                        exploreFitReason.current = null;
-                      }}
-                      defaultValue=""
-                    >
-                      <option value="" disabled>
-                        level…
-                      </option>
-                      <option value={1}>1</option>
-                      <option value={2}>2</option>
-                      <option value={3}>3</option>
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={expandExploreChildrenOfSelection}
-                    disabled={!selectedId}
-                    title="Expand children of selection"
-                    aria-label="Expand children of selection"
-                  >
-                    <Plus size={16} strokeWidth={1.5} aria-hidden />
-                  </button>
-                  <label className="muted explore-depth">
-                    Depth
-                    <select
-                      value={focusDepth}
-                      onChange={(e) => setFocusDepth(Number(e.target.value))}
-                      aria-label="Neighbourhood depth"
-                    >
-                      <option value={1}>1</option>
-                      <option value={2}>2</option>
-                      <option value={3}>3</option>
-                    </select>
-                  </label>
-                </div>
+                <ExploreToolbar
+                  expandedCount={exploreExpanded.length}
+                  canGoBack={exploreState.history.length > 0}
+                  maxDepth={exploreMeta?.max_depth}
+                  scopeName={selectedExpandable?.label ?? null}
+                  canExpandSelection={Boolean(selectedExpandable && !selectedExpandable.properties?.explore_expanded)}
+                  busy={levelBusy}
+                  onBack={exploreBack}
+                  onReset={resetExploreTop}
+                  onExpandToLevel={(lv) => void expandToLevel(lv)}
+                  onCollapseToLevel={collapseToLevel}
+                  onExpandSelection={expandExploreChildrenOfSelection}
+                />
               ) : null}
               {focusNodeId && !special ? (
                 <button type="button" className="chip-btn" onClick={() => setFocusNodeId(undefined)}>
@@ -1206,6 +1332,10 @@ function Dashboard() {
               </button>
             </div>
 
+            <div className="graph-row">
+            {view === "api-flow" && !special && projectId ? (
+              <ApiEndpointList projectId={projectId} reloadKey={reloadKey} focusedId={focusNodeId} onPick={pickFlowEndpoint} />
+            ) : null}
             <div
               className={`graph-pane zoom-${zoomLevel}`}
               onKeyDown={(e) => {
@@ -1245,6 +1375,7 @@ function Dashboard() {
                 nodes={nodes}
                 edges={edges}
                 nodeTypes={NODE_TYPES}
+                edgeTypes={EDGE_TYPES}
                 nodesDraggable={view !== "explore"}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
@@ -1300,7 +1431,11 @@ function Dashboard() {
                   const ge = displayed?.edges.find((x) => x.id === edge.id);
                   if (ge) void fetchExploreUnderlying(ge);
                 }}
-                minZoom={view === "explore" ? 0.25 : 0.1}
+                onPaneClick={clearSelection}
+                // Edges get explicit z-indexes from buildFlow: context edges under every node,
+                // the traced ones above the group boxes that contain their endpoints.
+                zIndexMode="manual"
+                minZoom={0.05}
                 maxZoom={1.8}
                 proOptions={{ hideAttribution: true }}
               >
@@ -1341,8 +1476,27 @@ function Dashboard() {
                     </button>
                   </Panel>
                 ) : null}
+                {selectedId && !special && nodes.some((n) => n.id === selectedId) ? (
+                  <Panel position="top-right">
+                    <TraceControl
+                      value={trace}
+                      onChange={setTrace}
+                      selectedName={detail?.node.name}
+                      counts={traceCounts}
+                      onClear={clearSelection}
+                    />
+                  </Panel>
+                ) : null}
+                {levelNote && view === "explore" ? (
+                  <Panel position="bottom-center" className="graph-legend graph-note" role="status">
+                    <span className="muted">{levelNote}</span>
+                    <button type="button" className="link-btn" onClick={() => setLevelNote(null)}>
+                      Dismiss
+                    </button>
+                  </Panel>
+                ) : null}
                 {displayed?.metadata?.truncated ? (
-                  <Panel position="top-right" className="graph-legend">
+                  <Panel position="bottom-center" className="graph-legend">
                     <span className="muted">
                       {displayed.metadata?.truncation_reason ??
                         "Showing the most connected nodes. Filter or search to narrow down."}
@@ -1350,6 +1504,7 @@ function Dashboard() {
                   </Panel>
                 ) : null}
               </ReactFlow>
+            </div>
             </div>
           </section>
 

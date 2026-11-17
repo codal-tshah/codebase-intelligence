@@ -81,16 +81,16 @@ export const LANE_HEADER = 40;
  */
 export function layoutByLayer(
   nodes: (LayoutInput & { layer?: string | null; rank: number })[],
-  { rowsPerColumn = 12, gapX = 28, gapY = 16, laneGap = 72 } = {},
+  { rowsPerColumn = 12, gapX = 28, gapY = 16, laneGap = 72, order: laneOrder = LAYER_ORDER } = {},
 ): { positions: Map<string, { x: number; y: number }>; lanes: { id: string; x: number; width: number; count: number }[] } {
   const byLayer = new Map<string, typeof nodes>();
   for (const n of nodes) {
-    const key = n.layer && LAYER_ORDER.includes(n.layer) ? n.layer : "other";
+    const key = n.layer && laneOrder.includes(n.layer) ? n.layer : "other";
     const list = byLayer.get(key);
     if (list) list.push(n);
     else byLayer.set(key, [n]);
   }
-  const order = [...LAYER_ORDER, "other"].filter((k) => byLayer.has(k));
+  const order = [...laneOrder, "other"].filter((k) => byLayer.has(k));
   const positions = new Map<string, { x: number; y: number }>();
   const lanes: { id: string; x: number; width: number; count: number }[] = [];
   let x = 0;

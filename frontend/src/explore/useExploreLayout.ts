@@ -1,9 +1,10 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
 import { flushSync } from "react-dom";
 import { useReactFlow, type Edge, type Node } from "@xyflow/react";
-import { buildFlow, type ArchNodeData, type FlowOptions, type Overlay } from "../flow";
+import { buildFlow, type ArchNodeData, type EdgeData, type FlowOptions, type Overlay } from "../flow";
+import type { TraceSettings } from "../trace";
 import type { GraphPayload, Layer } from "../types";
-import { layoutExploreNodes } from "./layoutExplore";
+import { layoutExploreGraph, routeKey, type ExploreRoutes } from "./layoutExplore";
 
 export type ExploreFitReason = "initial" | "view" | "reset" | null;
 
@@ -11,6 +12,7 @@ export type ExploreFitReason = "initial" | "view" | "reset" | null;
 export function mergeExploreLayoutPositions(
   laidOut: Node<ArchNodeData>[],
   styled: { nodes: Node<ArchNodeData>[]; edges: Edge[] },
+  routes?: ExploreRoutes,
 ): { nodes: Node<ArchNodeData>[]; edges: Edge[] } {
   const posById = new Map(laidOut.map((n) => [n.id, n.position]));
   const dimById = new Map(
@@ -22,7 +24,14 @@ export function mergeExploreLayoutPositions(
     if (!p) return n;
     return { ...n, position: p, width: d?.width ?? n.width, height: d?.height ?? n.height };
   });
-  return { nodes, edges: styled.edges };
+  // Edges between siblings follow ELK's orthogonal route; the rest are drawn as curves.
+  const edges = routes
+    ? styled.edges.map((e) => {
+        const points = routes.get(routeKey(e.source, e.target));
+        return points ? { ...e, type: "routed", data: { ...(e.data as EdgeData), points } } : { ...e, type: "routed" };
+      })
+    : styled.edges;
+  return { nodes, edges };
 }
 
 type Args = {
@@ -35,8 +44,8 @@ type Args = {
   filter: string;
   overlay: Overlay | null;
   selectedId: string | null;
-  /** Server neighbourhood of the selection (undefined while none / during overlays). */
-  neighborHighlight: Set<string> | undefined;
+  /** Multi-hop trace settings for the selection. */
+  trace: TraceSettings;
   selectedEdgeId: string | null;
   exploreLoadingId: string | null;
   dimUnrelated: boolean;
@@ -58,15 +67,15 @@ type Args = {
  */
 export function useExploreLayout(a: Args) {
   const { fitView, fitBounds } = useReactFlow();
-  const laidOutRef = useRef<{ nodes: Node<ArchNodeData>[]; edges: Edge[]; gen: number } | null>(null);
+  const laidOutRef = useRef<{ nodes: Node<ArchNodeData>[]; edges: Edge[]; gen: number; routes: ExploreRoutes } | null>(null);
   const genRef = useRef(0);
   // Explore reads these from refs inside the structure effect so they don't trigger ELK.
   const selectedRef = useRef(a.selectedId);
   selectedRef.current = a.selectedId;
   const edgeRef = useRef(a.selectedEdgeId);
   edgeRef.current = a.selectedEdgeId;
-  const neighborRef = useRef(a.neighborHighlight);
-  neighborRef.current = a.neighborHighlight;
+  const traceRef = useRef(a.trace);
+  traceRef.current = a.trace;
 
   const {
     displayed,
@@ -89,18 +98,18 @@ export function useExploreLayout(a: Args) {
   const isExplore = Boolean(displayed && displayed.view === "explore");
   // Non-Explore views re-render on selection (cheap dagre/lane layout + highlight).
   const flatSelectedId = displayed && !isExplore ? a.selectedId : null;
-  const flatNeighbors = displayed && !isExplore ? a.neighborHighlight : undefined;
+  const flatTrace = displayed && !isExplore ? a.trace : undefined;
   const flatSelectedEdge = displayed && !isExplore ? a.selectedEdgeId : null;
 
   /** Structure + layout. In Explore, selection/neighbour highlight are read from refs. */
   useEffect(() => {
-    const opts = (selectedId: string | null, nb: Set<string> | undefined, edgeId: string | null): FlowOptions => ({
+    const opts = (selectedId: string | null, tr: TraceSettings | undefined, edgeId: string | null): FlowOptions => ({
       layers,
       hiddenLayers,
       filter,
       selectedId,
       overlay,
-      exploreNeighborIds: nb ?? null,
+      trace: tr,
       selectedEdgeId: edgeId,
       exploreLoadingId,
       onExploreToggle,
@@ -115,13 +124,13 @@ export function useExploreLayout(a: Args) {
     }
     if (displayed.view !== "explore") {
       laidOutRef.current = null;
-      const flow = buildFlow(displayed, opts(flatSelectedId, flatNeighbors, flatSelectedEdge));
+      const flow = buildFlow(displayed, opts(flatSelectedId, flatTrace, flatSelectedEdge));
       setEdges(flow.edges);
       setNodes(flow.nodes);
       return;
     }
 
-    const flow = buildFlow(displayed, opts(selectedRef.current, neighborRef.current, edgeRef.current));
+    const flow = buildFlow(displayed, opts(selectedRef.current, traceRef.current, edgeRef.current));
     setEdges(flow.edges);
     if (!flow.exploreLayoutInput) {
       setNodes(flow.nodes);
@@ -132,7 +141,7 @@ export function useExploreLayout(a: Args) {
     const layoutGen = ++genRef.current;
     const firstLayout = laidOutRef.current === null;
     let cancelled = false;
-    void layoutExploreNodes(flow.exploreLayoutInput).then((pos) => {
+    void layoutExploreGraph(flow.exploreLayoutInput).then(({ positions: pos, routes }) => {
       if (cancelled || layoutGen !== genRef.current) return;
       const dur = reducedMotion ? 0 : 180;
       const withPos = flow.nodes.map((n) => {
@@ -140,9 +149,9 @@ export function useExploreLayout(a: Args) {
         if (!lp) return n;
         return { ...n, position: { x: lp.x, y: lp.y }, width: lp.width, height: lp.height };
       });
-      const styledFlow = buildFlow(displayed, opts(selectedRef.current, neighborRef.current, edgeRef.current));
-      const merged = mergeExploreLayoutPositions(withPos, styledFlow);
-      laidOutRef.current = { nodes: merged.nodes, edges: merged.edges, gen: layoutGen };
+      const styledFlow = buildFlow(displayed, opts(selectedRef.current, traceRef.current, edgeRef.current));
+      const merged = mergeExploreLayoutPositions(withPos, styledFlow, routes);
+      laidOutRef.current = { nodes: merged.nodes, edges: merged.edges, gen: layoutGen, routes };
 
       flushSync(() => {
         setNodes(merged.nodes);
@@ -160,7 +169,7 @@ export function useExploreLayout(a: Args) {
           const fitOpts = {
             padding: 0.18,
             duration: dur,
-            minZoom: 0.35,
+            minZoom: 0.05,
             maxZoom: 1.6 as number | undefined,
             nodes: merged.nodes,
             includeHiddenNodes: true,
@@ -203,7 +212,7 @@ export function useExploreLayout(a: Args) {
     };
   }, [
     flatSelectedId,
-    flatNeighbors,
+    flatTrace,
     flatSelectedEdge,
     displayed,
     layers,
@@ -234,15 +243,15 @@ export function useExploreLayout(a: Args) {
       filter,
       selectedId: a.selectedId,
       overlay,
-      exploreNeighborIds: a.neighborHighlight ?? null,
+      trace: a.trace,
       selectedEdgeId: a.selectedEdgeId,
       exploreLoadingId,
       onExploreToggle,
       onExploreLoadMore,
       dimUnrelated,
     });
-    const merged = mergeExploreLayoutPositions(base.nodes, flow);
-    laidOutRef.current = { ...merged, gen: base.gen };
+    const merged = mergeExploreLayoutPositions(base.nodes, flow, base.routes);
+    laidOutRef.current = { ...merged, gen: base.gen, routes: base.routes };
     setNodes(merged.nodes);
     setEdges(merged.edges);
   }, [
@@ -253,7 +262,7 @@ export function useExploreLayout(a: Args) {
     filter,
     a.selectedId,
     overlay,
-    a.neighborHighlight,
+    a.trace,
     a.selectedEdgeId,
     exploreLoadingId,
     dimUnrelated,

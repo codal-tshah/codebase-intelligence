@@ -355,6 +355,19 @@ class _Analyzer:
             top = mod.name.split(".")[0]
             if "." in mod.name and "@" not in mod.name and top in self.modules and self.modules[top].is_package:
                 local.setdefault(top, "layout")
+        # Sub-directories inside a local package (app/core, app/routers/v1, dcim/api) become nested
+        # Package nodes so Explore can drill down level by level instead of listing every module
+        # of a large app flat. They are marked `subpackage` so app-level views can skip them.
+        roots = sorted(local, key=len)
+        for mod in self.modules.values():
+            if "@" in mod.name:
+                continue
+            parts = mod.name.split(".")
+            upto = len(parts) if mod.is_package else len(parts) - 1
+            for i in range(2, upto + 1):
+                cand = ".".join(parts[:i])
+                if cand not in local and any(cand.startswith(r + ".") for r in roots):
+                    local[cand] = "subpackage"
 
         project_name = self.root.name
         self._add_node(
@@ -381,7 +394,7 @@ class _Analyzer:
                     source_path=rel_dir,
                     extractor="django.installed_apps" if origin == "installed_apps" else "django.layout",
                     confidence=0.95 if origin == "installed_apps" else 0.8,
-                    properties={"installed": origin == "installed_apps"},
+                    properties={"installed": origin == "installed_apps", **({"subpackage": True} if origin == "subpackage" else {})},
                 )
             )
         for pkg, nid in self.packages.items():
@@ -1225,7 +1238,10 @@ class _Analyzer:
                 key = self._web_ref(mod, base)
                 if key is None and not base.split(".")[-1].lower().endswith(ROUTER_NAME_HINTS):
                     continue
-                path = _const_arg(deco, 0) or _kw_str(deco, "path", "rule")
+                # `@router.get("")` is the router prefix itself (GET /items): "" is a real path.
+                path = _const_arg(deco, 0)
+                if path is None:
+                    path = _kw_str(deco, "path", "rule")
                 if path is None:
                     continue
                 framework = self.web_apps[key]["framework"] if key else ("flask" if verb == "route" else "fastapi")
@@ -1451,7 +1467,8 @@ class _Analyzer:
                 routes = sum(1 for n in self.nodes.values() if n.node_type == NodeType.ENDPOINT)
                 summary = f"{kind} with {len(self.packages)} package(s) and {routes} route(s)."
             elif node.node_type == NodeType.PACKAGE:
-                summary = f"App `{node.name}` containing {pkg_modules.get(node.id, 0)} module(s)."
+                kind = "Package" if props.get("subpackage") else "App"
+                summary = f"{kind} `{node.qualified_name or node.name}` containing {pkg_modules.get(node.id, 0)} module(s)."
             elif node.node_type in (NodeType.MODULE, NodeType.MIGRATION):
                 label = ROLE_LABEL.get(role or "", "Module")
                 kids = children.get(node.id, [])

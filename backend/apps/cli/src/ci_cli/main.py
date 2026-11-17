@@ -74,9 +74,15 @@ def analyze(
         typer.echo(f"{job.message} (project {project.id})")
 
 
-@app.command()
-def projects(as_json: bool = JsonOpt) -> None:
-    """List indexed projects."""
+projects_app = typer.Typer(help="List, rename or remove indexed projects.", no_args_is_help=False)
+app.add_typer(projects_app, name="projects")
+
+
+@projects_app.callback(invoke_without_command=True)
+def projects(ctx: typer.Context, as_json: bool = JsonOpt) -> None:
+    """List indexed projects (subcommands: remove, rename)."""
+    if ctx.invoked_subcommand is not None:
+        return
     from ci_core.registry import load_registry
 
     items = load_registry()
@@ -84,6 +90,54 @@ def projects(as_json: bool = JsonOpt) -> None:
         return _emit([p.model_dump(mode="json") for p in items])
     for p in items:
         typer.echo(f"{p.id}  {p.name:<28} {p.framework or '-':<40} {p.root_path}")
+
+
+@projects_app.command("remove")
+def projects_remove(
+    ref: str = typer.Argument(..., help="Project id, name or path"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask for confirmation"),
+) -> None:
+    """Remove a project: deletes its index (and the clone this tool made for a git URL).
+    A local source folder is never modified."""
+    from ci_core import audit
+    from ci_core.db import GraphStore
+    from ci_core.project_admin import remove_project, removal_plan
+    from ci_indexer import index_in_progress
+
+    project = _require(ref)
+    if index_in_progress(project.id) or GraphStore(project.id).has_running_job():
+        typer.echo("an index job is running for this project; try again when it finishes", err=True)
+        raise typer.Exit(1)
+    plan = removal_plan(project)
+    typer.echo(f"Remove {project.name} ({project.id}). This deletes:")
+    for path in plan["delete"]:
+        typer.echo(f"  {path}")
+    if plan["source_untouched"]:
+        typer.echo(f"Your source folder is NOT touched: {plan['source_untouched']}")
+    if not yes and not typer.confirm("Continue?", default=False):
+        raise typer.Exit(1)
+    remove_project(project)
+    audit.record("project.delete", project_id=project.id, project_name=project.name, actor="cli",
+                 detail={"deleted": plan["delete"], "source_untouched": plan["source_untouched"]})
+    typer.echo("removed")
+
+
+@projects_app.command("rename")
+def projects_rename(ref: str = typer.Argument(..., help="Project id, name or path"), name: str = typer.Argument(...)) -> None:
+    """Rename a project (names must be unique; they work as references everywhere)."""
+    from ci_core import audit
+    from ci_core.project_admin import rename_project
+    from ci_core.registry import load_registry
+
+    project = _require(ref)
+    clean = " ".join(name.split())
+    if any(p.name == clean and p.id != project.id for p in load_registry()):
+        typer.echo(f"another project is already named {clean!r}", err=True)
+        raise typer.Exit(1)
+    updated = rename_project(project, clean)
+    audit.record("project.rename", project_id=project.id, project_name=updated.name, actor="cli",
+                 detail={"from": project.name, "to": updated.name})
+    typer.echo(f"{project.name} -> {updated.name}")
 
 
 @app.command()
@@ -182,12 +236,24 @@ _HOOK_BEGIN = "# >>> codebase-intelligence >>>"
 _HOOK_END = "# <<< codebase-intelligence <<<"
 
 
+# Hooks that change the checked-out code: commit, pull/merge, branch switch, rebase/amend.
+HOOK_NAMES = ("post-commit", "post-merge", "post-checkout", "post-rewrite")
+
+
+def _strip_block(text: str) -> tuple[str, bool]:
+    start, end = text.find(_HOOK_BEGIN), text.find(_HOOK_END)
+    if start == -1 or end <= start:
+        return text, False
+    return text[:start] + text[end + len(_HOOK_END):].lstrip("\n"), True
+
+
 @app.command()
 def hook(
     action: str = typer.Argument("install", help="install | uninstall | status"),
     path: Path = typer.Option(Path("."), "--path", help="Repository (default: current directory)"),
 ) -> None:
-    """Keep the index fresh: a git post-commit hook that re-indexes incrementally in the background."""
+    """Keep the index fresh after `git commit`, `git pull`/merge, branch checkout and rebase:
+    git hooks that re-index incrementally in the background (only changed files are re-analysed)."""
     import re
     import shlex
 
@@ -197,45 +263,55 @@ def hook(
         typer.echo(f"{root} is not a git repository", err=True)
         raise typer.Exit(1)
     hooks_dir, git_dir = paths
-    hook_path = hooks_dir / "post-commit"
-    current = hook_path.read_text(encoding="utf-8") if hook_path.exists() else ""
-    start, end = current.find(_HOOK_BEGIN), current.find(_HOOK_END)
-    installed = start != -1 and end > start
-    if action == "status":
-        typer.echo("installed" if installed else "not installed")
-        return
-    if installed:  # drop the old block (re-install refreshes the interpreter path)
-        current = current[:start] + current[end + len(_HOOK_END):].lstrip("\n")
-    if action == "uninstall":
-        if not installed:
-            typer.echo("hook was not installed")
-            return
-        if current.strip() in ("", "#!/bin/sh"):
-            hook_path.unlink()
-        else:
-            hook_path.write_text(current, encoding="utf-8")
-        typer.echo("post-commit hook removed")
-        return
-    if action != "install":
+    if action not in ("install", "uninstall", "status"):
         typer.echo("action must be install, uninstall or status", err=True)
         raise typer.Exit(2)
+    current = {n: ((hooks_dir / n).read_text(encoding="utf-8") if (hooks_dir / n).exists() else "") for n in HOOK_NAMES}
+    installed = {n: _strip_block(t)[1] for n, t in current.items()}
+    if action == "status":
+        done = [n for n, ok in installed.items() if ok]
+        typer.echo("installed" if len(done) == len(HOOK_NAMES) else ("not installed" if not done else f"partial: {', '.join(done)}"))
+        return
+    if action == "uninstall":
+        if not any(installed.values()):
+            typer.echo("hooks were not installed")
+            return
+        for n, text in current.items():
+            rest, had = _strip_block(text)
+            if not had:
+                continue
+            if rest.strip() in ("", "#!/bin/sh"):
+                (hooks_dir / n).unlink()
+            else:
+                (hooks_dir / n).write_text(rest, encoding="utf-8")
+        typer.echo(f"removed codebase-intelligence from {', '.join(HOOK_NAMES)}")
+        return
     cmd = f"{shlex.quote(sys.executable)} -m ci_cli.main analyze {shlex.quote(str(root))} --incremental"
-    # A hook without a shebang is run by sh; anything else (python, node, ...) can't take shell lines.
-    shebang, _, rest = current.partition("\n") if current.startswith("#!") else ("#!/bin/sh", "\n", current)
-    if not re.search(r"\b(ba|da|k|z)?sh\b", shebang):
-        typer.echo(f"{hook_path} is not a shell script ({shebang}); call this from it instead:\n  {cmd}", err=True)
-        raise typer.Exit(1)
-    block = (
-        f"{_HOOK_BEGIN}\n"
-        "# Re-index after each commit (background, non-blocking). Remove with: ci hook uninstall\n"
-        f"( {cmd} > {shlex.quote(str(git_dir / 'ci-analyze.log'))} 2>&1 & )\n"
-        f"{_HOOK_END}\n"
-    )
-    # Right after the shebang, so an existing `exit`/`exec` at the end of the hook can't skip it.
-    hook_path.parent.mkdir(parents=True, exist_ok=True)
-    hook_path.write_text(f"{shebang}\n{block}{rest}", encoding="utf-8")
-    hook_path.chmod(0o755)
-    typer.echo(f"post-commit hook installed in {hook_path}")
+    log = shlex.quote(str(git_dir / "ci-analyze.log"))
+    # Validate every hook first so a non-shell hook leaves all of them untouched.
+    plans: dict[str, tuple[str, str]] = {}
+    for n, text in current.items():
+        rest, _ = _strip_block(text)  # re-install refreshes the interpreter path
+        shebang, _, body = rest.partition("\n") if rest.startswith("#!") else ("#!/bin/sh", "\n", rest)
+        if not re.search(r"\b(ba|da|k|z)?sh\b", shebang):
+            typer.echo(f"{hooks_dir / n} is not a shell script ({shebang}); call this from it instead:\n  {cmd}", err=True)
+            raise typer.Exit(1)
+        plans[n] = (shebang, body)
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    for n, (shebang, body) in plans.items():
+        # post-checkout also runs for `git checkout -- file`; only re-index on branch switches ($3 = 1).
+        guard = '[ "$3" = "1" ] && ' if n == "post-checkout" else ""
+        block = (
+            f"{_HOOK_BEGIN}\n"
+            f"# Re-index after {n} (background, non-blocking). Remove with: ci hook uninstall\n"
+            f"{guard}( {cmd} > {log} 2>&1 & )\n"
+            f"{_HOOK_END}\n"
+        )
+        # Right after the shebang, so an existing `exit`/`exec` later in the hook can't skip it.
+        hook_path = hooks_dir / n
+        hook_path.write_text(f"{shebang}\n{block}{body}", encoding="utf-8")
+        hook_path.chmod(0o755)
+    typer.echo(f"git hooks installed in {hooks_dir}: {', '.join(HOOK_NAMES)}")
 
 
 def _git_hook_paths(root: Path) -> tuple[Path, Path] | None:
@@ -470,8 +546,8 @@ def serve(
 
     if get_settings().mode == "server":
         typer.echo(
-            "Warning: CI_MODE=server requires X-API-Key on /api requests; "
-            "the bundled dashboard will get 401 unless you use CI_MODE=local or an auth proxy.",
+            "Server mode: every /api request needs the X-API-Key header. The dashboard asks for the key once "
+            "per browser tab (kept in sessionStorage, never in the URL).",
             err=True,
         )
     uvicorn.run(create_app(ui_dir=ui), host=host, port=port)

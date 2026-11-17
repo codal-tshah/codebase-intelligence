@@ -122,9 +122,9 @@ def compute_freshness(project_id: str, root: Path) -> dict[str, Any]:
 
     old: dict[str, dict[str, Any]] = previous.get("files", {})
     current: dict[str, str] = {}
-    from ci_indexer.analyzers import list_project_files
+    from ci_indexer.analyzers import list_project_files, project_ignore
 
-    for f in list_project_files(root):
+    for f in list_project_files(root, project_ignore(project_id)):
         current[f.relative_to(root).as_posix()] = file_sha256(f)
 
     changed = sorted(

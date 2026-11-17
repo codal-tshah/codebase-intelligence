@@ -2,7 +2,28 @@
 
 All notable changes. Dates are when the work landed on a branch; versions are not tagged yet.
 
-## Unreleased: enterprise-readiness pass (2026-11-14)
+## Unreleased: selection, dropdowns, API flow, validation, project management (2026-11-16)
+
+### Added
+- **Trace the selection** in every view: upstream ("in", amber) vs downstream ("out", blue), 1–10 hops or all, with in/out badges, a legend entry and counts. Unrelated nodes fade to ~0.2 and come back on hover. Esc or an empty-canvas click clears the selection.
+- **Explore levels:** "Open to level" offers 1…max depth (from the real tree, plus All) for the whole tree or inside the selected package. "Collapse to" uses the same levels. The server opens levels within the node budget and says when a level only partly fits.
+- **One popover for all dropdowns** (`components/Popover.tsx`): portalled, flips and shifts inside the viewport, Esc/outside-click close, arrow keys, focus returns to the trigger. Covers depth, collapse, trace depth, export, the project switcher, saved views, search results and impact depth.
+- **API flow pipeline:** an endpoint list (grouped by router file, method badges, filter) and one endpoint's chain at a time in columns: Client/UI → Endpoint → Guards → Handler → Services → Data access → Models/External. Inferred links stay dashed and labelled.
+- **Project management:** project switcher with search and stats; Projects page (search, sort, re-index changed / full, rename, ignore patterns, auto-refresh, remove); a remove dialog that states exactly what is deleted (the source folder is never touched); Activity (audit log) and Status tabs; saved views. API: `DELETE/PATCH /projects/{ref}`, `/projects/overview`, `/removal-plan`, `/settings`, `/saved-views`, `/index-jobs`, `/audit`, `/status`. CLI: `ci projects remove|rename`.
+- **Stay current after `git pull`:** `ci hook install` now covers post-commit, post-merge (pull), post-checkout (branch switch) and post-rewrite (rebase). Optional server auto-refresh per project (`CI_AUTO_REFRESH_SECONDS`, default 60). The dashboard polls freshness and reloads itself when the index changes.
+- Gzip on API responses (graph payloads are about 8× smaller); one error shape `{detail, request_id}`; `main.py` split into routers (URLs unchanged).
+
+### Fixed (found by validating against a large private FastAPI repo)
+- Python 3.14 `except A, B:` (PEP 758) made 31 files unparseable, so their routes and calls were missing. They now parse, with exact line numbers.
+- `@router.get("")` (the router prefix itself) was dropped: 12 routes were missing. Endpoint count now matches the source (211/211).
+- Typed dependencies (`svc: Annotated[Svc, Depends()]` aliases, `self.repo` set in `__init__`) now resolve. Handlers with resolved calls went from about 40 to 202 of 211, and chains reach models.
+- Explore was flat (367 modules under `app`): sub-directories are now nested packages. Architecture opens a dominant `app/` into its layers.
+- FastAPI folder roles (`routers/`, `api/`, `schemas/`, `repositories/`, `dependencies/`, `db/`, `workers/`) and Alembic migrations were all labelled "service".
+- Generated `htmlcov/`/`coverage/` output was indexed as frontend code.
+- Edges drew over group boxes (React Flow z-index). Parallel edges are now bundled into one line with a breakdown. Large graphs draw edges as faint context.
+- The Ask graph-only answer appended an all-models dump after an endpoint trace.
+
+## Enterprise-readiness pass (2026-11-14)
 
 ### Added
 - **Improve tab:** optimization and reuse suggestions in the dashboard, filterable by kind, with nodes that open on click. The backend now balances the list across kinds (on NetBox it was 100% hotspots).

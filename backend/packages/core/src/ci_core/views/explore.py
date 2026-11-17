@@ -139,6 +139,93 @@ def _is_expandable(index: GraphIndex, nid: str) -> bool:
     return bool(_direct_structural_children(index, nid))
 
 
+# Deepest level offered by "expand to level" (the UI also offers "All", sent as this value).
+MAX_LEVEL = 64
+_DEPTH_ATTR = "_explore_structural_depths"
+
+
+def structural_depths(index: GraphIndex) -> dict[str, int]:
+    """Absolute Explore level of every structural node: top-level roots are level 1, their
+    children level 2, and so on. Cached per loaded index (the store rebuilds it on re-index)."""
+    cached = index.__dict__.get(_DEPTH_ATTR)
+    if cached is not None:
+        return cached
+    proj = _project_id(index)
+    depths: dict[str, int] = {}
+    if proj:
+        frontier = _top_level_roots(index, proj)
+        for r in frontier:
+            depths[r] = 1
+        while frontier:
+            nxt: list[str] = []
+            for nid in frontier:
+                for c in _direct_structural_children(index, nid):
+                    if c not in depths:
+                        depths[c] = depths[nid] + 1
+                        nxt.append(c)
+            frontier = nxt
+    index.__dict__[_DEPTH_ATTR] = depths
+    return depths
+
+
+def expansion_for_level(
+    index: GraphIndex, level: int, budget: int = BUDGET, root: str | None = None
+) -> tuple[set[str], int, bool]:
+    """Expanded set that opens the tree down to absolute `level` (level 1 = top-level roots).
+
+    With `root`, only that node's subtree is opened (and its ancestors, so it is on the canvas).
+    Opens one level at a time. When a whole level does not fit in the visible-node budget, the
+    busiest nodes of that level are opened first until the budget is used, and `capped` is set
+    so the UI can say so. Returns (expanded ids, deepest level reached, capped?).
+    """
+    proj = _project_id(index)
+    if not proj:
+        return set(), 1, False
+    depths = structural_depths(index)
+    expanded: set[str] = set()
+    if root and root in index.nodes and root in depths:
+        parent = _contains_parent(index)
+        cur = parent.get(root)
+        while cur and cur in depths:  # ancestors (below the project) must be open
+            expanded.add(cur)
+            cur = parent.get(cur)
+        frontier = [root]
+        start = depths[root]
+        visible = len(_top_level_roots(index, proj)) + sum(len(_direct_structural_children(index, a)) for a in expanded)
+    else:
+        frontier = _top_level_roots(index, proj)
+        start = 1
+        visible = len(frontier)
+    reached = start
+    for lv in range(start, max(start, level)):
+        openable = [n for n in frontier if _is_expandable(index, n)]
+        if not openable:
+            break
+        pages = {n: _direct_structural_children(index, n)[:STRUCT_CHILD_PAGE] for n in openable}
+        total = sum(len(k) for k in pages.values())
+        if visible + total > budget:
+            # partial level: busiest first, so the parts of the code that matter most open first
+            for n in sorted(openable, key=lambda i: (_is_test_tree(index, i), -index.degree(i), index.nodes[i].name)):
+                if visible + len(pages[n]) > budget:
+                    continue
+                expanded.add(n)
+                visible += len(pages[n])
+            return expanded, reached, True
+        expanded.update(openable)
+        visible += total
+        frontier = [c for n in openable for c in pages[n]]
+        reached = lv + 1
+    return expanded, reached, False
+
+
+def _is_test_tree(index: GraphIndex, nid: str) -> bool:
+    """Tests sit last when a level must be filled partially (they import everything, so raw degree
+    would always pick them first, ahead of the application code people came to read)."""
+    n = index.nodes[nid]
+    path = (n.source_path or n.qualified_name or n.name or "").replace("\\", "/")
+    return n.properties.get("layer") == "test" or path.split("/")[0] in {"tests", "test", "__tests__", "spec"}
+
+
 def _collect_visible(
     index: GraphIndex,
     proj: str,
@@ -306,6 +393,20 @@ def _parse_offsets_param(params: dict[str, Any]) -> dict[str, int]:
     return out
 
 
+def _visible_depths(parent_id: dict[str, str | None]) -> dict[str, int]:
+    """Nesting depth on the canvas (0 = drawn at the root), one pass over a child map."""
+    children: dict[str | None, list[str]] = defaultdict(list)
+    for nid, p in parent_id.items():
+        children[p].append(nid)
+    depth: dict[str, int] = {}
+    queue = [(r, 0) for r in children.get(None, [])]
+    while queue:
+        u, d = queue.pop()
+        depth[u] = d
+        queue.extend((v, d + 1) for v in children.get(u, []))
+    return depth
+
+
 def _explore_visible_bundle(
     index: GraphIndex,
     proj: str,
@@ -343,20 +444,7 @@ def _explore_visible_bundle(
             guard += 1
         parent_id[nid] = found
 
-    depth: dict[str, int] = {}
-    roots = [nid for nid, p in parent_id.items() if p is None]
-    for r in roots:
-        depth[r] = 0
-    queue = list(roots)
-    head = 0
-    while head < len(queue):
-        u = queue[head]
-        head += 1
-        du = depth[u]
-        for v in visible:
-            if parent_id.get(v) == u:
-                depth[v] = du + 1
-                queue.append(v)
+    depth = _visible_depths(parent_id)
 
     truncated_children = dict(trunc_page)
     truncated = False
@@ -388,20 +476,7 @@ def _explore_visible_bundle(
                 cur = cand
                 guard += 1
             parent_id[nid] = found
-        depth = {}
-        roots = [nid for nid, p in parent_id.items() if p is None]
-        for r in roots:
-            depth[r] = 0
-        queue = list(roots)
-        head = 0
-        while head < len(queue):
-            u = queue[head]
-            head += 1
-            du = depth[u]
-            for v in visible:
-                if parent_id.get(v) == u:
-                    depth[v] = du + 1
-                    queue.append(v)
+        depth = _visible_depths(parent_id)
 
     return visible, child_count, truncated_children, parent_id, depth, truncated, reason
 
@@ -422,6 +497,21 @@ def build(
         expanded_set = {str(s).strip() for s in expanded_raw if str(s).strip()}
 
     expanded_set = {e for e in expanded_set if e in index.nodes}
+
+    # "Expand to level N": open every node above level N (within the node budget), on top of
+    # what is already expanded. Collapsing is done by the client from `expanded_depths`.
+    level_info: dict[str, Any] = {}
+    raw_level = params.get("expand_to_level")
+    if raw_level not in (None, ""):
+        try:
+            level = max(1, min(MAX_LEVEL, int(raw_level)))
+        except (TypeError, ValueError):
+            level = 1
+        root = params.get("level_root")
+        opened, reached, capped = expansion_for_level(index, level, root=str(root) if root else None)
+        expanded_set |= opened
+        level_info = {"requested_level": level, "level_reached": reached, "level_capped": capped}
+
     expanded_set = _expand_closure(index, expanded_set)
 
     extra_offsets = _parse_offsets_param(params)
@@ -447,10 +537,15 @@ def build(
     cedges, dedges = _aggregate_edges(index, visible, parent)
     edges_out = cedges + dedges
 
+    abs_depth = structural_depths(index)
     meta = {
         "explore": {
             "expanded": sorted(expanded_set),
             "project_id": proj,
+            # deepest level in the structural tree (the UI offers levels 1..max_depth)
+            "max_depth": max(abs_depth.values(), default=1),
+            "expanded_depths": {e: abs_depth.get(e, 1) for e in expanded_set},
+            **level_info,
         },
         "truncated": truncated,
         "truncation_reason": reason if truncated else None,

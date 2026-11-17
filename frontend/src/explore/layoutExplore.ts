@@ -114,34 +114,54 @@ type ElkExtendedEdge = import("elkjs/lib/elk.bundled.js").ElkExtendedEdge;
 
 export type ElkLayoutResult = Map<string, { x: number; y: number; width: number; height: number }>;
 
-/** True when `a` is `b` or an ancestor of `b` (via parentId). */
-function isAncestorOrSelf(a: string, b: string, parentOf: Map<string, string | undefined>): boolean {
-  let cur: string | undefined = b;
-  let guard = 0;
-  while (cur && guard++ < 64) {
-    if (cur === a) return true;
-    cur = parentOf.get(cur);
-  }
-  return false;
-}
-
 /** Layout used at the root and inside every expanded group. */
 const GROUP_LAYOUT = {
   "elk.algorithm": "layered",
   "elk.direction": "RIGHT",
+  "elk.edgeRouting": "ORTHOGONAL",
   "elk.spacing.nodeNode": "28",
-  "elk.layered.spacing.nodeNodeBetweenLayers": "48",
+  "elk.spacing.edgeNode": "16",
+  "elk.spacing.edgeEdge": "8",
+  "elk.layered.spacing.nodeNodeBetweenLayers": "56",
+  "elk.layered.spacing.edgeNodeBetweenLayers": "16",
   "elk.separateConnectedComponents": "true",
   "elk.spacing.componentComponent": "24",
   "elk.aspectRatio": "1.6",
   "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+  // parallel / converging edges share a trunk instead of running side by side
+  "elk.layered.mergeEdges": "true",
 };
+
+/** A long dependency chain of wide groups (models → repositories → services → routers) would be
+ * one very wide row; wrapping folds it into rows that respect the aspect ratio. Only used where
+ * children are themselves groups: for plain cards it would break short chains into columns. */
+const WRAP_GROUPS = { "elk.layered.wrapping.strategy": "MULTI_EDGE" };
+
+export type ExploreRoutes = Map<string, { x: number; y: number }[]>;
+export const routeKey = (source: string, target: string) => `${source}\u0000${target}`;
+
+/** Chain of ancestors from the root down to `id` (inclusive). */
+function chainOf(id: string, parentOf: Map<string, string | undefined>): string[] {
+  const out: string[] = [];
+  let cur: string | undefined = id;
+  let guard = 0;
+  while (cur && guard++ < 64) {
+    out.unshift(cur);
+    cur = parentOf.get(cur);
+  }
+  return out;
+}
 
 /**
  * Nested ELK model. Groups are NOT given a fixed size: ELK sizes each compound node to fit
  * its laid-out children (with a minimum), so children never spill out and siblings never
  * overlap. Child coordinates come back relative to their parent, which is exactly what
  * React Flow expects for nodes with `parentId`.
+ *
+ * Every dependency edge is declared in the group that is the lowest common ancestor of its two
+ * ends, between that group's direct children (deeper ends are lifted). Each group is therefore
+ * laid out by its own internal dependencies (left → right) and unconnected children pack into a
+ * grid. Edges whose ends are both direct children of the same group get an orthogonal route.
  */
 export function buildElkGraph(input: ExploreLayoutInput): ElkNode {
   const { layoutNodes, layoutEdges } = buildExploreLayoutModel(input);
@@ -153,6 +173,27 @@ export function buildElkGraph(input: ExploreLayoutInput): ElkNode {
     childMap.set(n.parentId, list);
   }
 
+  // container id (undefined = root) → edges between its direct children
+  const edgesIn = new Map<string | undefined, ElkExtendedEdge[]>();
+  const seen = new Set<string>();
+  for (const e of layoutEdges) {
+    const sc = chainOf(e.source, parentOf);
+    const tc = chainOf(e.target, parentOf);
+    let i = 0;
+    while (i < sc.length && i < tc.length && sc[i] === tc[i]) i++;
+    // one end contains the other: nesting already expresses it
+    if (i === sc.length || i === tc.length) continue;
+    const container = i === 0 ? undefined : sc[i - 1];
+    const s = sc[i]!;
+    const t = tc[i]!;
+    const key = routeKey(s, t);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const list = edgesIn.get(container) ?? [];
+    list.push({ id: `elk:${s}->${t}`, sources: [s], targets: [t] });
+    edgesIn.set(container, list);
+  }
+
   const toElk = (n: ExploreLayoutNode): ElkNode => {
     const kids = childMap.get(n.id) ?? [];
     if (n.isGroup && kids.length) {
@@ -160,35 +201,30 @@ export function buildElkGraph(input: ExploreLayoutInput): ElkNode {
         id: n.id,
         layoutOptions: {
           ...GROUP_LAYOUT,
+          ...(kids.some((k) => k.isGroup) ? WRAP_GROUPS : {}),
           "elk.padding": `[top=${GROUP_TITLE},left=${GROUP_PAD},bottom=${GROUP_PAD},right=${GROUP_PAD}]`,
           "elk.nodeSize.constraints": "MINIMUM_SIZE",
           "elk.nodeSize.minimum": `(${GROUP_MIN_W}, ${GROUP_TITLE + GROUP_PAD * 2 + 40})`,
         },
         children: kids.map(toElk),
+        edges: edgesIn.get(n.id) ?? [],
       };
     }
     return { id: n.id, width: n.width, height: n.height };
   };
 
-  // Edges between a node and its own ancestor (e.g. CONTAINS to a nested child) break
-  // hierarchical layout and are already expressed by nesting, so they are left out.
-  const edges: ElkExtendedEdge[] = layoutEdges
-    .filter((e) => !isAncestorOrSelf(e.source, e.target, parentOf) && !isAncestorOrSelf(e.target, e.source, parentOf))
-    .map((e) => ({ id: e.id, sources: [e.source], targets: [e.target] }));
-
   return {
     id: "explore-root",
     layoutOptions: {
       ...GROUP_LAYOUT,
-      "elk.layered.spacing.nodeNodeBetweenLayers": "64",
+      ...((childMap.get(undefined) ?? []).some((k) => k.isGroup) ? WRAP_GROUPS : {}),
+      "elk.layered.spacing.nodeNodeBetweenLayers": "72",
       "elk.spacing.componentComponent": "40",
-      // Each group is laid out on its own (inside-out), so unconnected children pack into a
-      // screen-shaped grid instead of one tall layer. React Flow draws the edges itself, so
-      // ELK's cross-hierarchy routing (the reason for INCLUDE_CHILDREN) isn't needed.
+      // Each group is laid out on its own (inside-out) with the edges declared inside it.
       "elk.hierarchyHandling": "SEPARATE_CHILDREN",
     },
     children: (childMap.get(undefined) ?? []).map(toElk),
-    edges,
+    edges: edgesIn.get(undefined) ?? [],
   };
 }
 
@@ -205,15 +241,30 @@ export function flattenElk(laid: ElkNode): ElkLayoutResult {
   return out;
 }
 
-export async function layoutExploreNodes(
-  input: ExploreLayoutInput,
-  // Kept for call-site compatibility. Re-seeding old positions after a sibling grows is what
-  // caused overlapping boxes, so positions always come from a fresh ELK pass now.
-  _prevPositions?: Map<string, { x: number; y: number }>,
-): Promise<ElkLayoutResult> {
-  void _prevPositions;
-  if (!input.graphNodes.length) return new Map();
+/** Orthogonal routes (absolute canvas coordinates) for edges between siblings, keyed by routeKey. */
+export function extractRoutes(laid: ElkNode): ExploreRoutes {
+  const routes: ExploreRoutes = new Map();
+  const visit = (n: ElkNode, ox: number, oy: number) => {
+    for (const e of (n.edges ?? []) as ElkExtendedEdge[]) {
+      const sec = e.sections?.[0];
+      if (!sec) continue;
+      const pts = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint].map((p) => ({ x: p.x + ox, y: p.y + oy }));
+      routes.set(routeKey(e.sources[0]!, e.targets[0]!), pts);
+    }
+    for (const c of n.children ?? []) visit(c, ox + (c.x ?? 0), oy + (c.y ?? 0));
+  };
+  visit(laid, 0, 0);
+  return routes;
+}
+
+export async function layoutExploreGraph(input: ExploreLayoutInput): Promise<{ positions: ElkLayoutResult; routes: ExploreRoutes }> {
+  if (!input.graphNodes.length) return { positions: new Map(), routes: new Map() };
   const ELK = (await import("elkjs/lib/elk.bundled.js")).default;
   const elk = new ELK();
-  return flattenElk(await elk.layout(buildElkGraph(input)));
+  const laid = await elk.layout(buildElkGraph(input));
+  return { positions: flattenElk(laid), routes: extractRoutes(laid) };
+}
+
+export async function layoutExploreNodes(input: ExploreLayoutInput): Promise<ElkLayoutResult> {
+  return (await layoutExploreGraph(input)).positions;
 }

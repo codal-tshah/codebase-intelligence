@@ -64,6 +64,14 @@ export const postJson = <T,>(path: string, body: unknown): Promise<T> =>
     body: JSON.stringify(body),
   }).then((r) => parse<T>(r));
 
+/** PUT / PATCH / DELETE with a JSON body (or none). */
+export const sendJson = <T,>(method: "PUT" | "PATCH" | "DELETE" | "POST", path: string, body?: unknown): Promise<T> =>
+  apiFetch(path, {
+    method,
+    headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }).then((r) => parse<T>(r));
+
 /** Save a blob as a file (no server round-trip, works with the API key header). */
 export function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);

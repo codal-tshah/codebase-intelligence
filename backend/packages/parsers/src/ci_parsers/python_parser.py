@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import io
+import tokenize
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -249,10 +251,159 @@ def _iter_calls(nodes: list[ast.AST], *, descend_defs: bool):
         stack.extend(reversed(list(ast.iter_child_nodes(cur))))
 
 
-def _call_edge(caller: str, call: ast.Call) -> CallEdge | None:
+# ------------------------------------------------------------------ type hints for call resolution
+# `service.list_items()` only resolves when we know `service` is a `ItemService`. Types come from
+# parameter annotations (FastAPI `Annotated[T, Depends(...)]` and module-level aliases of it),
+# `x = SomeClass(...)`, `x: T = ...`, and for methods `self.attr` assigned/annotated in the class.
+
+_WRAPPERS = {"Annotated", "Optional", "Union", "Final", "ClassVar", "Required", "NotRequired", "ReadOnly"}
+
+
+def _annotation_type(ann: ast.AST | None, aliases: dict[str, str]) -> str | None:
+    """Dotted class name an annotation refers to (unwrapping Annotated/Optional/`X | None`),
+    or None for builtins / unknown shapes. Module-level aliases (`Dep = Annotated[T, ...]`) apply."""
+    if ann is None:
+        return None
+    if isinstance(ann, ast.Constant) and isinstance(ann.value, str):  # "ForwardRef"
+        try:
+            return _annotation_type(ast.parse(ann.value, mode="eval").body, aliases)
+        except SyntaxError:
+            return None
+    if isinstance(ann, ast.BinOp) and isinstance(ann.op, ast.BitOr):  # T | None
+        for side in (ann.left, ann.right):
+            t = _annotation_type(side, aliases)
+            if t:
+                return t
+        return None
+    if isinstance(ann, ast.Subscript):
+        base = dotted_name(ann.value) or ""
+        if base.split(".")[-1] in _WRAPPERS:
+            inner = ann.slice.elts if isinstance(ann.slice, ast.Tuple) else [ann.slice]
+            for el in inner:
+                t = _annotation_type(el, aliases)
+                if t:
+                    return t
+        return None  # list[T], dict[...]: a container, not T
+    name = dotted_name(ann)
+    if not name or name == "None":
+        return None
+    if name in aliases:
+        return aliases[name]
+    return name if name.split(".")[-1][:1].isupper() else None
+
+
+def _module_type_aliases(tree: ast.Module) -> dict[str, str]:
+    """`XDep = Annotated[XService, Depends(...)]`, `X: TypeAlias = ...`, `type X = ...`."""
+    out: dict[str, str] = {}
+    for node in tree.body:
+        value = None
+        name = None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name, value = node.targets[0].id, node.value
+            if not isinstance(value, ast.Subscript):
+                continue
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+            if (dotted_name(node.annotation) or "").split(".")[-1] != "TypeAlias":
+                continue
+            name, value = node.target.id, node.value
+        elif hasattr(ast, "TypeAlias") and isinstance(node, ast.TypeAlias) and isinstance(node.name, ast.Name):
+            name, value = node.name.id, node.value
+        if name and value is not None:
+            t = _annotation_type(value, out)
+            if t:
+                out[name] = t
+    return out
+
+
+def _constructed_type(value: ast.AST | None, aliases: dict[str, str]) -> str | None:
+    """`SomeClass(...)` / `await SomeClass.create(...)` is not inferred; only direct construction."""
+    if isinstance(value, ast.Call):
+        name = dotted_name(value.func)
+        if name and name.split(".")[-1][:1].isupper():
+            return aliases.get(name, name)
+    return None
+
+
+def _local_types(fn: ast.FunctionDef | ast.AsyncFunctionDef, aliases: dict[str, str]) -> dict[str, str]:
+    types: dict[str, str] = {}
+    args = fn.args
+    for a in [*args.posonlyargs, *args.args, *args.kwonlyargs]:
+        t = _annotation_type(a.annotation, aliases)
+        if t:
+            types[a.arg] = t
+    for node in ast.walk(fn):
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            t = _annotation_type(node.annotation, aliases) or _constructed_type(node.value, aliases)
+            if t:
+                types.setdefault(node.target.id, t)
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            t = _constructed_type(node.value, aliases)
+            if t:
+                types.setdefault(node.targets[0].id, t)
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if isinstance(item.optional_vars, ast.Name):
+                    t = _constructed_type(item.context_expr, aliases)
+                    if t:
+                        types.setdefault(item.optional_vars.id, t)
+    types.pop("self", None)
+    types.pop("cls", None)
+    return types
+
+
+def _instance_attr_types(cls: ast.ClassDef, aliases: dict[str, str]) -> dict[str, str]:
+    """`repo: Repo` in the class body, `self.repo = Repo(...)` / `self.repo: Repo` in methods, and
+    `self.repo = repo` where the method parameter `repo` is annotated."""
+    out: dict[str, str] = {}
+    for item in cls.body:
+        if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+            t = _annotation_type(item.annotation, aliases)
+            if t:
+                out[item.target.id] = t
+    for item in cls.body:
+        if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = _local_types(item, aliases)
+        for node in ast.walk(item):
+            target = value = ann = None
+            if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target, value = node.targets[0], node.value
+            elif isinstance(node, ast.AnnAssign):
+                target, value, ann = node.target, node.value, node.annotation
+            if not (isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id == "self"):
+                continue
+            t = _annotation_type(ann, aliases) if ann is not None else None
+            t = t or _constructed_type(value, aliases)
+            if not t and isinstance(value, ast.Name):
+                t = params.get(value.id)
+            if t:
+                out.setdefault(target.attr, t)
+    return out
+
+
+def _typed_callee(callee: str, local: dict[str, str], self_attrs: dict[str, str]) -> str:
+    """Rewrite `svc.list` → `ItemService.list` and `self.repo.get` → `ItemRepository.get`."""
+    head, _, rest = callee.partition(".")
+    if not rest:
+        return callee
+    if head == "self":
+        attr, _, tail = rest.partition(".")
+        if tail and attr in self_attrs:
+            return f"{self_attrs[attr]}.{tail}"
+        return callee
+    if head in local:
+        return f"{local[head]}.{rest}"
+    return callee
+
+
+def _call_edge(
+    caller: str, call: ast.Call, local: dict[str, str] | None = None, self_attrs: dict[str, str] | None = None
+) -> CallEdge | None:
     callee = dotted_name(call.func)
     if not callee:
         return None
+    if local or self_attrs:
+        callee = _typed_callee(callee, local or {}, self_attrs or {})
     return CallEdge(
         caller=caller,
         callee=callee,
@@ -262,11 +413,69 @@ def _call_edge(caller: str, call: ast.Call) -> CallEdge | None:
     )
 
 
+def parenthesize_bare_except(source: str) -> str | None:
+    """Rewrite Python 3.14 (PEP 758) ``except A, B:`` clauses to ``except (A, B):``.
+
+    The analyzer runs on Python 3.12, whose ``ast`` rejects the unparenthesised form, so files
+    using it would otherwise drop out of the graph entirely. Only the text between ``except`` and
+    its ``:`` is touched (no lines added or removed), so line numbers stay exact. Returns None when
+    there is nothing to rewrite or the source cannot be tokenized.
+    """
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, SyntaxError, IndentationError):
+        return None
+    edits: list[tuple[tuple[int, int], tuple[int, int]]] = []  # (open-paren pos, close-paren pos)
+    starts = {tokenize.NEWLINE, tokenize.NL, tokenize.INDENT, tokenize.DEDENT, tokenize.COMMENT}
+    for i, tok in enumerate(tokens):
+        if tok.type != tokenize.NAME or tok.string != "except":
+            continue
+        if i and tokens[i - 1].type not in starts:
+            continue
+        j = i + 1
+        if j < len(tokens) and tokens[j].string == "*":
+            j += 1
+        if j >= len(tokens) or tokens[j].string == ":":
+            continue
+        first, depth, comma, has_as, k = tokens[j], 0, False, False, j
+        while k < len(tokens):
+            t = tokens[k]
+            if t.string in "([{" and t.type == tokenize.OP:
+                depth += 1
+            elif t.string in ")]}" and t.type == tokenize.OP:
+                depth -= 1
+            elif depth == 0 and t.type == tokenize.OP and t.string == ",":
+                comma = True
+            elif depth == 0 and t.type == tokenize.NAME and t.string == "as":
+                has_as = True
+            elif depth == 0 and t.type == tokenize.OP and t.string == ":":
+                break
+            elif t.type in (tokenize.NEWLINE, tokenize.ENDMARKER):
+                k = len(tokens)
+                break
+            k += 1
+        if comma and not has_as and k < len(tokens):
+            edits.append((first.start, tokens[k - 1].end))
+    if not edits:
+        return None
+    lines = source.splitlines(keepends=True)
+    for (orow, ocol), (crow, ccol) in reversed(edits):
+        lines[crow - 1] = lines[crow - 1][:ccol] + ")" + lines[crow - 1][ccol:]
+        lines[orow - 1] = lines[orow - 1][:ocol] + "(" + lines[orow - 1][ocol:]
+    return "".join(lines)
+
+
 def parse_python_source(
     source: str, module: str, *, is_package: bool = False, filename: str = "<string>"
 ) -> ParseResult:
     try:
-        tree = ast.parse(source, filename=filename)
+        try:
+            tree = ast.parse(source, filename=filename)
+        except SyntaxError:
+            fixed = parenthesize_bare_except(source)
+            if fixed is None:
+                raise
+            tree = ast.parse(fixed, filename=filename)
     except (SyntaxError, ValueError) as exc:  # a broken file must never abort the whole index
         return ParseResult(
             symbols=[],
@@ -304,6 +513,7 @@ def parse_python_source(
                 ImportInfo(module=base, names=names, aliases=local_map, line=node.lineno, level=node.level)
             )
 
+    type_aliases = _module_type_aliases(tree)
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             cls = _class_info(node, module)
@@ -312,21 +522,24 @@ def parse_python_source(
                 edge = _call_edge(cls.qualified_name.removeprefix(module + "."), edge_node)
                 if edge:
                     calls.append(edge)
+            self_attrs = _instance_attr_types(node, type_aliases)
             for item in node.body:
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     method = _function_info(item, module, cls)
                     symbols.append(method)
                     local = method.qualified_name.removeprefix(module + ".")
+                    types = _local_types(item, type_aliases)
                     for call in _iter_calls(list(ast.iter_child_nodes(item)), descend_defs=True):
-                        edge = _call_edge(local, call)
+                        edge = _call_edge(local, call, types, self_attrs)
                         if edge:
                             calls.append(edge)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             fn = _function_info(node, module, None)
             symbols.append(fn)
             local = fn.qualified_name.removeprefix(module + ".")
+            types = _local_types(node, type_aliases)
             for call in _iter_calls(list(ast.iter_child_nodes(node)), descend_defs=True):
-                edge = _call_edge(local, call)
+                edge = _call_edge(local, call, types)
                 if edge:
                     calls.append(edge)
 

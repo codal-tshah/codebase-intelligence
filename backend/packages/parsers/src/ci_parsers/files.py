@@ -31,6 +31,16 @@ DEFAULT_SKIP_DIRS = frozenset(
         "staticfiles",
         ".idea",
         ".vscode",
+        # generated output (coverage reports, framework build caches): never source
+        "htmlcov",
+        "coverage",
+        ".nyc_output",
+        ".next",
+        ".nuxt",
+        ".svelte-kit",
+        ".turbo",
+        ".parcel-cache",
+        ".cache",
     }
 )
 

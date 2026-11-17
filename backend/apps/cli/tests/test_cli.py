@@ -109,3 +109,29 @@ def test_cli_jobs_text_output_lists_detected_jobs(data_dir, fullstack_copy):
     res = runner.invoke(app, ["jobs", "-p", str(fullstack_copy)])
     assert res.exit_code == 0, res.output
     assert "sync_orders" in res.output and "tasks.py" in res.output
+
+
+def test_cli_hook_covers_pull_checkout_and_rebase(tmp_path):
+    hooks = tmp_path / ".git" / "hooks"
+    hooks.mkdir(parents=True)
+    assert runner.invoke(app, ["hook", "install", "--path", str(tmp_path)]).exit_code == 0
+    for name in ("post-commit", "post-merge", "post-checkout", "post-rewrite"):
+        text = (hooks / name).read_text()
+        assert "--incremental" in text, name
+    assert '[ "$3" = "1" ]' in (hooks / "post-checkout").read_text()  # branch switches only
+    assert runner.invoke(app, ["hook", "uninstall", "--path", str(tmp_path)]).exit_code == 0
+    assert not any((hooks / n).exists() for n in ("post-merge", "post-checkout", "post-rewrite"))
+
+
+def test_cli_projects_rename_and_remove_keeps_source(data_dir, project_copy):
+    assert runner.invoke(app, ["analyze", str(project_copy)]).exit_code == 0
+    before = sorted(p.relative_to(project_copy).as_posix() for p in project_copy.rglob("*"))
+    res = runner.invoke(app, ["projects", "rename", str(project_copy), "Shop"])
+    assert res.exit_code == 0, res.output
+    assert "Shop" in runner.invoke(app, ["projects"]).output
+    res = runner.invoke(app, ["projects", "remove", "Shop"], input="n\n")
+    assert res.exit_code == 1 and "NOT touched" in res.output
+    res = runner.invoke(app, ["projects", "remove", "Shop", "--yes"])
+    assert res.exit_code == 0 and "removed" in res.output
+    assert runner.invoke(app, ["projects", "--json"]).output.strip() == "[]"
+    assert sorted(p.relative_to(project_copy).as_posix() for p in project_copy.rglob("*")) == before

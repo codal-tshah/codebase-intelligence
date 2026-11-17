@@ -1,10 +1,12 @@
-import { ACCENT } from "../graphTheme";
+import { ACCENT, EXPLORE_DOWNSTREAM, EXPLORE_UPSTREAM } from "../graphTheme";
 
 const ROWS: { label: string; color: string; dashed?: boolean; title: string }[] = [
   { label: "Calls, routes, reads", color: "#9A958A", title: "Statically resolved relation" },
   { label: "Imports, handles", color: "#B5B0A5", dashed: true, title: "Structural relation" },
   { label: "Inferred", color: "#9A958A", dashed: true, title: "Heuristic match (confidence below 70%): verify in source" },
   { label: "HTTP from the UI", color: ACCENT, title: "Frontend request linked to a backend route" },
+  { label: "In: depends on selection", color: EXPLORE_UPSTREAM, title: "Upstream of the selected node (its callers, importers, routes into it)" },
+  { label: "Out: selection depends on", color: EXPLORE_DOWNSTREAM, title: "Downstream of the selected node (what it calls, imports, reads)" },
 ];
 
 /** Key for edge strokes so dashed (inferred / structural) lines aren't guesswork. */

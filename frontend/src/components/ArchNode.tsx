@@ -142,6 +142,23 @@ function ArchNodeBase({ data, selected }: NodeProps<Node<ArchNodeData>>) {
     </>
   );
 
+  // Direction relative to the selection, spelled out so it never relies on colour alone.
+  const hop = data.traceHop && data.traceHop > 1 && Number.isFinite(data.traceHop) ? ` ${data.traceHop}` : "";
+  const traceChip = data.traceRole ? (
+    <span
+      className={`arch-trace arch-trace--${data.traceRole}`}
+      title={
+        data.traceRole === "up"
+          ? `Depends on the selection${hop ? ` (${data.traceHop} hops)` : ""}`
+          : data.traceRole === "down"
+            ? `The selection depends on this${hop ? ` (${data.traceHop} hops)` : ""}`
+            : "Depends on the selection and is depended on by it (cycle)"
+      }
+    >
+      {data.traceRole === "up" ? `in${hop}` : data.traceRole === "down" ? `out${hop}` : "in · out"}
+    </span>
+  ) : null;
+
   return (
     <div
       className={`arch-node arch-node--${data.state}${exploreGroup ? " arch-node--explore-group" : ""}${data.inferred ? " arch-node--inferred" : ""}`}
@@ -151,6 +168,7 @@ function ArchNodeBase({ data, selected }: NodeProps<Node<ArchNodeData>>) {
       onKeyDown={onKeyDown}
     >
       <Handle type="target" position={Position.Left} className="arch-handle" />
+      {traceChip}
       {body}
       <Handle type="source" position={Position.Right} className="arch-handle" />
     </div>

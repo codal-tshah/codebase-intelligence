@@ -5,6 +5,7 @@ from ci_indexer.pipeline import (
     IndexPipeline,
     create_project_from_git,
     create_project_from_path,
+    index_in_progress,
     run_index_job,
 )
 
@@ -19,6 +20,7 @@ __all__ = [
     "compute_freshness",
     "create_project_from_git",
     "create_project_from_path",
+    "index_in_progress",
     "load_fingerprints",
     "run_index_job",
 ]

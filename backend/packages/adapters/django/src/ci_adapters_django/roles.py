@@ -15,6 +15,9 @@ ROLE_LAYER: dict[str, str] = {
     "permissions": "middleware",
     "models": "data",
     "managers": "data",
+    "repositories": "data",
+    "database": "data",
+    "dependencies": "middleware",
     "migration": "data",
     "services": "service",
     "signals": "service",
@@ -40,6 +43,9 @@ ROLE_LABEL: dict[str, str] = {
     "permissions": "Permissions",
     "models": "ORM models",
     "managers": "Model managers",
+    "repositories": "Data access (repositories)",
+    "database": "Database setup",
+    "dependencies": "Request dependencies",
     "migration": "Database migration",
     "services": "Business logic",
     "signals": "Signal handlers",
@@ -60,6 +66,8 @@ ROLE_DESCRIPTION: dict[str, str] = {
     "signals": "react to model and framework events",
     "tasks": "run work outside the request cycle",
     "middleware": "wrap every request and response",
+    "repositories": "read and write the database for the services",
+    "dependencies": "provide sessions, users and services to request handlers",
     "tests": "verify behaviour",
 }
 
@@ -74,6 +82,8 @@ EXTERNAL_SDKS: dict[str, tuple[str, str]] = {
     "requests": ("HTTP (requests)", "http"),
     "httpx": ("HTTP (httpx)", "http"),
     "sentry_sdk": ("Sentry", "monitoring"),
+    "newrelic": ("New Relic", "monitoring"),
+    "msal": ("Microsoft identity (MSAL)", "auth"),
     "sendgrid": ("SendGrid", "email"),
     "twilio": ("Twilio", "sms"),
     "openai": ("OpenAI", "ai"),
@@ -124,6 +134,11 @@ def classify_module(rel_path: str) -> str:
 
     if "migrations" in dirs:
         return "migration" if stem != "__init__" else "apps"
+    # Alembic (SQLAlchemy/FastAPI projects): alembic/versions/*.py are migrations, env.py is wiring
+    if "alembic" in dirs:
+        if "versions" in dirs:
+            return "migration" if stem != "__init__" else "apps"
+        return "settings"
     if "tests" in dirs or "test" in dirs or stem.startswith("test_") or stem.endswith("_test") or stem in ("tests", "conftest"):
         return "tests"
     if "management" in dirs and "commands" in dirs:
@@ -142,8 +157,23 @@ def classify_module(rel_path: str) -> str:
         return "urls"
     if stem in ("views", "viewsets", "api", "endpoints", "handlers") or "views" in dirs or stem.endswith("_views"):
         return "views"
+    # FastAPI / Flask layouts: app/routers/v1/x.py, app/api/v1/x.py, app/routes.py, blueprints/
+    if stem in ("routes", "router", "routers") or {"routers", "routes", "endpoints", "blueprints"} & set(dirs):
+        return "views"
     if stem == "serializers" or "serializers" in dirs or stem.endswith("_serializers"):
         return "serializers"
+    # Pydantic request/response models play the serializer role in FastAPI
+    if stem in ("schemas", "schema", "dto", "dtos") or {"schemas", "dto", "dtos"} & set(dirs) or stem.endswith("_schemas"):
+        return "serializers"
+    if stem in ("repositories", "repository", "repo", "repos", "crud", "dao") or {"repositories", "repos", "crud", "dao"} & set(dirs) or stem.endswith("_repository"):
+        return "repositories"
+    if stem in ("dependencies", "deps") or "dependencies" in dirs:
+        return "dependencies"
+    if "db" in dirs or stem in ("database", "db", "session", "engine"):
+        return "database"
+    # app/api/v1/items.py (after serializers/schemas, so api/serializers.py keeps its role)
+    if "api" in dirs and stem not in ("__init__", "models", "filters", "filtersets", "utils"):
+        return "views"
     if stem in ("models", "model") or "models" in dirs:
         return "models"
     if stem in ("managers", "querysets"):
@@ -154,7 +184,7 @@ def classify_module(rel_path: str) -> str:
         return "permissions"
     if stem == "signals":
         return "signals"
-    if stem in ("tasks", "celery", "jobs", "workers"):
+    if stem in ("tasks", "celery", "jobs", "workers") or {"tasks", "workers", "jobs", "beat_schedule"} & set(dirs):
         return "tasks"
     if stem in ("admin",):
         return "admin"
@@ -162,7 +192,7 @@ def classify_module(rel_path: str) -> str:
         return "forms"
     if stem in ("services", "service", "usecases", "logic") or "services" in dirs:
         return "services"
-    if stem in ("utils", "helpers", "common", "mixins", "constants", "exceptions"):
+    if stem in ("utils", "helpers", "common", "mixins", "constants", "exceptions") or {"utils", "helpers"} & set(dirs):
         return "utils"
     return "services"
 

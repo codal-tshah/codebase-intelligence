@@ -1,3 +1,4 @@
+import { MenuSelect } from "./Popover";
 import { useEffect, useRef, useState } from "react";
 import { postJson } from "../api";
 import { IMPACT_COLORS } from "../graphTheme";
@@ -65,16 +66,10 @@ export function ImpactPanel({ projectId, selectedNodeId, selectedNodeName, repor
         >
           Selected node
         </button>
-        <label className="depth">
+        <span className="depth">
           depth
-          <select value={depth} onChange={(e) => setDepth(Number(e.target.value))}>
-            {[1, 2, 3, 4, 5].map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-        </label>
+          <MenuSelect label="Impact depth" value={depth} onChange={setDepth} options={[1, 2, 3, 4, 5, 6].map((d) => ({ value: d, label: String(d) }))} />
+        </span>
       </div>
       <form
         className="impact-files"

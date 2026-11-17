@@ -62,3 +62,6 @@ Nothing heavy was added to the shipped bundle besides the font files.
 ## Earlier
 
 Decisions from earlier passes are recorded inline in [architecture.md](architecture.md), [private-repos.md](private-repos.md) and [competitive-notes.md](competitive-notes.md).
+- **2026-11-16: No new dependencies for FR-3.** The popover is in-house (about 250 lines) rather than Floating UI/Radix, because we only need anchored placement, flip, shift and roving focus. Orthogonal routes reuse ELK, which is already bundled. Gzip is Starlette's built-in middleware, which skips SSE by default.
+- **2026-11-16: Per-project settings and saved views live in the data dir**, not in the repository, so indexing stays read-only for source folders.
+

@@ -69,9 +69,16 @@ def all_extensions(analyzers: list[Analyzer] | None = None) -> tuple[str, ...]:
     return tuple(exts)
 
 
-def list_project_files(root: Path) -> list[Path]:
+def project_ignore(project_id: str) -> list[str]:
+    """Ignore patterns from the project's settings (kept in the data dir, not in the repo)."""
+    from ci_core.project_admin import load_settings
+
+    return load_settings(project_id)["ignore"]
+
+
+def list_project_files(root: Path, extra_ignore: list[str] | None = None) -> list[Path]:
     """Every file any registered analyzer could index (used for freshness)."""
-    return list_source_files(root, all_extensions())
+    return list_source_files(root, all_extensions(), extra_ignore=extra_ignore)
 
 
 @dataclass
@@ -83,7 +90,7 @@ class ProjectAnalysis:
 
 def analyze_project(project_id: str, root: Path) -> ProjectAnalysis:
     analyzers = available_analyzers()
-    files = list_source_files(root, all_extensions(analyzers))
+    files = list_source_files(root, all_extensions(analyzers), extra_ignore=project_ignore(project_id))
     results: list[AnalysisResult] = []
     used: list[Analyzer] = []
     for analyzer in analyzers:
