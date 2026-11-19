@@ -5,7 +5,11 @@ requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.0",
     "sqlalchemy>=2.0",
+    "rustworkx>=0.16",
 ]
+
+[project.optional-dependencies]
+fallback = ["networkx>=3.4"]
 
 [build-system]
 requires = ["hatchling"]

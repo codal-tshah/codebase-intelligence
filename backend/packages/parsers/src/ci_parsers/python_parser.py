@@ -70,6 +70,8 @@ class ImportInfo:
     aliases: dict[str, str] = field(default_factory=dict)  # local name -> imported name
     line: int = 1
     level: int = 0
+    type_only: bool = False  # ``if TYPE_CHECKING:`` — not executed at import time
+    lazy: bool = False  # inside a function/async def — deferred until call time
 
 
 @dataclass
@@ -173,6 +175,142 @@ def _resolve_relative(module: str, is_package: bool, level: int, target: str | N
     if target:
         base = [*base, *target.split(".")]
     return ".".join(base)
+
+
+def _is_type_checking_symbol(node: ast.expr) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id == "TYPE_CHECKING"
+    if isinstance(node, ast.Attribute):
+        return node.attr == "TYPE_CHECKING"
+    return False
+
+
+def _type_checking_guard_names(tree: ast.Module) -> set[str]:
+    """Module-level names that refer to ``TYPE_CHECKING`` (including aliases)."""
+    names = {"TYPE_CHECKING"}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and _is_type_checking_symbol(node.value):
+                    names.add(target.id)
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == "TYPE_CHECKING":
+                    names.add(alias.asname or "TYPE_CHECKING")
+    return names
+
+
+class _ImportCollector(ast.NodeVisitor):
+    def __init__(self, module: str, is_package: bool, *, tc_names: set[str]) -> None:
+        self._module = module
+        self._is_package = is_package
+        self._tc_names = tc_names
+        self.imports: list[ImportInfo] = []
+        self.aliases: dict[str, str] = {}
+        self._type_checking = 0
+        self._func_depth = 0
+
+    def _is_tc_name(self, node: ast.expr) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in self._tc_names
+        if isinstance(node, ast.Attribute) and node.attr == "TYPE_CHECKING":
+            return True
+        return False
+
+    def _is_type_only_guard(self, node: ast.expr) -> bool:
+        """Whole ``if`` test whose body is not executed at import time under normal runtime."""
+        # ``if TYPE_CHECKING or DEBUG:`` can run its body at load time when DEBUG is true.
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+            return False
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.And):
+            return any(self._is_type_only_guard(v) for v in node.values)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return False
+        if self._is_tc_name(node):
+            return True
+        if isinstance(node, ast.Compare) and len(node.ops) == 1:
+            op = node.ops[0]
+            if isinstance(op, (ast.Is, ast.Eq)) and self._is_tc_name(node.left):
+                cmp = node.comparators[0]
+                return isinstance(cmp, ast.Constant) and cmp.value is True
+        return False
+
+    def _if_type_checking_mode(self, test: ast.expr) -> str | None:
+        """``body`` if ``if`` body is type-only; ``else`` for ``if not TYPE_CHECKING``."""
+        if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not) and self._is_tc_name(test.operand):
+            return "else"
+        if self._is_type_only_guard(test):
+            return "body"
+        return None
+
+    def visit_If(self, node: ast.If) -> None:
+        mode = self._if_type_checking_mode(node.test)
+        if mode == "body":
+            self._type_checking += 1
+            for stmt in node.body:
+                self.visit(stmt)
+            self._type_checking -= 1
+            for stmt in node.orelse:
+                self.visit(stmt)
+            return
+        if mode == "else":
+            for stmt in node.body:
+                self.visit(stmt)
+            self._type_checking += 1
+            for stmt in node.orelse:
+                self.visit(stmt)
+            self._type_checking -= 1
+            return
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._func_depth += 1
+        self.generic_visit(node)
+        self._func_depth -= 1
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._func_depth += 1
+        self.generic_visit(node)
+        self._func_depth -= 1
+
+    def visit_Import(self, node: ast.Import) -> None:
+        type_only = self._type_checking > 0
+        lazy = self._func_depth > 0
+        for alias in node.names:
+            local = alias.asname or alias.name.split(".")[0]
+            target = alias.name if alias.asname else alias.name.split(".")[0]
+            self.aliases.setdefault(local, target)
+            self.imports.append(
+                ImportInfo(
+                    module=alias.name,
+                    names=[],
+                    aliases={local: alias.name},
+                    line=node.lineno,
+                    type_only=type_only,
+                    lazy=lazy,
+                )
+            )
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        type_only = self._type_checking > 0
+        lazy = self._func_depth > 0
+        base = _resolve_relative(self._module, self._is_package, node.level, node.module)
+        names = [a.name for a in node.names]
+        local_map = {(a.asname or a.name): a.name for a in node.names}
+        for local, original in local_map.items():
+            if original != "*":
+                self.aliases.setdefault(local, f"{base}.{original}" if base else original)
+        self.imports.append(
+            ImportInfo(
+                module=base,
+                names=names,
+                aliases=local_map,
+                line=node.lineno,
+                level=node.level,
+                type_only=type_only,
+                lazy=lazy,
+            )
+        )
 
 
 def _first_line(doc: str | None) -> str | None:
@@ -488,30 +626,11 @@ def parse_python_source(
         )
 
     symbols: list[SymbolInfo] = []
-    imports: list[ImportInfo] = []
     calls: list[CallEdge] = []
-    aliases: dict[str, str] = {}
-
-    # Imports can appear anywhere (function-local imports are common in Django to avoid cycles).
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                local = alias.asname or alias.name.split(".")[0]
-                target = alias.name if alias.asname else alias.name.split(".")[0]
-                aliases.setdefault(local, target)
-                imports.append(
-                    ImportInfo(module=alias.name, names=[], aliases={local: alias.name}, line=node.lineno)
-                )
-        elif isinstance(node, ast.ImportFrom):
-            base = _resolve_relative(module, is_package, node.level, node.module)
-            names = [a.name for a in node.names]
-            local_map = {(a.asname or a.name): a.name for a in node.names}
-            for local, original in local_map.items():
-                if original != "*":
-                    aliases.setdefault(local, f"{base}.{original}" if base else original)
-            imports.append(
-                ImportInfo(module=base, names=names, aliases=local_map, line=node.lineno, level=node.level)
-            )
+    imp_col = _ImportCollector(module, is_package, tc_names=_type_checking_guard_names(tree))
+    imp_col.visit(tree)
+    imports = imp_col.imports
+    aliases = imp_col.aliases
 
     type_aliases = _module_type_aliases(tree)
     for node in tree.body:

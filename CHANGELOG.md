@@ -2,6 +2,17 @@
 
 All notable changes. Dates are when the work landed on a branch; versions are not tagged yet.
 
+## Unreleased: graph analytics P0 (2026-11-19)
+
+### Added
+- **`ci_core.graph_algo`:** SCC and dependency-cycle detection on the loaded graph (`rustworkx`, `networkx` fallback).
+- **Import-cycle suggestions:** multi-module SCC cycles (not just pairs); package `__init__.py` re-export hubs, `TYPE_CHECKING`, and function-local imports excluded from the cycle subgraph; clearer titles (`N modules are tied in import cycles, e.g. a → b → a`).
+- **Python parser:** tags `type_only` / `lazy` imports on `ImportInfo`; Django adapter stores `import_kind` on `IMPORTS` edges; merged edges keep `has_runtime_import` when any load-time import contributed.
+- **Git clone auth:** stripping inherited git config keys is limited to `GIT_CONFIG_COUNT` / `KEY_n` / `VALUE_n` / `PARAMETERS` so global proxy/CA settings remain.
+- **Re-index on refresh:** Django analyzer version **5** re-tags `import_kind` on existing projects automatically on the next full index or refresh (no manual step).
+- **`backend/scripts/benchmark_graph.py`:** read-only timings for load, path, impact, neighborhood, SCC.
+- **Docs:** [graph-architecture-research.md](docs/graph-architecture-research.md); dependency note in [DECISIONS.md](docs/DECISIONS.md).
+
 ## Unreleased: selection, dropdowns, API flow, validation, project management (2026-11-16)
 
 ### Added

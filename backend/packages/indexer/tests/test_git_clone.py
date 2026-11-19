@@ -18,6 +18,28 @@ def test_auth_env_sends_token_as_header_only():
     assert "GIT_CONFIG_COUNT" not in _git_auth_env(None)
 
 
+def test_auth_env_preserves_global_git_config(monkeypatch):
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/tmp/gitconfig")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "http.extraheader")
+    env = _git_auth_env(None)
+    assert env["GIT_CONFIG_GLOBAL"] == "/tmp/gitconfig"
+    assert "GIT_CONFIG_COUNT" not in env
+    assert "GIT_CONFIG_KEY_0" not in env
+
+
+def test_auth_env_token_replaces_inherited_config_tuple(monkeypatch):
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/tmp/gitconfig")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "3")
+    monkeypatch.setenv("GIT_CONFIG_KEY_2", "http.extraheader")
+    env = _git_auth_env("ghp_secret")
+    assert env["GIT_CONFIG_GLOBAL"] == "/tmp/gitconfig"
+    assert env["GIT_CONFIG_COUNT"] == "1"
+    assert env["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader"
+    assert "AUTHORIZATION: basic" in env["GIT_CONFIG_VALUE_0"]
+    assert "GIT_CONFIG_KEY_2" not in env
+
+
 def test_clone_failure_is_clear_and_never_leaks_token(tmp_path: Path, monkeypatch):
     calls: list[list[str]] = []
 

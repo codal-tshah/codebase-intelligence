@@ -56,7 +56,7 @@ def test_generated_htmlcov_is_not_indexed(index):
 
 def test_nested_packages_give_explore_a_hierarchy(index):
     pkgs = {n.qualified_name: n for n in index.nodes.values() if n.node_type == NodeType.PACKAGE}
-    assert {"app", "app.routers", "app.routers.v1", "app.services"} <= set(pkgs)
+    assert {"app", "app.cycles", "app.routers", "app.routers.v1", "app.services"} <= set(pkgs)
     assert pkgs["app.routers.v1"].properties.get("subpackage") is True
     assert index.contains_parent[pkgs["app.routers.v1"].id] == pkgs["app.routers"].id
 
@@ -129,6 +129,15 @@ def test_module_roles_for_common_python_layouts(path, role):
     from ci_adapters_django.roles import classify_module
 
     assert classify_module(path) == role
+
+
+def test_suggest_reports_only_runtime_import_cycles(index):
+    from ci_core.suggestions import suggest
+
+    cycles = [s for s in suggest(index) if s["kind"] == "cycle"]
+    assert len(cycles) == 1
+    names = {n["name"] for n in cycles[0]["nodes"]}
+    assert names == {"app/cycles/rt_a", "app/cycles/rt_b"}
 
 
 def test_architecture_opens_a_dominant_app_into_its_layers(index):

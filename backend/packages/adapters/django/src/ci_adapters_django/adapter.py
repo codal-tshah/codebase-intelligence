@@ -47,7 +47,7 @@ from ci_adapters_django.roles import (
     layer_for_role,
 )
 
-ADAPTER_VERSION = "4"
+ADAPTER_VERSION = "5"
 
 RELATION_FIELDS = {"ForeignKey", "OneToOneField", "ManyToManyField"}
 FIELD_KWARGS = ("max_length", "null", "blank", "unique", "primary_key", "db_index", "related_name", "on_delete")
@@ -170,6 +170,27 @@ class _Analyzer:
         self.nodes[node.id] = node
         return node
 
+    def _merge_import_kind(self, props: dict[str, Any], existing: EdgeRecord) -> None:
+        """Runtime imports win; non-runtime only when every merged import was non-runtime."""
+        incoming = props.get("import_kind")
+        if incoming is None:
+            existing.properties["has_runtime_import"] = True
+            existing.properties.pop("import_kind", None)
+            return
+        if existing.properties.get("has_runtime_import"):
+            return
+        current = existing.properties.get("import_kind")
+        if current is None:
+            existing.properties["import_kind"] = incoming
+        elif current != incoming:
+            existing.properties["import_kind"] = "type_only"
+
+    def _initial_import_props(self, props: dict[str, Any]) -> dict[str, Any]:
+        out = {"count": 1, **props}
+        if "import_kind" not in props:
+            out["has_runtime_import"] = True
+        return out
+
     def _edge(
         self,
         edge_type: EdgeType,
@@ -190,7 +211,10 @@ class _Analyzer:
             existing.properties["count"] = existing.properties.get("count", 1) + 1
             existing.confidence = max(existing.confidence, confidence)
             for k, v in props.items():
-                existing.properties.setdefault(k, v)
+                if k != "import_kind":
+                    existing.properties.setdefault(k, v)
+            if edge_type == EdgeType.IMPORTS:
+                self._merge_import_kind(props, existing)
             return
         self.edges[eid] = EdgeRecord(
             id=eid,
@@ -202,7 +226,7 @@ class _Analyzer:
             start_line=line,
             extractor=extractor,
             confidence=confidence,
-            properties={"count": 1, **props},
+            properties=self._initial_import_props(props) if edge_type == EdgeType.IMPORTS else {"count": 1, **props},
         )
 
     # --------------------------------------------------------------------- run
@@ -790,6 +814,11 @@ class _Analyzer:
                         followed = self._follow(f"{imp.module}.{name}")
                         if followed in self.symbols:
                             targets.append(self.sym_module[followed].name)
+                imp_props: dict[str, Any] = {}
+                if imp.type_only:
+                    imp_props["import_kind"] = "type_only"
+                elif imp.lazy:
+                    imp_props["import_kind"] = "lazy"
                 for t in dict.fromkeys(targets):
                     target_mod = self.modules[t]
                     self._edge(
@@ -801,6 +830,7 @@ class _Analyzer:
                         extractor="python.parser",
                         confidence=0.95,
                         names=imp.names[:8],
+                        **imp_props,
                     )
                 root_name = (imp.module or "").split(".")[0]
                 if root_name in EXTERNAL_SDKS and root_name not in external_seen:

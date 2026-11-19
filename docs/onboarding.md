@@ -7,6 +7,7 @@ Start here. This page covers what exists, how data flows, and what is integrated
 | [user-guide.md](user-guide.md) | Using the dashboard (with screenshots) |
 | [onboarding.md](onboarding.md) (this) | Stack, data flow, run locally, view catalog, integration status |
 | [architecture.md](architecture.md) | Pipeline internals, graph model, extending with analyzers/views |
+| [graph-architecture-research.md](graph-architecture-research.md) | Graph algorithms vs static analysis research, comparison tables, P0/P1/P2 roadmap |
 | [private-repos.md](private-repos.md) | Indexing private GitHub repos with a token |
 | [review-2026-11.md](review-2026-11.md) | Meeting-requirements review (statuses updated 2026-11-14) |
 | [audit-report.md](audit-report.md) | Fixture validation and earlier backlog |
@@ -103,7 +104,7 @@ All env vars are validated in `ci_core.settings`; the full list with defaults is
 | Selection highlight | – | ✅ all views | – | – | ✅ vitest | |
 | Search, path, tour, impact | ✅ | ✅ | ✅ | ✅ | ✅ | |
 | Background / scheduled jobs | ✅ | ✅ Jobs view | ✅ `ci jobs` | ✅ `list_jobs` | ✅ | Celery beat dicts, `scheduler.add_job(...)` calls and node-cron aren't detected yet |
-| Optimization suggestions | ✅ | ✅ *Improve* tab | ✅ `ci suggest` | ✅ `suggest_optimizations` | ✅ + E2E | Heuristic; no performance (N+1, missing index) rules yet |
+| Optimization suggestions | ✅ | ✅ *Improve* tab | ✅ `ci suggest` | ✅ `suggest_optimizations` | ✅ + E2E + `test_graph_algo` | Import **SCC cycles** (`graph_algo`); excludes `__init__` barrels, `TYPE_CHECKING`, lazy imports; no N+1/index rules yet |
 | Diagrams written into the repo (Mermaid) | ✅ `/docs` | – | ✅ `ci docs` | ✅ `generate_docs` | ✅ | |
 | Claude Code plugin / Cursor rule | – | – | – | ✅ | ✅ `claude plugin validate` | Not published to a shared marketplace |
 | Endpoints / trace / models | ✅ | ✅ | ✅ | ✅ | ✅ | |
