@@ -57,9 +57,20 @@ Effort: S < ½ day, M ≈ 1–2 days, L > 2 days. Status reflects this pass; how
 | 28 | Packaged GitHub Action (`ci impact --fail-on`, `ci docs`) | CI adoption | CodeBoarding, Swimm | S |
 | 29 | Shared graph cache across workers (graph cache is per process) | Horizontal scale | Audit | M |
 | 30 | Sequence diagrams for a traced endpoint | Code Wiki parity | Research | M |
-| 31 | Prettier enforced across the frontend | Formatting consistency | Prompt | S (deferred to avoid a repo-wide reformat diff; see DECISIONS) |
+| 31 | Prettier enforced across the frontend | Formatting consistency | Prompt | S | Done (2026-11-19) |
 | 32 | Virtualised Inspector lists for 1k+ children | Very large packages | Perf | S |
 | 33 | Real-LLM agent smoke test | Only the fake LiteLLM is tested | Audit | S (needs a provider key) |
+
+## Code quality ratchet (2026-11-19)
+
+| Area | Status |
+|---|---|
+| Mypy `strict` on `ci_adapters_django`, `ci_adapters_typescript`, `ci_indexer`, `ci_ai`, apps | Not started (~300+ errors if tests included; adapters/adapters ~80 src files) |
+| Mypy on `ci_core.db` (SQLAlchemy row mapping) | Deferred; excluded pending sqlalchemy mypy plugin sign-off |
+| `eslint-plugin-react` flat config on ESLint 10 | Blocked on plugin release; hooks + jsx-a11y in use |
+| TS `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride` | Not enabled (est. 50+ fixes; enable in a dedicated pass) |
+| Stylelint on `src/styles.css` | Skipped (token file; low signal for churn) |
+| `react-hooks/exhaustive-deps` as error | Still `warn`; 0 warnings today — flip when a stray effect appears |
 
 ## FR-3 status (2026-11-16)
 
@@ -79,4 +90,3 @@ Remaining backlog:
   - Saved views are per instance, not per user.
   - SSO/OIDC in front of server mode.
   - Signed exports.
-

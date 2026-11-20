@@ -38,7 +38,7 @@ def test_agent_calls_tools_then_answers_with_cited_nodes(project, monkeypatch):
 
     async def fake_acompletion(**kwargs):
         seen_messages.append(kwargs["messages"])
-        assert kwargs["api_key"] == "test-key" and kwargs["tools"]
+        assert kwargs["api_key"] == "test-key" and kwargs["tools"]  # pragma: allowlist secret
         step = len(seen_messages)
 
         async def stream():

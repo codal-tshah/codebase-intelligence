@@ -15,6 +15,13 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --all-packages --group dev
       - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - name: pip-audit (locked workspace deps)
+        run: |
+          uv export --frozen --no-hashes --no-emit-workspace > /tmp/req.txt
+          test "$(grep -cve '^\s*$' /tmp/req.txt)" -gt 50
+          uvx pip-audit -r /tmp/req.txt
       - run: uv run python ../scripts/check_licenses.py > /dev/null
       - run: uv run pytest -q
       - run: uv run ci analyze benchmarks/fixtures/synthetic_django
@@ -39,6 +46,8 @@ jobs:
           node-version: "22"
       - run: npm ci
       - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
       - run: npm test
       - run: npm run build
 

@@ -126,4 +126,3 @@ The index is a snapshot, so new code needs a re-index. Any one of these keeps it
 3. **Manually:** the banner shows *Index is out of date* after new commits; click *Re-index now*, or run `ci analyze <path> --incremental`.
 
 An open dashboard notices a new index within 30 seconds and reloads its diagrams.
-

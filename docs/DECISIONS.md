@@ -2,6 +2,20 @@
 
 Short records of choices that are expensive to undo or that add dependencies. Newest first. Each entry gives the decision, why, and what was rejected.
 
+## 2026-11-19: code quality baseline
+
+### Dependencies added (dev only unless noted)
+
+| Package | Scope | Why (one line) |
+|---|---|---|
+| `mypy`, `types-networkx` | backend dev | Static types; strict ratchet on `ci_core` / `ci_parsers` first. |
+| `prettier`, `eslint-config-prettier`, `eslint-plugin-jsx-a11y` | frontend dev | Formatting and a11y lint ahead of axe E2E. |
+| `pre-commit` (documented, optional install) | tooling | Same hooks locally as CI; MIT. |
+
+`eslint-plugin-react` was not added: v7 is incompatible with ESLint 10 flat config (`getFilename`); hooks + jsx-a11y + axe E2E cover React until v8+ lands (GAPS).
+
+Prettier is now enforced (was deferred in item 10 below).
+
 ## 2026-11-14: enterprise-readiness pass
 
 ### Dependencies added
@@ -51,7 +65,7 @@ Nothing heavy was added to the shipped bundle besides the font files.
    - Used instead: at far zoom, drop arrowheads and use `shape-rendering: optimizeSpeed`. That gives 49–55fps, up from 25–41, with no glitch.
 8. **Explore group header is one row**, with `GROUP_TITLE` 40 → 52px. The old multi-line header (~70px) slid under the children.
 9. **Explore layout and camera effects moved from `App.tsx` to `explore/useExploreLayout.ts`.** Code moved as-is with dependencies passed in; behaviour is unchanged. App.tsx went from 1,632 to ~1,490 lines.
-10. **Prettier is not enforced yet.** Formatting the whole frontend would produce a large unrelated diff. ESLint runs in CI; Prettier is on the roadmap (GAPS #31).
+10. **Prettier** is enforced as of 2026-11-19 (see new entry above). Previously deferred for a separate formatting diff (GAPS #31, done).
 11. **Dev-tool advisories (Vite, Vitest, ESLint packages) are not force-upgraded.**
     - `npm audit` reports 13; **all are dev-only** (`npm audit --omit=dev`: 0).
     - The fixes are major versions (Vite 8, Vitest 5) that need their own migration.

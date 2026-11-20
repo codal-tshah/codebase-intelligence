@@ -14,17 +14,25 @@ Run locally: `uv run ci serve` (API :8000, restart after backend changes) and `n
 ## Before you open a PR
 
 ```bash
-cd backend && uv run ruff check . && uv run pytest -q
-cd frontend && npm run lint && npm test && npm run build
+cd backend && uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest -q
+cd frontend && npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
 cd frontend && npm run test:e2e        # browser flows + axe + offline check; reuses running servers
 ```
 
+Optional (recommended): `pre-commit install` from the repo root after `pip install pre-commit` or `uv tool install pre-commit`.
+
 The E2E suite uses your installed Google Chrome and indexes `backend/benchmarks/fixtures/fullstack_app` first. CI runs all of the above (`.github/workflows/ci.yml`).
+
+### Code quality
+
+- **Python:** Ruff lint + format and Mypy (`strict` on `ci_core` and `ci_parsers` only). Run the commands above; fix issues or disable a rule in `backend/pyproject.toml` with a one-line comment explaining why — no blanket `noqa`.
+- **TypeScript:** ESLint with type-aware rules on `src/`, Prettier for formatting. `eslint-plugin-react` is deferred until it supports ESLint 10 flat config (see GAPS); `jsx-a11y` + axe E2E cover accessibility.
+- **Ignores:** Prefer config over inline. Document new tool dependencies in [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Guidelines
 
 - **Small, focused diffs.** No drive-by refactors; don't delete working features.
-- **Style:** match the surrounding code. Backend: ruff. Frontend: ESLint (hooks rules); Prettier isn't enforced yet, so keep the existing formatting (double quotes, semicolons, ~120 columns).
+- **Style:** match the surrounding code. Backend: Ruff format (120 cols). Frontend: Prettier (120 cols, double quotes, semicolons) + ESLint.
 - **UI:**
   - Use the tokens in `frontend/src/styles.css` and the rules in [docs/DESIGN.md](docs/DESIGN.md): one accent, no gradients, glows or emoji icons, and no CDN assets.
   - New text and background pairs must meet WCAG AA. The axe E2E test will tell you.
