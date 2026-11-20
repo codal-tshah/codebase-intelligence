@@ -1,0 +1,29 @@
+---
+description: Python workspace, ruff/mypy, GraphIndex, and analyzer conventions
+globs: backend/**/*.py
+alwaysApply: false
+---
+
+# Backend Python
+
+## Workspace
+
+Packages under `backend/packages/` (core, parsers, indexer, adapters, ai, security). Apps under `backend/apps/api`, `apps/cli`, `apps/mcp`. Dev tools in `backend/pyproject.toml`: Ruff lint+format (120 cols), mypy strict on `ci_core` + `ci_parsers` only (`db.py` excluded).
+
+## Routers stay thin
+
+`backend/apps/api` delegates to `ci_core`, `ci_indexer`, `ci_ai`. No framework-specific logic in core.
+
+## Extending
+
+- Analyzers: entry point group `codebase_intelligence.analyzers` (see `ci_indexer.analyzers`).
+- Views: `register_view` in `ci_core.views` or entry point `codebase_intelligence.views`.
+- Bump `ADAPTER_VERSION` when edge/node semantics change.
+
+## GraphIndex
+
+Loaded via `GraphStore.load_index()` with mtime cache (`ci_core.db`). Analytics in `ci_core.insights` and `graph_algo` only on loaded index — do not re-parse source in views.
+
+## Tests
+
+Pytest roots: `backend/packages`, `backend/apps`. Match package under test. Prefer config ignores over inline `noqa`.

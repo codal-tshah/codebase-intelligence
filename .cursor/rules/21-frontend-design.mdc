@@ -1,0 +1,23 @@
+---
+description: Design tokens, forbidden visuals, accessibility
+globs: frontend/src/**/*.{css,tsx}
+alwaysApply: false
+---
+
+# Frontend design
+
+## Tokens
+
+Use CSS variables in `frontend/src/styles.css`. Rules and contrast: [docs/DESIGN.md](docs/DESIGN.md).
+
+## Forbidden
+
+No gradients, glows, sparkle/emoji icons, or CDN fonts/assets (fonts bundled in build).
+
+## Accessibility
+
+WCAG AA pairs; axe checks in `frontend/e2e/a11y-offline.spec.ts`. Keyboard: focusable nodes, `/` search, `Esc` clear.
+
+## Components
+
+Popover pattern in `components/Popover.tsx`; keep dropdowns inside viewport (see `e2e/projects.spec.ts`).

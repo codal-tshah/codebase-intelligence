@@ -1,0 +1,27 @@
+---
+description: FastAPI routers, stable error shape, auth, SSE
+globs: backend/apps/api/**
+alwaysApply: false
+---
+
+# HTTP API (`ci_api`)
+
+Routers: `system.py`, `projects.py`, `graph.py`, `chat.py` (wired in `main.py`). With `ci serve --ui`, routes mount at `/api/*`; standalone `ci serve` serves them at `/*`.
+
+## Stability
+
+Keep paths and `{"detail", "request_id"}` errors (`main.py` middleware + exception handlers). `X-Request-ID` on requests/responses.
+
+## Auth
+
+`CI_MODE=server` requires `CI_API_KEY` on all routes except `GET /health` (and `/api/health` when mounted). Header: `X-API-Key` or `Authorization: Bearer`.
+
+## Performance
+
+`GZipMiddleware` (min 2048 bytes) on graph JSON; SSE chat not gzipped.
+
+## Chat
+
+`POST /projects/{ref}/chat` returns SSE (`message`, `tool`, `citations`, `done`, `error`).
+
+Catalog in `docs/ai/api-reference.md` — update when adding routes.

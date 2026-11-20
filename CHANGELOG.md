@@ -2,6 +2,12 @@
 
 All notable changes. Dates are when the work landed on a branch; versions are not tagged yet.
 
+## Unreleased: agent documentation (2026-11-20)
+
+### Added
+- **`AGENTS.md` / `CLAUDE.md` / `docs/ai/*`:** self-maintaining agent instructions, API map, runbooks, and Cursor rules (`.cursor/rules/`).
+- **`scripts/check_ai_docs.py`:** validates path references, rule frontmatter, and line budgets; run in CI and pre-commit.
+
 ## Unreleased: code quality baseline (2026-11-19)
 
 ### Added

@@ -15,6 +15,7 @@ Start here. This page covers what exists, how data flows, and what is integrated
 | [DESIGN.md](DESIGN.md), [SECURITY.md](SECURITY.md), [DECISIONS.md](DECISIONS.md) | Tokens and contrast, security model and audits, recorded decisions |
 | [competitive-notes.md](competitive-notes.md) | How we compare to Understand Anything, the nu demo and CIS; adopt/defer/skip; backlog |
 | [../integrations/README.md](../integrations/README.md) | Install into Claude Code (plugin + skill) or Cursor (MCP + rule) |
+| [../AGENTS.md](../AGENTS.md), [ai/README.md](ai/README.md) | Tool-neutral and modular docs for coding agents (maintenance protocol, API map) |
 
 ## Stack
 

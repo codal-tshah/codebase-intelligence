@@ -12,6 +12,7 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+      - run: python scripts/check_ai_docs.py
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --all-packages --group dev
       - run: uv run ruff check .

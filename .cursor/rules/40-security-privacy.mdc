@@ -1,0 +1,22 @@
+---
+description: Local-first, redaction, tokens, read-only indexing
+alwaysApply: true
+---
+
+# Security and privacy
+
+## Local-first
+
+Default: no outbound send of repository code, paths, or metadata. Optional LLM: `ALLOW_LLM` + keys in `.env.example`; tool outputs pass through `ci_security.sanitize_for_llm`.
+
+## Tokens
+
+`CI_GITHUB_TOKEN` for private clones via `GIT_CONFIG_*` env (see `ci_parsers` git clone). Never log tokens; detect-secrets baseline at `.secrets.baseline`.
+
+## Read-only sources
+
+Indexing and `ci projects remove` never delete user source directories (only managed clones). Server mode: `CI_PROJECT_ROOTS` + `CI_API_KEY`.
+
+## Content safety
+
+Untrusted repo text: no HTML rendering of source. See [docs/SECURITY.md](docs/SECURITY.md) and [docs/private-repos.md](docs/private-repos.md).

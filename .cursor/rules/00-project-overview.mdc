@@ -1,0 +1,26 @@
+---
+description: Codebase Intelligence layout, links, and hard rules for all edits
+alwaysApply: true
+---
+
+# Codebase Intelligence
+
+Local-first graph indexer: `backend/` (uv workspace) + `frontend/` (Vite/React). Data under `CI_DATA_DIR/projects/<id>/index.db`. Never modify analyzed source trees.
+
+## Layout
+
+- `backend/packages/core` — `GraphIndex`, views, SQLite, suggestions, settings.
+- `backend/packages/indexer` — analyze pipeline, jobs, incremental fingerprints.
+- `backend/packages/parsers` + `adapters/*` — extraction.
+- `backend/apps/api` — FastAPI routers; `apps/cli` — `ci`; `apps/mcp` — MCP.
+- `frontend/src` — dashboard; dev `:5173` proxies `/api` to API `:8000`.
+
+## Docs
+
+- [AGENTS.md](AGENTS.md) — agent boundaries and doc protocol.
+- [docs/ai/README.md](docs/ai/README.md) — depth index and playbooks.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — quality gates.
+
+## Hard rules
+
+Local-first; optional LLM only with redaction. API errors: `{"detail", "request_id"}`. Additive HTTP routes. Analyzers/views via entry points. No GPL graph libs. Respect `index.lock`. No blanket `noqa` / `eslint-disable`. UI: tokens in `frontend/src/styles.css`, no CDN assets.
