@@ -1,8 +1,6 @@
 from ci_parsers.files import (
     GitCloneError,
     check_git_access,
-    normalize_github_url,
-    parse_github_url,
     clone_git_repo,
     file_sha256,
     git_changed_between,
@@ -10,6 +8,8 @@ from ci_parsers.files import (
     git_head_sha,
     list_python_files,
     list_source_files,
+    normalize_github_url,
+    parse_github_url,
 )
 from ci_parsers.python_parser import (
     CallEdge,
@@ -28,13 +28,11 @@ from ci_parsers.python_parser import (
 __all__ = [
     "CallEdge",
     "Decorator",
+    "GitCloneError",
     "ImportInfo",
     "ParseResult",
     "SymbolInfo",
-    "GitCloneError",
     "check_git_access",
-    "normalize_github_url",
-    "parse_github_url",
     "clone_git_repo",
     "dotted_name",
     "file_sha256",
@@ -44,6 +42,8 @@ __all__ = [
     "list_python_files",
     "list_source_files",
     "module_name_from_path",
+    "normalize_github_url",
+    "parse_github_url",
     "parse_python_file",
     "parse_python_source",
     "stable_node_id",

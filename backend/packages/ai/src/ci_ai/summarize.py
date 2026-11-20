@@ -3,16 +3,15 @@ from __future__ import annotations
 import json
 
 from ci_ai.embeddings import embed_query
+from ci_ai.llm import llm_enabled, llm_kwargs
 from ci_core.config import project_dir
 from ci_core.db import GraphStore, _db_signature, db_path_for_project
+from ci_core.fingerprints import load_fingerprints
 from ci_core.insights import top_ranked
 from ci_core.layers import layer_catalog
 from ci_core.models import EdgeType, NodeType
 from ci_core.registry import get_registered_project
-from ci_core.fingerprints import load_fingerprints
-from ci_ai.llm import llm_enabled, llm_kwargs
 from ci_security import sanitize_for_llm
-
 
 _FRAMEWORK_LABELS = {
     "django": "Django",
@@ -80,7 +79,9 @@ def _build_project_summary(project_id: str) -> dict:
     installed_apps: list[str] = meta.get("installed_apps", [])
 
     languages = sorted({str(f.get("language")) for f in files.values() if f.get("language")}) or ["python"]
-    tech_stack = [{"python": "Python", "typescript": "TypeScript/JavaScript"}.get(lang, lang.title()) for lang in languages]
+    tech_stack = [
+        {"python": "Python", "typescript": "TypeScript/JavaScript"}.get(lang, lang.title()) for lang in languages
+    ]
     frameworks = [f.strip() for f in (project.framework or "").split(",") if f.strip()]
     tech_stack.extend(_FRAMEWORK_LABELS.get(f, f.title()) for f in frameworks)
     tech_stack.extend(s.name for s in services[:4])
@@ -112,9 +113,7 @@ def _build_project_summary(project_id: str) -> dict:
         layer = n.properties.get("layer")
         if layer and n.node_type in (NodeType.MODULE, NodeType.ENDPOINT, NodeType.MODEL, NodeType.MIDDLEWARE):
             layer_counts[layer] = layer_counts.get(layer, 0) + 1
-    layers = [
-        {**entry, "count": layer_counts[entry["id"]]} for entry in layer_catalog() if entry["id"] in layer_counts
-    ]
+    layers = [{**entry, "count": layer_counts[entry["id"]]} for entry in layer_catalog() if entry["id"] in layer_counts]
 
     hotspots = top_ranked(
         index, {NodeType.FUNCTION, NodeType.CLASS, NodeType.MODEL, NodeType.MIDDLEWARE}, 5, by="fan_in"
@@ -122,9 +121,7 @@ def _build_project_summary(project_id: str) -> dict:
     top_models = top_ranked(index, {NodeType.MODEL}, 5, by="fan_in")
 
     chunks = store.search_chunks(embed_query("project architecture overview tech stack"), limit=12)
-    context_preview = "\n\n".join(
-        f"# {c['source_path']}:{c['start_line']}\n{c['content'][:500]}" for c in chunks[:8]
-    )
+    context_preview = "\n\n".join(f"# {c['source_path']}:{c['start_line']}\n{c['content'][:500]}" for c in chunks[:8])
 
     summary = _heuristic_summary(project, endpoints, models, packages, routes, installed_apps, layers, hotspots)
     if llm_enabled() and context_preview:
@@ -175,7 +172,9 @@ def _heuristic_summary(project, endpoints, models, packages, routes, installed_a
         parts.append(
             f"{len(routes)} route→handler link(s) resolved; open the API flow view or take the guided tour to trace requests to models. "
         )
-    parts.append("Ask the assistant about endpoints, data models, or what a change would affect; answers cite files and graph nodes.")
+    parts.append(
+        "Ask the assistant about endpoints, data models, or what a change would affect; answers cite files and graph nodes."
+    )
     return "".join(parts)
 
 

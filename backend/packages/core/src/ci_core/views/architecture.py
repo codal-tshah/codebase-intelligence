@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ci_core.insights import DEPENDENCY_EDGES, GraphIndex
-from ci_core.models import GraphEdgeView, GraphNodeView, NodeType
+from ci_core.models import GraphEdgeView, GraphNodeView, NodeRecord, NodeType
 from ci_core.views import ViewModule, register_view
 from ci_core.views._common import MAX_NODES, node_view
 
@@ -27,7 +27,7 @@ def package_of(index: GraphIndex, allowed: set[str] | None = None) -> dict[str, 
     return result
 
 
-def architecture_packages(index: GraphIndex) -> list:
+def architecture_packages(index: GraphIndex) -> list[NodeRecord]:
     """App-level packages. Nested directory packages (``subpackage``) are skipped, except inside a
     dominant app (3+ sub-packages holding 40%+ of the project's modules: the usual FastAPI/Flask
     ``app/`` monolith), whose first level is shown too, otherwise the diagram is a single box."""
@@ -57,7 +57,7 @@ def build(
     parent_pkg: dict[str, str] = {}
     for pid in pkg_ids:
         up = index.contains_parent.get(pid)
-        if up in pkg_ids:
+        if up is not None and up in pkg_ids:
             parent_pkg[pid] = up
 
     weights: dict[tuple[str, str], dict[str, int]] = {}

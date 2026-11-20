@@ -31,6 +31,17 @@ def _obj(props: dict[str, Any], required: list[str] | None = None) -> dict[str, 
 
 _STR = {"type": "string"}
 
+
+def _callers(t: GraphTools, node: str) -> list[Any]:
+    resolved = t.resolve(node)
+    return t.get_callers(resolved.id) if resolved else []
+
+
+def _callees(t: GraphTools, node: str) -> list[Any]:
+    resolved = t.resolve(node)
+    return t.get_callees(resolved.id) if resolved else []
+
+
 TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         "project_overview",
@@ -43,13 +54,22 @@ TOOLS: tuple[ToolSpec, ...] = (
         "Fuzzy-search the code graph (functions, classes, components, endpoints, models, modules, services) by name, path, tag or summary.",
         _obj(
             {
-                "query": {**_STR, "description": "Name, path fragment, or concept (e.g. 'auth', 'checkout', 'ItemList')"},
-                "node_types": {"type": "array", "items": _STR, "description": "Optional filter, e.g. ['Endpoint','Model','Component','Function']"},
+                "query": {
+                    **_STR,
+                    "description": "Name, path fragment, or concept (e.g. 'auth', 'checkout', 'ItemList')",
+                },
+                "node_types": {
+                    "type": "array",
+                    "items": _STR,
+                    "description": "Optional filter, e.g. ['Endpoint','Model','Component','Function']",
+                },
                 "limit": {"type": "integer", "minimum": 1, "maximum": 40},
             },
             ["query"],
         ),
-        lambda t, query, node_types=None, limit=12: t.find_symbol(query, limit=limit, types=set(node_types) if node_types else None),
+        lambda t, query, node_types=None, limit=12: t.find_symbol(
+            query, limit=limit, types=set(node_types) if node_types else None
+        ),
     ),
     ToolSpec(
         "get_node",
@@ -66,25 +86,37 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         "trace_endpoint",
         "What happens when an API is called: handler, injected dependencies, guards, call chain, models read/written, external services, and which frontend code calls it.",
-        _obj({"route": {**_STR, "description": "Route path like /api/items/{id} or an endpoint node id"}, "method": _STR}, ["route"]),
+        _obj(
+            {
+                "route": {**_STR, "description": "Route path like /api/items/{id} or an endpoint node id"},
+                "method": _STR,
+            },
+            ["route"],
+        ),
         lambda t, route, method=None: t.endpoint_details(route, method),
     ),
     ToolSpec(
         "get_callers",
         "Functions/components that call the given node (by id or name).",
         _obj({"node": _STR}, ["node"]),
-        lambda t, node: (lambda n: t.get_callers(n.id) if n else [])(t.resolve(node)),
+        _callers,
     ),
     ToolSpec(
         "get_callees",
         "Functions the given node calls (by id or name).",
         _obj({"node": _STR}, ["node"]),
-        lambda t, node: (lambda n: t.get_callees(n.id) if n else [])(t.resolve(node)),
+        _callees,
     ),
     ToolSpec(
         "impact_analysis",
         "Blast radius of changing a symbol or file: dependent nodes by hop, affected endpoints, layers, hotspots, risk and notes.",
-        _obj({"target": {**_STR, "description": "Symbol name, node id, or file path"}, "depth": {"type": "integer", "minimum": 1, "maximum": 6}}, ["target"]),
+        _obj(
+            {
+                "target": {**_STR, "description": "Symbol name, node id, or file path"},
+                "depth": {"type": "integer", "minimum": 1, "maximum": 6},
+            },
+            ["target"],
+        ),
         lambda t, target, depth=3: t.impact_of(target, depth=depth),
     ),
     ToolSpec(
@@ -132,7 +164,14 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         "read_source",
         "Read lines of an indexed source file (secrets redacted). Use after locating a node to quote real code.",
-        _obj({"path": _STR, "start_line": {"type": "integer", "minimum": 1}, "end_line": {"type": "integer", "minimum": 1}}, ["path"]),
+        _obj(
+            {
+                "path": _STR,
+                "start_line": {"type": "integer", "minimum": 1},
+                "end_line": {"type": "integer", "minimum": 1},
+            },
+            ["path"],
+        ),
         lambda t, path, start_line=1, end_line=None: t.read_source_snippet(path, start_line, end_line),
     ),
     ToolSpec(
@@ -148,7 +187,10 @@ TOOL_BY_NAME: dict[str, ToolSpec] = {t.name: t for t in TOOLS}
 
 def openai_tools() -> list[dict[str, Any]]:
     """Tool definitions in the OpenAI/LiteLLM function-calling format."""
-    return [{"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.parameters}} for t in TOOLS]
+    return [
+        {"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.parameters}}
+        for t in TOOLS
+    ]
 
 
 def run_tool(tools: GraphTools, name: str, args: dict[str, Any] | None) -> Any:
@@ -161,7 +203,7 @@ def run_tool(tools: GraphTools, name: str, args: dict[str, Any] | None) -> Any:
         return spec.run(tools, **clean)
     except TypeError as exc:
         return {"error": f"bad arguments for {name}: {exc}"}
-    except Exception as exc:  # noqa: BLE001 - tool errors are reported to the model, not raised
+    except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
@@ -173,7 +215,9 @@ def tool_result_text(result: Any) -> tuple[str, int]:
     return sanitize_for_llm(text)
 
 
-def collect_refs(result: Any, out: dict[str, dict[str, Any]] | None = None, depth: int = 0) -> dict[str, dict[str, Any]]:
+def collect_refs(
+    result: Any, out: dict[str, dict[str, Any]] | None = None, depth: int = 0
+) -> dict[str, dict[str, Any]]:
     """Every node-like dict in a tool result (has an id and a path) -> citation candidate."""
     out = {} if out is None else out
     if depth > 6:

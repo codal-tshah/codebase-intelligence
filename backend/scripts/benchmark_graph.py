@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Time the graph analytics on an already-indexed project (read-only).
 
-    uv run python scripts/benchmark_graph.py --largest
-    uv run python scripts/benchmark_graph.py --project my-repo --repeat 5 --json out.json
+uv run python scripts/benchmark_graph.py --largest
+uv run python scripts/benchmark_graph.py --project my-repo --repeat 5 --json out.json
 """
 
 from __future__ import annotations
@@ -86,9 +86,7 @@ def main() -> int:
     results["find_path"]["per_call_ms"] = round(results["find_path"]["median_ms"] / len(pairs), 3)
     results["impact_depth3"] = _ms(lambda: [compute_impact(index, [s]) for s in seeds], args.repeat)
     results["impact_depth3"]["per_call_ms"] = round(results["impact_depth3"]["median_ms"] / len(seeds), 3)
-    results["neighborhood_depth3"] = _ms(
-        lambda: [neighborhood_subgraph(index, s, depth=3) for s in seeds], args.repeat
-    )
+    results["neighborhood_depth3"] = _ms(lambda: [neighborhood_subgraph(index, s, depth=3) for s in seeds], args.repeat)
     results["neighborhood_depth3"]["per_call_ms"] = round(results["neighborhood_depth3"]["median_ms"] / len(seeds), 3)
 
     try:  # present once the facade exists
@@ -100,8 +98,10 @@ def main() -> int:
         results["scc_dependency_graph"] = _ms(lambda: graph_algo.strongly_connected_components(index), args.repeat)
         results["cycles"] = len(graph_algo.dependency_cycles(index))
 
-    print(f"project {results['project']}  db {results['db_mb']} MB  nodes {results['nodes']}  "
-          f"edges {results['edges']}  dependency edges {dep_edges}")
+    print(
+        f"project {results['project']}  db {results['db_mb']} MB  nodes {results['nodes']}  "
+        f"edges {results['edges']}  dependency edges {dep_edges}"
+    )
     for key, val in results.items():
         if isinstance(val, dict):
             extra = f"  ({val['per_call_ms']} ms/call)" if "per_call_ms" in val else ""

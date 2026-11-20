@@ -61,7 +61,11 @@ def test_jobs_detected_and_traced_to_model_writes(tmp_path):
     assert jobs["sync_orders"]["kind"] == "scheduled" and "crontab" in jobs["sync_orders"]["schedule"]
     assert jobs["nightly_report"] == {"kind": "scheduled", "framework": "apscheduler", "schedule": "cron hour=3"}
     assert jobs["Command.handle"]["command"] == "cleanup"
-    assert jobs["ReportService.nightly"] == {"kind": "scheduled", "framework": "nestjs-schedule", "schedule": "0 3 * * *"}
+    assert jobs["ReportService.nightly"] == {
+        "kind": "scheduled",
+        "framework": "nestjs-schedule",
+        "schedule": "0 3 * * *",
+    }
     assert all("job" in (n.properties.get("tags") or []) for n in res.nodes if n.properties.get("job"))
 
     index = GraphIndex.build(res.nodes, res.edges)
@@ -84,6 +88,7 @@ def test_jobs_view_unavailable_without_jobs():
 
 def test_docs_render_mermaid_with_helper_text_and_stay_in_repo(tmp_path):
     import pytest
+
     from ci_core.docgen import render_docs, write_docs
 
     root = _project(tmp_path)
@@ -107,16 +112,51 @@ def test_suggestions_flag_duplicates_hubs_and_unused():
     from ci_core.suggestions import suggest
 
     def fn(i, name, path, **props):
-        return NodeRecord(id=i, project_id="p", node_type=NodeType.FUNCTION, name=name, qualified_name=name,
-                          source_path=path, start_line=1, end_line=5, extractor="t", confidence=1, properties=props)
+        return NodeRecord(
+            id=i,
+            project_id="p",
+            node_type=NodeType.FUNCTION,
+            name=name,
+            qualified_name=name,
+            source_path=path,
+            start_line=1,
+            end_line=5,
+            extractor="t",
+            confidence=1,
+            properties=props,
+        )
 
-    nodes = [fn("h", "core_helper", "a.py"), fn("d1", "format_money", "b.py"), fn("d2", "format_money", "c.py"),
-             fn("u", "orphan_util", "d.py")]
+    nodes = [
+        fn("h", "core_helper", "a.py"),
+        fn("d1", "format_money", "b.py"),
+        fn("d2", "format_money", "c.py"),
+        fn("u", "orphan_util", "d.py"),
+    ]
     callers = [fn(f"c{i}", f"caller{i}", f"x{i}.py", role="views") for i in range(12)]
-    edges = [EdgeRecord(id=f"e{i}", project_id="p", source_id=c.id, target_id="h", edge_type=EdgeType.CALLS,
-                        extractor="t", confidence=1) for i, c in enumerate(callers)]
-    edges += [EdgeRecord(id=f"f{i}", project_id="p", source_id="h", target_id=t, edge_type=EdgeType.CALLS,
-                         extractor="t", confidence=1) for i, t in enumerate(["d1", "d2"])]
+    edges = [
+        EdgeRecord(
+            id=f"e{i}",
+            project_id="p",
+            source_id=c.id,
+            target_id="h",
+            edge_type=EdgeType.CALLS,
+            extractor="t",
+            confidence=1,
+        )
+        for i, c in enumerate(callers)
+    ]
+    edges += [
+        EdgeRecord(
+            id=f"f{i}",
+            project_id="p",
+            source_id="h",
+            target_id=t,
+            edge_type=EdgeType.CALLS,
+            extractor="t",
+            confidence=1,
+        )
+        for i, t in enumerate(["d1", "d2"])
+    ]
     kinds = {s["kind"]: s for s in suggest(GraphIndex.build([*nodes, *callers], edges))}
     assert "core_helper" in kinds["hotspot"]["title"]
     assert "format_money" in kinds["duplication"]["title"]

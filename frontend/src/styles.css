@@ -235,7 +235,9 @@ kbd {
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--text-2);
-  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
 }
 
 .icon-btn:hover {
@@ -294,7 +296,9 @@ textarea {
   border-radius: var(--r-sm);
   background: var(--surface);
   font-size: 13px;
-  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+  transition:
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
 }
 
 textarea {
@@ -352,7 +356,10 @@ input[type="checkbox"] {
 
 .chip {
   cursor: pointer;
-  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+  transition:
+    border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
 }
 
 .chip:hover:not(:disabled):not(.static) {
@@ -652,7 +659,9 @@ input[type="checkbox"] {
   color: var(--text-2);
   font-size: 13px;
   text-align: left;
-  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
 }
 
 .view-nav-item:hover {
@@ -874,7 +883,6 @@ input[type="checkbox"] {
   min-width: 0;
 }
 
-
 .explore-edge-card {
   margin-bottom: var(--s4);
 }
@@ -954,7 +962,6 @@ input[type="checkbox"] {
     width: 140px;
   }
 }
-
 
 .link-inline {
   padding: 0;
@@ -1241,7 +1248,9 @@ input[type="checkbox"] {
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--text-3);
-  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
 }
 
 /* Larger invisible hit area: at typical Explore zoom the 28px button is ~14px on screen. */
@@ -3028,7 +3037,6 @@ details[open] > summary::before {
 .severity--low {
   color: var(--text-3);
 }
-
 
 /* =============================================================================================
    Selection trace: in/out badges on nodes, edge labels on hover/selection only

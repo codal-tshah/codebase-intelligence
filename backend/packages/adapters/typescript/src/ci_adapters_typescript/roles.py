@@ -105,8 +105,19 @@ HTTP_VERBS = ("get", "post", "put", "patch", "delete", "head", "options")
 ROUTE_VERBS = (*HTTP_VERBS, "all")
 ROUTER_OBJECTS = re.compile(r"^(app|server|router|api|routes?|\w*Router|\w*router)$")
 HTTP_CLIENT_OBJECTS = re.compile(r"(axios|http|api|client|ky|got|superagent|request|\$http)$", re.I)
-HTTP_WRAPPER_FUNCS = re.compile(r"^(fetch|request|(get|post|put|patch|delete)(json|data|api|request)?|(fetch|send)\w*)$", re.I)
-NEST_ROUTE_DECORATORS = {"Get": "GET", "Post": "POST", "Put": "PUT", "Patch": "PATCH", "Delete": "DELETE", "All": "ALL", "Head": "HEAD", "Options": "OPTIONS"}
+HTTP_WRAPPER_FUNCS = re.compile(
+    r"^(fetch|request|(get|post|put|patch|delete)(json|data|api|request)?|(fetch|send)\w*)$", re.I
+)
+NEST_ROUTE_DECORATORS = {
+    "Get": "GET",
+    "Post": "POST",
+    "Put": "PUT",
+    "Patch": "PATCH",
+    "Delete": "DELETE",
+    "All": "ALL",
+    "Head": "HEAD",
+    "Options": "OPTIONS",
+}
 
 _PASCAL = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 _HOOK = re.compile(r"^use[A-Z0-9]")
@@ -147,11 +158,26 @@ def classify_module(rel: str) -> str:
     name = parts[-1]
     stem = name.split(".")[0]
     dirs = parts[:-1]
-    if ".test." in name or ".spec." in name or "__tests__" in dirs or "tests" in dirs or "test" in dirs or "e2e" in dirs:
+    if (
+        ".test." in name
+        or ".spec." in name
+        or "__tests__" in dirs
+        or "tests" in dirs
+        or "test" in dirs
+        or "e2e" in dirs
+    ):
         return "tests"
-    if ".config." in name or stem in ("config", "env", "constants") or name.startswith(("vite.", "webpack.", "next.config", "tailwind", "postcss", "jest.", "eslint")):
+    if (
+        ".config." in name
+        or stem in ("config", "env", "constants")
+        or name.startswith(("vite.", "webpack.", "next.config", "tailwind", "postcss", "jest.", "eslint"))
+    ):
         return "settings"
-    if stem in ("main", "index", "server", "app") and len(dirs) <= 2 and not any(d in ("components", "pages") for d in dirs):
+    if (
+        stem in ("main", "index", "server", "app")
+        and len(dirs) <= 2
+        and not any(d in ("components", "pages") for d in dirs)
+    ):
         return "entry"
     if "pages" in dirs and "api" in dirs:
         return "urls"
@@ -163,7 +189,9 @@ def classify_module(rel: str) -> str:
         return "components"
     if "hooks" in dirs or stem.startswith("use"):
         return "hooks"
-    if any(d in dirs for d in ("store", "stores", "state", "redux", "slices", "context", "contexts")) or stem.endswith(("slice", "store", "context")):
+    if any(d in dirs for d in ("store", "stores", "state", "redux", "slices", "context", "contexts")) or stem.endswith(
+        ("slice", "store", "context")
+    ):
         return "stores"
     if "routes" in dirs or "routers" in dirs or stem.endswith(("routes", "router")) or stem == "routes":
         return "urls"
@@ -173,7 +201,9 @@ def classify_module(rel: str) -> str:
         return "middleware"
     if "guards" in dirs or stem.endswith(("guard", "auth")):
         return "permissions"
-    if any(d in dirs for d in ("models", "entities", "schemas", "prisma")) or stem.endswith(("model", "entity", "schema")):
+    if any(d in dirs for d in ("models", "entities", "schemas", "prisma")) or stem.endswith(
+        ("model", "entity", "schema")
+    ):
         return "models"
     if "api" in dirs or stem in ("api", "client", "http", "fetcher") or stem.endswith(("api", "client")):
         return "api-client"

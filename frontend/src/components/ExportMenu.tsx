@@ -29,7 +29,10 @@ export function ExportMenu({ projectId, projectName, viewLabel, payload, nodes, 
 
   useEffect(() => {
     if (!open) return;
-    const t = setTimeout(() => document.querySelector<HTMLElement>(".export-menu-list [data-pop-item]:not([disabled])")?.focus(), 0);
+    const t = setTimeout(
+      () => document.querySelector<HTMLElement>(".export-menu-list [data-pop-item]:not([disabled])")?.focus(),
+      0,
+    );
     return () => clearTimeout(t);
   }, [open]);
 
@@ -44,14 +47,40 @@ export function ExportMenu({ projectId, projectName, viewLabel, payload, nodes, 
       setError(e instanceof Error ? e.message : "Export failed");
     }
   };
-  const text = (content: string, ext: string, type: string) => saveBlob(new Blob([content], { type }), `${base}.${ext}`);
+  const text = (content: string, ext: string, type: string) =>
+    saveBlob(new Blob([content], { type }), `${base}.${ext}`);
 
   const items: { label: string; hint: string; disabled?: boolean; run: () => Promise<void> | void }[] = [
-    { label: "SVG image", hint: ".svg", disabled: !nodes.length, run: () => text(toSvg(nodes, edges), "svg", "image/svg+xml") },
-    { label: "PNG image", hint: ".png", disabled: !nodes.length, run: async () => saveBlob(await svgToPng(toSvg(nodes, edges)), `${base}.png`) },
-    { label: "Mermaid diagram", hint: ".mmd", disabled: !payload, run: () => payload && text(toMermaid(payload, `${projectName} — ${viewLabel}`), "mmd", "text/plain") },
-    { label: "Markdown report", hint: ".md", disabled: !payload, run: () => payload && text(toMarkdown(payload, meta), "md", "text/markdown") },
-    { label: "This view as JSON", hint: ".json", disabled: !payload, run: () => payload && text(toJson(payload, meta), "json", "application/json") },
+    {
+      label: "SVG image",
+      hint: ".svg",
+      disabled: !nodes.length,
+      run: () => text(toSvg(nodes, edges), "svg", "image/svg+xml"),
+    },
+    {
+      label: "PNG image",
+      hint: ".png",
+      disabled: !nodes.length,
+      run: async () => saveBlob(await svgToPng(toSvg(nodes, edges)), `${base}.png`),
+    },
+    {
+      label: "Mermaid diagram",
+      hint: ".mmd",
+      disabled: !payload,
+      run: () => payload && text(toMermaid(payload, `${projectName} — ${viewLabel}`), "mmd", "text/plain"),
+    },
+    {
+      label: "Markdown report",
+      hint: ".md",
+      disabled: !payload,
+      run: () => payload && text(toMarkdown(payload, meta), "md", "text/markdown"),
+    },
+    {
+      label: "This view as JSON",
+      hint: ".json",
+      disabled: !payload,
+      run: () => payload && text(toJson(payload, meta), "json", "application/json"),
+    },
     {
       label: "Full graph as JSON",
       hint: "all nodes",
@@ -78,9 +107,26 @@ export function ExportMenu({ projectId, projectName, viewLabel, payload, nodes, 
       >
         <Download size={16} strokeWidth={1.5} aria-hidden />
       </button>
-      <Popover open={open} onClose={close} anchorRef={trigger} placement="bottom-end" role="menu" label="Export formats" className="export-menu-list" onKeyDown={keys}>
+      <Popover
+        open={open}
+        onClose={close}
+        anchorRef={trigger}
+        placement="bottom-end"
+        role="menu"
+        label="Export formats"
+        className="export-menu-list"
+        onKeyDown={keys}
+      >
         {items.map((it) => (
-          <button key={it.label} type="button" role="menuitem" data-pop-item className="popover-item" disabled={it.disabled} onClick={() => void run(it.run)}>
+          <button
+            key={it.label}
+            type="button"
+            role="menuitem"
+            data-pop-item
+            className="popover-item"
+            disabled={it.disabled}
+            onClick={() => void run(it.run)}
+          >
             <span>{it.label}</span>
             <span className="muted mono popover-hint">{it.hint}</span>
           </button>

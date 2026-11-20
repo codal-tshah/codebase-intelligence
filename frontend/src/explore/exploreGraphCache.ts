@@ -38,10 +38,7 @@ export class ExploreGraphCache {
   }
 }
 
-export function exploreCacheKey(
-  expandedSorted: string[],
-  childOffsets: Record<string, number>,
-): string {
+export function exploreCacheKey(expandedSorted: string[], childOffsets: Record<string, number>): string {
   const off =
     Object.keys(childOffsets).length === 0
       ? ""

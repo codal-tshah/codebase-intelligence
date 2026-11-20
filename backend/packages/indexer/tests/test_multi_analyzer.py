@@ -44,7 +44,11 @@ def test_frontend_requests_link_to_backend_endpoints(fullstack_root):
     assert ("api.listItems", "/api/items") in links
     assert ("api.getItem", "/api/items/{item_id}") in links
     assert ("api.checkout", "/api/orders") in links
-    hosts = {names[e.target_id] for e in res.edges if e.properties.get("relation") == "http" and e.edge_type == EdgeType.DEPENDS_ON}
+    hosts = {
+        names[e.target_id]
+        for e in res.edges
+        if e.properties.get("relation") == "http" and e.edge_type == EdgeType.DEPENDS_ON
+    }
     assert "api.stripe.com" in hosts
     assert res.stats["http_unresolved"] == 0
 
@@ -80,7 +84,11 @@ def test_components_view_and_end_to_end_api_flow(fullstack_root):
     assert {"App", "ItemList", "ItemCard", "useItems", "/api/items"} <= labels
     assert any(e.edge_type == "HTTP_CALLS" for e in comp.edges)
 
-    endpoint = next(n for n in index.nodes.values() if n.node_type == NodeType.ENDPOINT and n.name == "/api/items" and "GET" in n.properties["methods"])
+    endpoint = next(
+        n
+        for n in index.nodes.values()
+        if n.node_type == NodeType.ENDPOINT and n.name == "/api/items" and "GET" in n.properties["methods"]
+    )
     flow = build_view(index, "api-flow", endpoint.id)
     labels = {n.label for n in flow.nodes}
     # UI component -> hook -> api client -> endpoint -> handler -> model

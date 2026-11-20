@@ -41,7 +41,7 @@ class ProjectResolver:
         self._tools: dict[str, GraphTools] = {}
 
     def resolve(self, ref: str | None) -> ProjectRecord:
-        ref = (ref or self.default or os.getcwd()).strip()
+        ref = (ref or self.default or str(Path.cwd())).strip()
         found = resolve_project(ref)
         if found:
             return found
@@ -84,15 +84,16 @@ def build_server(default_project: str | None = None, *, auto_index: bool = True)
         "(cloned; private repos need CI_GITHUB_TOKEN on this machine). Returns the project id."
     )
     def index_project(path: str, full: bool = False) -> dict:
-        from ci_indexer import create_project_from_git, create_project_from_path, run_index_job
-
         from ci_core.settings import get_settings
+        from ci_indexer import create_project_from_git, create_project_from_path, run_index_job
         from ci_parsers import parse_github_url
 
         settings = get_settings()
         if parse_github_url(path) is not None:
             if settings.mode == "server":
-                raise ValueError("GitHub URL ingest is disabled in server mode; clone under CI_PROJECT_ROOTS and pass the path")
+                raise ValueError(
+                    "GitHub URL ingest is disabled in server mode; clone under CI_PROJECT_ROOTS and pass the path"
+                )
             record = create_project_from_git(path)
         else:
             if not settings.path_allowed(Path(path)):
@@ -100,7 +101,13 @@ def build_server(default_project: str | None = None, *, auto_index: bool = True)
             record = create_project_from_path(Path(path).expanduser())
         job = run_index_job(record.id, incremental=not full)
         resolver._tools.pop(record.id, None)
-        return {"project_id": record.id, "name": record.name, "status": job.status.value, "message": job.message, "error": job.error}
+        return {
+            "project_id": record.id,
+            "name": record.name,
+            "status": job.status.value,
+            "message": job.message,
+            "error": job.error,
+        }
 
     @server.tool(description="Freshness of the index vs. the working tree (fresh/dirty/stale) and changed files.")
     def index_status(project: str | None = None) -> dict:
@@ -114,18 +121,26 @@ def build_server(default_project: str | None = None, *, auto_index: bool = True)
         return call(project, "project_overview")
 
     @server.tool(description="Fuzzy-search functions, classes, components, endpoints, models, modules and services.")
-    def search_nodes(query: str, node_types: list[str] | None = None, limit: int = 12, project: str | None = None) -> dict:
+    def search_nodes(
+        query: str, node_types: list[str] | None = None, limit: int = 12, project: str | None = None
+    ) -> dict:
         return call(project, "search_nodes", query=query, node_types=node_types, limit=limit)
 
-    @server.tool(description="One node (id or name): summary, layer, role, location, HTTP calls, incoming/outgoing relations.")
+    @server.tool(
+        description="One node (id or name): summary, layer, role, location, HTTP calls, incoming/outgoing relations."
+    )
     def get_node(node: str, project: str | None = None) -> dict:
         return call(project, "get_node", node=node)
 
-    @server.tool(description="HTTP endpoints (all frameworks) with handler, guards, frontend callers and models touched.")
+    @server.tool(
+        description="HTTP endpoints (all frameworks) with handler, guards, frontend callers and models touched."
+    )
     def list_endpoints(query: str | None = None, project: str | None = None) -> dict:
         return call(project, "list_endpoints", query=query)
 
-    @server.tool(description="What happens when an API is called: handler, dependencies, guards, call chain, models, external services, UI callers.")
+    @server.tool(
+        description="What happens when an API is called: handler, dependencies, guards, call chain, models, external services, UI callers."
+    )
     def trace_endpoint(route: str, method: str | None = None, project: str | None = None) -> dict:
         return call(project, "trace_endpoint", route=route, method=method)
 
@@ -137,11 +152,15 @@ def build_server(default_project: str | None = None, *, auto_index: bool = True)
     def get_callees(node: str, project: str | None = None) -> dict:
         return call(project, "get_callees", node=node)
 
-    @server.tool(description="Blast radius of changing a symbol or file: dependents by hop, affected endpoints, risk, notes.")
+    @server.tool(
+        description="Blast radius of changing a symbol or file: dependents by hop, affected endpoints, risk, notes."
+    )
     def impact_analysis(target: str, depth: int = 3, project: str | None = None) -> dict:
         return call(project, "impact_analysis", target=target, depth=depth)
 
-    @server.tool(description="Impact of uncommitted changes or of all files changed since a git ref (e.g. origin/main).")
+    @server.tool(
+        description="Impact of uncommitted changes or of all files changed since a git ref (e.g. origin/main)."
+    )
     def impact_of_working_tree(depth: int = 3, base: str | None = None, project: str | None = None) -> dict:
         from ci_core.insights import impact_for_request
         from ci_indexer import compute_freshness
@@ -177,15 +196,21 @@ def build_server(default_project: str | None = None, *, auto_index: bool = True)
     def build_context(node: str, max_snippets: int = 6, project: str | None = None) -> dict:
         return call(project, "build_context", node=node, max_snippets=max_snippets)
 
-    @server.tool(description="Every reference to a symbol (calls, imports, renders, routes, DI, HTTP, model access) with file:line.")
+    @server.tool(
+        description="Every reference to a symbol (calls, imports, renders, routes, DI, HTTP, model access) with file:line."
+    )
     def find_references(node: str, project: str | None = None) -> dict:
         return call(project, "find_references", node=node)
 
-    @server.tool(description="Background tasks, scheduled jobs and management commands with schedules and the models they write.")
+    @server.tool(
+        description="Background tasks, scheduled jobs and management commands with schedules and the models they write."
+    )
     def list_jobs(project: str | None = None) -> dict:
         return call(project, "list_jobs")
 
-    @server.tool(description="Optimization and reuse suggestions: hubs, large functions, duplicated helpers, import cycles, scattered model writes, unused code.")
+    @server.tool(
+        description="Optimization and reuse suggestions: hubs, large functions, duplicated helpers, import cycles, scattered model writes, unused code."
+    )
     def suggest_optimizations(limit: int = 40, project: str | None = None) -> dict:
         return call(project, "suggest_optimizations", limit=limit)
 
@@ -214,7 +239,9 @@ def build_server(default_project: str | None = None, *, auto_index: bool = True)
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="ci-mcp", description=__doc__.splitlines()[0])
-    parser.add_argument("--project", default=os.environ.get("CI_PROJECT"), help="Project id, name or path (default: cwd)")
+    parser.add_argument(
+        "--project", default=os.environ.get("CI_PROJECT"), help="Project id, name or path (default: cwd)"
+    )
     parser.add_argument("--no-auto-index", action="store_true", help="Fail instead of indexing unknown paths")
     parser.add_argument("--transport", choices=["stdio", "streamable-http", "sse"], default="stdio")
     args = parser.parse_args(argv)

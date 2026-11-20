@@ -7,9 +7,9 @@ from pathlib import Path
 
 from ci_core.config import project_dir
 from ci_core.db import GraphStore, new_id
+from ci_core.fingerprints import load_fingerprints, save_fingerprints
 from ci_core.models import IndexJobRecord, JobStatus, ProjectRecord, utcnow
 from ci_core.registry import load_registry, register_project
-from ci_core.fingerprints import load_fingerprints, save_fingerprints
 from ci_indexer.analyzers import analyze_project
 from ci_indexer.changes import ChangeSet, classify_changes
 from ci_parsers import git_head_sha
@@ -37,7 +37,7 @@ def _try_process_lock(project_id: str):
         import fcntl
     except ImportError:
         return None
-    fh = open(project_dir(project_id) / "index.lock", "a")  # noqa: SIM115 - held until released
+    fh = (project_dir(project_id) / "index.lock").open("a")  # held until released
     try:
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
@@ -87,7 +87,14 @@ class IndexPipeline:
 
         project_analysis = analyze_project(self.project_id, root)
         analysis = project_analysis.result
-        log.info("analyzed %s: %d files, %d nodes, %d edges", project.name, len(analysis.files), len(analysis.nodes), len(analysis.edges), extra={"project_id": self.project_id, "phase": "analyze"})
+        log.info(
+            "analyzed %s: %d files, %d nodes, %d edges",
+            project.name,
+            len(analysis.files),
+            len(analysis.nodes),
+            len(analysis.edges),
+            extra={"project_id": self.project_id, "phase": "analyze"},
+        )
         version = project_analysis.version
         previous = load_fingerprints(self.project_id)
         counts = self.store.counts()
@@ -99,7 +106,12 @@ class IndexPipeline:
             graph_is_empty=counts["nodes"] == 0,
         )
         commit = git_head_sha(root)
-        log.info("change level %s: %s", changes.level, changes.reason, extra={"project_id": self.project_id, "phase": "classify"})
+        log.info(
+            "change level %s: %s",
+            changes.level,
+            changes.reason,
+            extra={"project_id": self.project_id, "phase": "classify"},
+        )
 
         if changes.level == "SKIP":
             project.commit_sha = commit
@@ -107,9 +119,7 @@ class IndexPipeline:
             self.store.upsert_project(project)
             register_project(project)
             if previous:
-                save_fingerprints(
-                    self.project_id, previous["files"], adapter_version=version, commit_sha=commit
-                )
+                save_fingerprints(self.project_id, previous["files"], adapter_version=version, commit_sha=commit)
             job.status = JobStatus.COMPLETED
             job.progress = 1.0
             job.message = "Index already up to date (no file changes)"
@@ -172,9 +182,7 @@ class IndexPipeline:
         return changes
 
 
-def create_project_from_path(
-    path: Path, *, git_url: str | None = None, project_id: str | None = None
-) -> ProjectRecord:
+def create_project_from_path(path: Path, *, git_url: str | None = None, project_id: str | None = None) -> ProjectRecord:
     path = path.resolve()
     if project_id is None:
         existing = next((p for p in load_registry() if p.root_path == str(path)), None)
@@ -228,9 +236,7 @@ def _origin_url(root: Path) -> str | None:
     return normalize_github_url(result.stdout.strip()) if result.returncode == 0 else None
 
 
-def run_index_job(
-    project_id: str, *, incremental: bool = False, job_id: str | None = None
-) -> IndexJobRecord:
+def run_index_job(project_id: str, *, incremental: bool = False, job_id: str | None = None) -> IndexJobRecord:
     """Run an index job. `incremental=False` forces a full rebuild; True skips unchanged work."""
     store = GraphStore(project_id)
     job = (store.get_job(job_id) if job_id else None) or store.create_job()
@@ -257,7 +263,7 @@ def run_index_job(
     try:
         try:
             IndexPipeline(project_id).run(job, force=not incremental)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.exception("index failed", extra={"project_id": project_id, "job_id": job.id})
             job.status = JobStatus.FAILED
             job.error = str(exc)

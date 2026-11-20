@@ -5,7 +5,15 @@ const E = (id: string, source: string, target: string, edge_type = "CALLS") => (
 
 describe("traceSelection", () => {
   // a → b → S → c → d, plus a cycle S → e → S and containment that must be ignored
-  const edges = [E("ab", "a", "b"), E("bS", "b", "S"), E("Sc", "S", "c"), E("cd", "c", "d"), E("Se", "S", "e"), E("eS", "e", "S"), E("k", "S", "kid", "CONTAINS")];
+  const edges = [
+    E("ab", "a", "b"),
+    E("bS", "b", "S"),
+    E("Sc", "S", "c"),
+    E("cd", "c", "d"),
+    E("Se", "S", "e"),
+    E("eS", "e", "S"),
+    E("k", "S", "kid", "CONTAINS"),
+  ];
 
   it("depth 1 both ways = direct neighbours, split by direction", () => {
     const t = traceSelection("S", edges, { direction: "both", depth: 1 });

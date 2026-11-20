@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from ci_core.insights import GraphIndex, neighborhood_subgraph
 from ci_core.models import EdgeRecord, EdgeType, NodeRecord, NodeType
-from ci_core.views.explore import build as explore_build, underlying_between
+from ci_core.views.explore import build as explore_build
+from ci_core.views.explore import underlying_between
 
 
-def _node(pid: str, nid: str, ntype: NodeType, name: str, parent: str | None = None) -> tuple[NodeRecord, list[EdgeRecord]]:
+def _node(
+    pid: str, nid: str, ntype: NodeType, name: str, parent: str | None = None
+) -> tuple[NodeRecord, list[EdgeRecord]]:
     edges: list[EdgeRecord] = []
     n = NodeRecord(
         id=nid,
@@ -49,7 +52,7 @@ def test_explore_top_level_only() -> None:
         nodes.append(n)
         edges.extend(ee)
     index = GraphIndex.build(nodes, edges)
-    nout, eout, meta = explore_build(index, None, {})
+    nout, _eout, meta = explore_build(index, None, {})
     assert meta.get("truncated") is not True
     ids = {n.id for n in nout}
     assert "pkg0" in ids and "pkg1" in ids
@@ -297,7 +300,9 @@ def test_collapsing_parent_hides_expanded_descendants_and_restores_them():
     top = build_view(index, "explore")
     pkg = next(n for n in top.nodes if n.properties.get("explore_expandable") and n.node_type == "Package")
     opened = build_view(index, "explore", params={"expanded": pkg.id})
-    child = next(n for n in opened.nodes if n.properties.get("parent_id") == pkg.id and n.properties.get("explore_expandable"))
+    child = next(
+        n for n in opened.nodes if n.properties.get("parent_id") == pkg.id and n.properties.get("explore_expandable")
+    )
     both = build_view(index, "explore", params={"expanded": f"{pkg.id},{child.id}"})
     inner = {n.id for n in both.nodes if n.properties.get("parent_id") == child.id}
     assert inner, "child should show its own children when both are expanded"

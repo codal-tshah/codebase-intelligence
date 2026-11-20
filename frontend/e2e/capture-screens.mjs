@@ -21,14 +21,26 @@ async function shot(name, hash, after) {
   if (only && name !== only) return;
   await page.goto("about:blank");
   await page.goto(`${base}/#/${hash}`);
-  await page.waitForSelector(".react-flow__node, .graph-overlay, .ingest-layout", { timeout: 15000 }).catch(() => undefined);
+  await page
+    .waitForSelector(".react-flow__node, .graph-overlay, .ingest-layout", { timeout: 15000 })
+    .catch(() => undefined);
   await page.waitForTimeout(900);
   if (after) await after();
   await page.screenshot({ path: `${out}/${name}.png` });
   console.log("saved", name);
 }
 
-const views = ["layers", "explore", "architecture", "api-flow", "call-graph", "components", "er", "integrations", "jobs"];
+const views = [
+  "layers",
+  "explore",
+  "architecture",
+  "api-flow",
+  "call-graph",
+  "components",
+  "er",
+  "integrations",
+  "jobs",
+];
 for (const v of views) await shot(`fullstack-${v}`, `p=${small.id}&v=${v}`);
 
 const tab = (label) => async () => {

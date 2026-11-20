@@ -43,7 +43,9 @@ export function PathPanel({ projectId, selectedNodeId, selectedNodeName, result,
 
   return (
     <div className="path">
-      <p className="muted">How does one part of the system reach another? Pick two nodes to trace the shortest dependency path.</p>
+      <p className="muted">
+        How does one part of the system reach another? Pick two nodes to trace the shortest dependency path.
+      </p>
       <div className="path-field">
         <span className="path-label">From</span>
         <div className="path-pick">
@@ -87,7 +89,9 @@ export function PathPanel({ projectId, selectedNodeId, selectedNodeName, result,
                       <span className="impact-name">{n.name}</span>
                       <span className="impact-sub">{n.node_type}</span>
                     </button>
-                    {edge ? <span className="path-edge">↓ {EDGE_STYLE[edge.edge_type]?.label ?? edge.edge_type}</span> : null}
+                    {edge ? (
+                      <span className="path-edge">↓ {EDGE_STYLE[edge.edge_type]?.label ?? edge.edge_type}</span>
+                    ) : null}
                   </li>
                 );
               })}

@@ -3,7 +3,7 @@
 from ci_parsers.files import DEFAULT_SKIP_DIRS
 from ci_parsers.python_parser import parenthesize_bare_except, parse_python_source
 
-PEP758 = '''import requests
+PEP758 = """import requests
 
 
 def fetch(url):
@@ -19,7 +19,7 @@ def fetch(url):
 
 def other():
     return fetch("x")
-'''
+"""
 
 
 def test_unparenthesised_except_is_parsed_with_exact_lines():

@@ -44,7 +44,10 @@ function readOpen(): boolean {
 function facts(s: ProjectSummary): string[] {
   const out: string[] = [];
   const routes = s.stats.endpoints ?? 0;
-  if (routes) out.push(`${routes} route${routes === 1 ? "" : "s"}${s.stats.httpLinks ? `, ${s.stats.httpLinks} called from the UI` : ""}`);
+  if (routes)
+    out.push(
+      `${routes} route${routes === 1 ? "" : "s"}${s.stats.httpLinks ? `, ${s.stats.httpLinks} called from the UI` : ""}`,
+    );
   if (s.stats.models) out.push(`${s.stats.models} data model${s.stats.models === 1 ? "" : "s"}`);
   if (s.stats.components) out.push(`${s.stats.components} UI component${s.stats.components === 1 ? "" : "s"}`);
   out.push(`${s.stats.files} files, ${s.stats.lines} lines`);
@@ -106,7 +109,7 @@ export function ProjectSummaryCard({ projectName, gitUrl, summary, loading, onPi
                 <dd>{summary.patterns.join(", ")}</dd>
               </>
             ) : null}
-            {summary.integrations && summary.integrations.length ? (
+            {summary.integrations?.length ? (
               <>
                 <dt>External</dt>
                 <dd>{summary.integrations.join(", ")}</dd>
@@ -131,7 +134,8 @@ export function ProjectSummaryCard({ projectName, gitUrl, summary, loading, onPi
           </dl>
           {summary.warnings && summary.warnings.length > 0 ? (
             <p className="overview-warning" title={summary.warnings.join("\n")}>
-              {summary.warnings.length} file{summary.warnings.length === 1 ? "" : "s"} had syntax errors and were only partly analyzed.
+              {summary.warnings.length} file{summary.warnings.length === 1 ? "" : "s"} had syntax errors and were only
+              partly analyzed.
             </p>
           ) : null}
         </div>

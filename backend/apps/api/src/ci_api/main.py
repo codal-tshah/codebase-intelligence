@@ -79,15 +79,24 @@ async def request_context(request, call_next):
         # Under `ci serve --ui` the API is mounted at /api, so the path arrives as /api/health.
         path = request.url.path.removeprefix(request.scope.get("root_path", "") or "")
         if settings.mode == "server" and request.method != "OPTIONS" and path not in ("/health", "/api/health"):
-            supplied = request.headers.get("x-api-key") or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+            supplied = (
+                request.headers.get("x-api-key")
+                or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+            )
             if not settings.api_key or not hmac.compare_digest(supplied, settings.api_key):
-                return JSONResponse({"detail": "invalid or missing API key", "request_id": rid}, status_code=401, headers={"X-Request-ID": rid})
+                return JSONResponse(
+                    {"detail": "invalid or missing API key", "request_id": rid},
+                    status_code=401,
+                    headers={"X-Request-ID": rid},
+                )
         response = await call_next(request)
         response.headers["X-Request-ID"] = rid
         return response
     except Exception:
         log.exception("unhandled error on %s %s", request.method, request.url.path)
-        return JSONResponse({"detail": "internal error", "request_id": rid}, status_code=500, headers={"X-Request-ID": rid})
+        return JSONResponse(
+            {"detail": "internal error", "request_id": rid}, status_code=500, headers={"X-Request-ID": rid}
+        )
     finally:
         request_id.reset(token)
 
@@ -95,7 +104,9 @@ async def request_context(request, call_next):
 # One error shape everywhere: {"detail": <string or validation list>, "request_id": "..."}.
 @app.exception_handler(HTTPException)
 async def _http_error(_request: Request, exc: HTTPException) -> JSONResponse:
-    return JSONResponse({"detail": exc.detail, "request_id": request_id.get()}, status_code=exc.status_code, headers=exc.headers)
+    return JSONResponse(
+        {"detail": exc.detail, "request_id": request_id.get()}, status_code=exc.status_code, headers=exc.headers
+    )
 
 
 @app.exception_handler(RequestValidationError)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import difflib
 from collections import defaultdict, deque
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Any
@@ -197,9 +197,7 @@ def find_path(index: GraphIndex, source: str, target: str, *, max_hops: int = 12
     return {"found": False, "node_ids": [], "edges": [], "reason": f"no path within {max_hops} hops"}
 
 
-def _rebuild_path(
-    parent: dict[str, tuple[str, EdgeRecord]], source: str, target: str
-) -> dict[str, Any]:
+def _rebuild_path(parent: dict[str, tuple[str, EdgeRecord]], source: str, target: str) -> dict[str, Any]:
     node_ids = [target]
     edges: list[dict[str, str]] = []
     cur = target
@@ -269,11 +267,7 @@ def compute_impact(
         for n in sorted(affected_nodes, key=lambda x: (hops[x.id], x.name))
     ]
 
-    structural = [
-        n
-        for n in changed_nodes
-        if n.node_type not in (NodeType.FIELD, NodeType.MODULE, NodeType.PACKAGE)
-    ]
+    structural = [n for n in changed_nodes if n.node_type not in (NodeType.FIELD, NodeType.MODULE, NodeType.PACKAGE)]
     endpoints = [n for n in affected_nodes if n.node_type == NodeType.ENDPOINT]
     endpoints += [n for n in changed_nodes if n.node_type == NodeType.ENDPOINT]
     models_changed = [n for n in changed_nodes if n.node_type == NodeType.MODEL]
@@ -287,9 +281,7 @@ def compute_impact(
     layers_touched = sorted(layer_counts, key=layer_order)
 
     hotspots = sorted(structural, key=lambda n: index.fan_in(n.id), reverse=True)[:5]
-    hotspots_payload = [
-        {**brief(n), "fan_in": index.fan_in(n.id)} for n in hotspots if index.fan_in(n.id) > 0
-    ]
+    hotspots_payload = [{**brief(n), "fan_in": index.fan_in(n.id)} for n in hotspots if index.fan_in(n.id) > 0]
 
     score = (
         len(complex_changed) * 8
@@ -320,7 +312,9 @@ def compute_impact(
             f"{hotspots_payload[0]['fan_in']} node(s)."
         )
     if not seeds:
-        notes.append("No indexed nodes matched the changed files; the index may be stale or the files are not analyzed.")
+        notes.append(
+            "No indexed nodes matched the changed files; the index may be stale or the files are not analyzed."
+        )
 
     involved = {*seed_set, *hops}
     graph_edges = [
@@ -359,7 +353,11 @@ def build_tour(index: GraphIndex, *, max_nodes_per_step: int = 8) -> list[dict[s
             if n.properties.get("role") in roles and (not modules_only or n.node_type == NodeType.MODULE)
         ]
 
-    def top(nodes: Iterable[NodeRecord], key=None, n: int | None = None) -> list[NodeRecord]:
+    def top(
+        nodes: Iterable[NodeRecord],
+        key: Callable[[NodeRecord], Any] | None = None,
+        n: int | None = None,
+    ) -> list[NodeRecord]:
         ranked = sorted(
             nodes,
             key=key or (lambda x: (-index.degree(x.id), x.source_path or "", x.name)),
@@ -367,8 +365,15 @@ def build_tour(index: GraphIndex, *, max_nodes_per_step: int = 8) -> list[dict[s
         return ranked[: n or max_nodes_per_step]
 
     steps: list[dict[str, Any]] = []
-    is_django = any(n.properties.get("role") in ("settings", "manage") and (n.source_path or "").endswith(".py") for n in index.nodes.values())
-    entry_points = [n for n in index.nodes.values() if n.node_type == NodeType.MODULE and (n.properties.get("entry_point") or n.properties.get("role") == "entry")]
+    is_django = any(
+        n.properties.get("role") in ("settings", "manage") and (n.source_path or "").endswith(".py")
+        for n in index.nodes.values()
+    )
+    entry_points = [
+        n
+        for n in index.nodes.values()
+        if n.node_type == NodeType.MODULE and (n.properties.get("entry_point") or n.properties.get("role") == "entry")
+    ]
 
     def add(title: str, description: str, nodes: list[NodeRecord], view: str, lesson: str | None = None) -> None:
         if not nodes:
@@ -385,7 +390,10 @@ def build_tour(index: GraphIndex, *, max_nodes_per_step: int = 8) -> list[dict[s
         )
 
     entry_priority = {"manage": 0, "wsgi": 1, "asgi": 2, "settings": 3}
-    entries = sorted(by_role("manage", "wsgi", "asgi", "settings", modules_only=True), key=lambda n: (entry_priority.get(n.properties.get("role"), 9), n.source_path or ""))
+    entries = sorted(
+        by_role("manage", "wsgi", "asgi", "settings", modules_only=True),
+        key=lambda n: (entry_priority.get(str(n.properties.get("role")), 9), n.source_path or ""),
+    )
     entries = [*entries, *[e for e in entry_points if e not in entries]]
     add(
         "Entry points and configuration",
@@ -399,7 +407,11 @@ def build_tour(index: GraphIndex, *, max_nodes_per_step: int = 8) -> list[dict[s
         else "Follow the imports out of each entry point to see which packages make up each deployable.",
     )
 
-    apps = [n for n in index.nodes.values() if n.node_type == NodeType.PACKAGE and not n.properties.get("external") and not n.properties.get("subpackage")]
+    apps = [
+        n
+        for n in index.nodes.values()
+        if n.node_type == NodeType.PACKAGE and not n.properties.get("external") and not n.properties.get("subpackage")
+    ]
     add(
         "Packages and services",
         f"The codebase is split into {len(apps)} package(s). Dependencies between them show the architecture and where the boundaries are.",
@@ -415,7 +427,10 @@ def build_tour(index: GraphIndex, *, max_nodes_per_step: int = 8) -> list[dict[s
     add(
         "URL routing",
         f"{len(endpoints)} route(s) map request paths to handlers. Read the root URL configuration first, then follow `include()` into each app.",
-        [*top(url_modules, n=3), *top(endpoints, key=lambda n: (n.source_path or "", n.start_line or 0), n=max_nodes_per_step - 3)],
+        [
+            *top(url_modules, n=3),
+            *top(endpoints, key=lambda n: (n.source_path or "", n.start_line or 0), n=max_nodes_per_step - 3),
+        ],
         "api-flow",
         "Django tries each `urlpatterns` entry top to bottom and uses the first match."
         if is_django
@@ -425,7 +440,8 @@ def build_tour(index: GraphIndex, *, max_nodes_per_step: int = 8) -> list[dict[s
     views = [
         n
         for n in index.nodes.values()
-        if n.properties.get("role") == "views" and n.node_type in (NodeType.FUNCTION, NodeType.CLASS)
+        if n.properties.get("role") == "views"
+        and n.node_type in (NodeType.FUNCTION, NodeType.CLASS)
         and index.fan_in(n.id) + index.fan_out(n.id) > 0
     ]
     add(
@@ -455,7 +471,9 @@ def build_tour(index: GraphIndex, *, max_nodes_per_step: int = 8) -> list[dict[s
         "Each Django model maps to one table; `ForeignKey` creates a many-to-one relation.",
     )
 
-    middleware = [n for n in index.nodes.values() if n.node_type == NodeType.MIDDLEWARE and not n.properties.get("external")]
+    middleware = [
+        n for n in index.nodes.values() if n.node_type == NodeType.MIDDLEWARE and not n.properties.get("external")
+    ]
     add(
         "Middleware and cross-cutting concerns",
         "Middleware wraps every request. Local middleware and permission classes often implement authentication, tenancy, or logging.",
@@ -478,7 +496,10 @@ def build_tour(index: GraphIndex, *, max_nodes_per_step: int = 8) -> list[dict[s
     add(
         "UI pages and components",
         f"{len(components)} UI component(s){f', {len(pages)} routed page(s)' if pages else ''}. Start from pages and the root component, then follow what each renders.",
-        top([*pages, *[c for c in components if c not in pages]], key=lambda n: (0 if n.properties.get("route") else 1, -index.degree(n.id), n.name)),
+        top(
+            [*pages, *[c for c in components if c not in pages]],
+            key=lambda n: (0 if n.properties.get("route") else 1, -index.degree(n.id), n.name),
+        ),
         "components",
         "Render edges show composition; hooks and API-client calls show where data comes from.",
     )
@@ -511,7 +532,9 @@ def build_tour(index: GraphIndex, *, max_nodes_per_step: int = 8) -> list[dict[s
     return steps
 
 
-def top_ranked(index: GraphIndex, node_types: set[NodeType], n: int = 10, *, by: str = "fan_in") -> list[dict[str, Any]]:
+def top_ranked(
+    index: GraphIndex, node_types: set[NodeType], n: int = 10, *, by: str = "fan_in"
+) -> list[dict[str, Any]]:
     scorer = index.fan_in if by == "fan_in" else index.fan_out
     ranked = sorted(
         (node for node in index.nodes.values() if node.node_type in node_types),
@@ -532,8 +555,15 @@ _DATA_ACCESS = {EdgeType.READS_MODEL: "read", EdgeType.WRITES_MODEL: "write", Ed
 
 def describe_endpoint(index: GraphIndex, ep: NodeRecord, *, depth: int = 3) -> dict[str, Any]:
     """Handler, guards/auth dependencies, frontend callers, and models touched by one route."""
+
     def ref(n: NodeRecord) -> dict[str, Any]:
-        return {"id": n.id, "name": n.name, "node_type": n.node_type.value, "source_path": n.source_path, "line": n.start_line}
+        return {
+            "id": n.id,
+            "name": n.name,
+            "node_type": n.node_type.value,
+            "source_path": n.source_path,
+            "line": n.start_line,
+        }
 
     handlers = [index.nodes[e.target_id] for e in index.outgoing.get(ep.id, []) if e.edge_type == EdgeType.ROUTES_TO]
     guards = [
@@ -617,7 +647,7 @@ def neighborhood_subgraph(
     """Dependency neighborhood around a node with lifted endpoints into the BFS frontier.
 
     `direction`: ``in`` (dependants), ``out`` (dependencies), or ``both``.
-    `depth``: 1–3 hops along ``DEPENDENCY_EDGES`` (excludes CONTAINS).
+    `depth``: 1-3 hops along ``DEPENDENCY_EDGES`` (excludes CONTAINS).
     """
     if node_id not in index.nodes:
         return {"error": "node not found"}

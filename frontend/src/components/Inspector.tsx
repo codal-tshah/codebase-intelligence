@@ -113,8 +113,7 @@ function ExploreEdgeCard({
         </button>
       </h2>
       <p className="muted">
-        Confidence {Math.round((edge.confidence ?? 1) * 100)}%
-        {weight > 1 ? ` · weight ${weight}` : ""}
+        Confidence {Math.round((edge.confidence ?? 1) * 100)}%{weight > 1 ? ` · weight ${weight}` : ""}
         {props.aggregated ? " · aggregated" : ""}
       </p>
       {Object.keys(byType).length > 0 ? (
@@ -182,7 +181,8 @@ function NodeCard({
     const out = e.source_id === node.id;
     // Containment: list what this node contains (its parent is already in the breadcrumbs).
     if (e.edge_type === "CONTAINS" && !out) continue;
-    const key = e.edge_type === "CONTAINS" ? "Contains" : `${out ? "→" : "←"} ${EDGE_STYLE[e.edge_type]?.label ?? e.edge_type}`;
+    const key =
+      e.edge_type === "CONTAINS" ? "Contains" : `${out ? "→" : "←"} ${EDGE_STYLE[e.edge_type]?.label ?? e.edge_type}`;
     const id = out ? e.target_id : e.source_id;
     const list = grouped.get(key) ?? [];
     if (!list.some((x) => x.id === id)) list.push({ id, dir: out ? "out" : "in", low: (e.confidence ?? 1) < 0.7 });
@@ -211,7 +211,9 @@ function NodeCard({
               {layer.name}
             </span>
           ) : null}
-          {props.complexity ? <span className={`pill pill--${props.complexity as string}`}>{props.complexity as string}</span> : null}
+          {props.complexity ? (
+            <span className={`pill pill--${props.complexity as string}`}>{props.complexity as string}</span>
+          ) : null}
           {props.framework ? <span className="badge">{props.framework as string}</span> : null}
           {confidence < 0.8 ? (
             <span className="badge badge-warn" title="Inferred by heuristics; verify in source">
@@ -254,7 +256,12 @@ function NodeCard({
         ) : null}
         <div className="detail-actions">
           {explore?.expandable && onToggleExplore ? (
-            <button type="button" className="btn secondary small" onClick={onToggleExplore} title="Show or hide children under this node">
+            <button
+              type="button"
+              className="btn secondary small"
+              onClick={onToggleExplore}
+              title="Show or hide children under this node"
+            >
               {explore.expanded ? (
                 <>
                   <ChevronDown size={14} strokeWidth={1.5} aria-hidden />
@@ -272,7 +279,12 @@ function NodeCard({
             <MessageSquare size={14} strokeWidth={1.5} aria-hidden />
             Ask about this
           </button>
-          <button type="button" className="btn ghost small" onClick={() => onFocus(node.id)} title="Show only this node's neighbourhood">
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={() => onFocus(node.id)}
+            title="Show only this node's neighbourhood"
+          >
             <Crosshair size={14} strokeWidth={1.5} aria-hidden />
             Focus
           </button>
@@ -280,7 +292,12 @@ function NodeCard({
             <GitFork size={14} strokeWidth={1.5} aria-hidden />
             Impact
           </button>
-          <button type="button" className="btn ghost small" onClick={onPathFrom} title="Trace a dependency path from here">
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={onPathFrom}
+            title="Trace a dependency path from here"
+          >
             <Route size={14} strokeWidth={1.5} aria-hidden />
             Path
           </button>
@@ -296,12 +313,16 @@ function NodeCard({
             <ul>
               {httpCalls.map((c, i) => (
                 <li key={i}>
-                  <button type="button" disabled={!c.endpoint_id} onClick={() => c.endpoint_id && onNavigate(c.endpoint_id)}>
-                    <span className={`method method--${c.method ?? "GET"}`}>
-                      {c.method ?? "GET"}
-                    </span>
+                  <button
+                    type="button"
+                    disabled={!c.endpoint_id}
+                    onClick={() => c.endpoint_id && onNavigate(c.endpoint_id)}
+                  >
+                    <span className={`method method--${c.method ?? "GET"}`}>{c.method ?? "GET"}</span>
                     <span className="impact-name mono">{c.url}</span>
-                    <span className="impact-sub">{c.endpoint ? `→ ${c.endpoint}` : c.external_host ? "external" : "unmatched"}</span>
+                    <span className="impact-sub">
+                      {c.endpoint ? `→ ${c.endpoint}` : c.external_host ? "external" : "unmatched"}
+                    </span>
                   </button>
                 </li>
               ))}
@@ -312,34 +333,42 @@ function NodeCard({
 
       {grouped.size > 0 ? (
         <div className="relations">
-          {[...grouped.entries()].sort(([a], [b]) => (a === "Contains" ? -1 : b === "Contains" ? 1 : 0)).map(([label, items]) => (
-            <details key={label} open={label === "Contains" || items.length <= 6}>
-              <summary>
-                {label} <span className="muted">{items.length}</span>
-              </summary>
-              <ul>
-                {items.slice(0, label === "Contains" ? 200 : 40).map((it) => {
-                  const n = neighbors[it.id];
-                  if (!n) return null;
-                  return (
-                    <li key={it.id}>
-                      <button type="button" onClick={() => onNavigate(it.id)} title={it.low ? "low-confidence (inferred) relation" : undefined}>
-                        <span className="legend-dot" style={{ background: layerColor(layers, n.layer) }} />
-                        <span className="impact-name">{n.name}</span>
-                        <span className="impact-sub">
-                          {n.node_type}
-                          {it.low ? " · inferred" : ""}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-              {items.length > (label === "Contains" ? 200 : 40) ? (
-                <p className="muted pad">+{items.length - (label === "Contains" ? 200 : 40)} more · use ⌘K to find one</p>
-              ) : null}
-            </details>
-          ))}
+          {[...grouped.entries()]
+            .sort(([a], [b]) => (a === "Contains" ? -1 : b === "Contains" ? 1 : 0))
+            .map(([label, items]) => (
+              <details key={label} open={label === "Contains" || items.length <= 6}>
+                <summary>
+                  {label} <span className="muted">{items.length}</span>
+                </summary>
+                <ul>
+                  {items.slice(0, label === "Contains" ? 200 : 40).map((it) => {
+                    const n = neighbors[it.id];
+                    if (!n) return null;
+                    return (
+                      <li key={it.id}>
+                        <button
+                          type="button"
+                          onClick={() => onNavigate(it.id)}
+                          title={it.low ? "low-confidence (inferred) relation" : undefined}
+                        >
+                          <span className="legend-dot" style={{ background: layerColor(layers, n.layer) }} />
+                          <span className="impact-name">{n.name}</span>
+                          <span className="impact-sub">
+                            {n.node_type}
+                            {it.low ? " · inferred" : ""}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {items.length > (label === "Contains" ? 200 : 40) ? (
+                  <p className="muted pad">
+                    +{items.length - (label === "Contains" ? 200 : 40)} more · use ⌘K to find one
+                  </p>
+                ) : null}
+              </details>
+            ))}
         </div>
       ) : isContainer ? (
         <p className="muted code-empty">No indexed children under this {node.node_type.toLowerCase()}.</p>

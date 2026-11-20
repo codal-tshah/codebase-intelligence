@@ -15,19 +15,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ci_core.insights import GraphIndex, classify_complexity
-from ci_core.models import EdgeRecord, EdgeType, NodeRecord, NodeType
-from ci_parsers import (
-    ParseResult,
-    SymbolInfo,
-    dotted_name,
-    file_sha256,
-    list_python_files,
-    parse_python_file,
-    stable_node_id,
-    structural_fingerprint,
-)
-
 from ci_adapters_django.conf import (
     SettingsInfo,
     UrlEntry,
@@ -45,6 +32,18 @@ from ci_adapters_django.roles import (
     class_role,
     classify_module,
     layer_for_role,
+)
+from ci_core.insights import GraphIndex, classify_complexity
+from ci_core.models import EdgeRecord, EdgeType, NodeRecord, NodeType
+from ci_parsers import (
+    ParseResult,
+    SymbolInfo,
+    dotted_name,
+    file_sha256,
+    list_python_files,
+    parse_python_file,
+    stable_node_id,
+    structural_fingerprint,
 )
 
 ADAPTER_VERSION = "5"
@@ -117,9 +116,7 @@ def _singular(label: str) -> str:
     return label[:-1]
 
 
-def analyze_django_project(
-    project_id: str, root: Path, files: list[Path] | None = None
-) -> DjangoAnalysisResult:
+def analyze_django_project(project_id: str, root: Path, files: list[Path] | None = None) -> DjangoAnalysisResult:
     """Analyse the Python code under `root` (Django-aware; also FastAPI, Flask, SQLAlchemy).
 
     `files` restricts analysis to those paths (defaults to every `.py` file under `root`).
@@ -418,7 +415,10 @@ class _Analyzer:
                     source_path=rel_dir,
                     extractor="django.installed_apps" if origin == "installed_apps" else "django.layout",
                     confidence=0.95 if origin == "installed_apps" else 0.8,
-                    properties={"installed": origin == "installed_apps", **({"subpackage": True} if origin == "subpackage" else {})},
+                    properties={
+                        "installed": origin == "installed_apps",
+                        **({"subpackage": True} if origin == "subpackage" else {}),
+                    },
                 )
             )
         for pkg, nid in self.packages.items():
@@ -547,8 +547,7 @@ class _Analyzer:
                     props["table"] = table
                     props["orm"] = "sqlalchemy"
             elif sym.qualified_name in settings_mw or (
-                role == "middleware"
-                and (sym.name.endswith("Middleware") or bool(method_names & MIDDLEWARE_METHODS))
+                role == "middleware" and (sym.name.endswith("Middleware") or bool(method_names & MIDDLEWARE_METHODS))
             ):
                 node_type = NodeType.MIDDLEWARE
                 role = "middleware"
@@ -685,7 +684,13 @@ class _Analyzer:
                     qualified_name=f"{label}.{name}",
                     extractor="django.models",
                     confidence=0.5,
-                    properties={"inferred": True, "external": True, "layer": "data", "role": "models", "app_label": label},
+                    properties={
+                        "inferred": True,
+                        "external": True,
+                        "layer": "data",
+                        "role": "models",
+                        "app_label": label,
+                    },
                 )
             )
         return sid
@@ -743,7 +748,11 @@ class _Analyzer:
                     self._add_sqlalchemy_field(qn, mod, model_id, fname, item, value, ftype, order + 1)
                     order += 1
                     continue
-                if not (ftype.endswith("Field") or ftype in RELATION_FIELDS or ftype in ("GenericForeignKey", "GenericRelation")):
+                if not (
+                    ftype.endswith("Field")
+                    or ftype in RELATION_FIELDS
+                    or ftype in ("GenericForeignKey", "GenericRelation")
+                ):
                     continue
                 order += 1
                 props: dict[str, Any] = {"field_type": ftype, "order": order, "layer": "data", "role": "models"}
@@ -757,7 +766,11 @@ class _Analyzer:
                 target_id = self._relation_target(value, qn, mod) if ftype in RELATION_FIELDS else None
                 if target_id:
                     props["relation_to"] = self.nodes[target_id].name
-                    props["relation"] = {"ForeignKey": "many-to-one", "OneToOneField": "one-to-one", "ManyToManyField": "many-to-many"}[ftype]
+                    props["relation"] = {
+                        "ForeignKey": "many-to-one",
+                        "OneToOneField": "one-to-one",
+                        "ManyToManyField": "many-to-many",
+                    }[ftype]
                 props["summary"] = f"{ftype}" + (f" → {props['relation_to']}" if target_id else "")
                 self._add_node(
                     NodeRecord(
@@ -889,8 +902,13 @@ class _Analyzer:
                     hit = self.resolve(pr, call.args[0], class_qn)
                     if hit and hit[0] in self.model_qns:
                         self._edge(
-                            EdgeType.READS_MODEL, src_id, self.symbols[hit[0]],
-                            rel=mod.rel, line=call.line, extractor="django.orm", confidence=0.9,
+                            EdgeType.READS_MODEL,
+                            src_id,
+                            self.symbols[hit[0]],
+                            rel=mod.rel,
+                            line=call.line,
+                            extractor="django.orm",
+                            confidence=0.9,
                         )
                     continue
                 if tail == "connect" and call.args and call.args[0]:
@@ -906,8 +924,12 @@ class _Analyzer:
                         if arg_hit and not arg_hit[1] and arg_hit[0] in self.model_qns:
                             self._edge(
                                 EdgeType.WRITES_MODEL if tail in SQLA_WRITE_FUNCS else EdgeType.READS_MODEL,
-                                src_id, self.symbols[arg_hit[0]],
-                                rel=mod.rel, line=call.line, extractor="sqlalchemy.orm", confidence=0.8,
+                                src_id,
+                                self.symbols[arg_hit[0]],
+                                rel=mod.rel,
+                                line=call.line,
+                                extractor="sqlalchemy.orm",
+                                confidence=0.8,
                             )
 
                 hit = self.resolve(pr, call.callee, class_qn)
@@ -921,8 +943,12 @@ class _Analyzer:
                     writes = any(part in WRITE_ORM_METHODS for part in rest[1:])
                     self._edge(
                         EdgeType.WRITES_MODEL if writes else EdgeType.READS_MODEL,
-                        src_id, node.id,
-                        rel=mod.rel, line=call.line, extractor="django.orm", confidence=0.9,
+                        src_id,
+                        node.id,
+                        rel=mod.rel,
+                        line=call.line,
+                        extractor="django.orm",
+                        confidence=0.9,
                     )
                     continue
                 target_id = node.id
@@ -933,12 +959,22 @@ class _Analyzer:
                 if node.node_type == NodeType.MODEL and not rest and call.caller != "<module>":
                     # instantiating a model in a handler implies persisting it
                     self._edge(
-                        EdgeType.WRITES_MODEL, src_id, node.id,
-                        rel=mod.rel, line=call.line, extractor="django.orm", confidence=0.6,
+                        EdgeType.WRITES_MODEL,
+                        src_id,
+                        node.id,
+                        rel=mod.rel,
+                        line=call.line,
+                        extractor="django.orm",
+                        confidence=0.6,
                     )
                 self._edge(
-                    EdgeType.CALLS, src_id, target_id,
-                    rel=mod.rel, line=call.line, extractor="python.parser", confidence=0.85,
+                    EdgeType.CALLS,
+                    src_id,
+                    target_id,
+                    rel=mod.rel,
+                    line=call.line,
+                    extractor="python.parser",
+                    confidence=0.85,
                 )
 
     def _link_signal_connect(self, mod: _Module, call, src_id: str, class_qn: str | None) -> None:
@@ -955,8 +991,14 @@ class _Analyzer:
             self.nodes[handler_id].properties["signal"] = signal
         if sender_hit and sender_hit[0] in self.model_qns:
             self._edge(
-                EdgeType.SUBSCRIBES, handler_id, self.symbols[sender_hit[0]],
-                rel=mod.rel, line=call.line, extractor="django.signals", confidence=0.9, signal=signal,
+                EdgeType.SUBSCRIBES,
+                handler_id,
+                self.symbols[sender_hit[0]],
+                rel=mod.rel,
+                line=call.line,
+                extractor="django.signals",
+                confidence=0.9,
+                signal=signal,
             )
 
     def _link_admin_register(self, mod: _Module, call, src_id: str, class_qn: str | None) -> None:
@@ -966,8 +1008,14 @@ class _Analyzer:
         admin_cls = self.resolve(mod.pr, call.args[1], class_qn) if len(call.args) > 1 and call.args[1] else None
         source = self.symbols[admin_cls[0]] if admin_cls else src_id
         self._edge(
-            EdgeType.DEPENDS_ON, source, self.symbols[model[0]],
-            rel=mod.rel, line=call.line, extractor="django.admin", confidence=0.9, relation="admin",
+            EdgeType.DEPENDS_ON,
+            source,
+            self.symbols[model[0]],
+            rel=mod.rel,
+            line=call.line,
+            extractor="django.admin",
+            confidence=0.9,
+            relation="admin",
         )
 
     # ------------------------------------------------- class attrs + decorators
@@ -992,13 +1040,24 @@ class _Analyzer:
                     continue
                 if attr == "model" and target.node_type == NodeType.MODEL:
                     self._edge(
-                        EdgeType.READS_MODEL, cid, target.id,
-                        rel=mod.rel, line=sym.start_line, extractor="django.cbv", confidence=0.85,
+                        EdgeType.READS_MODEL,
+                        cid,
+                        target.id,
+                        rel=mod.rel,
+                        line=sym.start_line,
+                        extractor="django.cbv",
+                        confidence=0.85,
                     )
                 elif attr in ("serializer_class", "form_class"):
                     self._edge(
-                        EdgeType.DEPENDS_ON, cid, target.id,
-                        rel=mod.rel, line=sym.start_line, extractor="django.cbv", confidence=0.9, relation=attr,
+                        EdgeType.DEPENDS_ON,
+                        cid,
+                        target.id,
+                        rel=mod.rel,
+                        line=sym.start_line,
+                        extractor="django.cbv",
+                        confidence=0.9,
+                        relation=attr,
                     )
             meta_model = sym.meta_attrs.get("model")
             if meta_model:
@@ -1006,13 +1065,25 @@ class _Analyzer:
                 if hit and hit[0] in self.model_qns and node.node_type != NodeType.MODEL:
                     relation = "serializes" if node.properties.get("role") == "serializers" else "binds"
                     self._edge(
-                        EdgeType.DEPENDS_ON, cid, self.symbols[hit[0]],
-                        rel=mod.rel, line=sym.start_line, extractor="django.meta", confidence=0.9, relation=relation,
+                        EdgeType.DEPENDS_ON,
+                        cid,
+                        self.symbols[hit[0]],
+                        rel=mod.rel,
+                        line=sym.start_line,
+                        extractor="django.meta",
+                        confidence=0.9,
+                        relation=relation,
                     )
             for base_qn in self.class_bases.get(qn, []):
                 self._edge(
-                    EdgeType.DEPENDS_ON, cid, self.symbols[base_qn],
-                    rel=mod.rel, line=sym.start_line, extractor="python.parser", confidence=0.95, relation="inherits",
+                    EdgeType.DEPENDS_ON,
+                    cid,
+                    self.symbols[base_qn],
+                    rel=mod.rel,
+                    line=sym.start_line,
+                    extractor="python.parser",
+                    confidence=0.95,
+                    relation="inherits",
                 )
 
     def _link_decorators(self) -> None:
@@ -1030,16 +1101,27 @@ class _Analyzer:
                     hit = self.resolve(mod.pr, sender) if sender else None
                     if hit and hit[0] in self.model_qns:
                         self._edge(
-                            EdgeType.SUBSCRIBES, sid, self.symbols[hit[0]],
-                            rel=mod.rel, line=sym.start_line, extractor="django.signals", confidence=0.95, signal=signal,
+                            EdgeType.SUBSCRIBES,
+                            sid,
+                            self.symbols[hit[0]],
+                            rel=mod.rel,
+                            line=sym.start_line,
+                            extractor="django.signals",
+                            confidence=0.95,
+                            signal=signal,
                         )
                 elif tail == "register" and deco.name.startswith("admin") and deco.args:
                     for arg in deco.args:
                         hit = self.resolve(mod.pr, arg) if arg else None
                         if hit and hit[0] in self.model_qns:
                             self._edge(
-                                EdgeType.DEPENDS_ON, sid, self.symbols[hit[0]],
-                                rel=mod.rel, line=sym.start_line, extractor="django.admin", confidence=0.95,
+                                EdgeType.DEPENDS_ON,
+                                sid,
+                                self.symbols[hit[0]],
+                                rel=mod.rel,
+                                line=sym.start_line,
+                                extractor="django.admin",
+                                confidence=0.95,
                                 relation="admin",
                             )
 
@@ -1061,20 +1143,30 @@ class _Analyzer:
                     target = self.nodes[self.symbols[dotted]]
                     target.properties["order"] = order
                     self._edge(
-                        EdgeType.MIDDLEWARE, mod.node_id, target.id,
-                        rel=mod.rel, extractor="django.settings", confidence=0.95, order=order,
+                        EdgeType.MIDDLEWARE,
+                        mod.node_id,
+                        target.id,
+                        rel=mod.rel,
+                        extractor="django.settings",
+                        confidence=0.95,
+                        order=order,
                     )
             for app in s.installed_apps:
                 if self._app_package(app, known_dirs):
                     continue
-                if app.startswith("django.contrib") or app.startswith("django."):
+                if app.startswith(("django.contrib", "django.")):
                     continue
                 root_name = app.split(".")[0]
                 display, kind = EXTERNAL_SDKS.get(root_name, (app, "django-app"))
                 svc = self._external_service(display, kind)
                 self._edge(
-                    EdgeType.DEPENDS_ON, mod.node_id, svc,
-                    rel=mod.rel, extractor="django.settings", confidence=0.9, relation="installed_app",
+                    EdgeType.DEPENDS_ON,
+                    mod.node_id,
+                    svc,
+                    rel=mod.rel,
+                    extractor="django.settings",
+                    confidence=0.9,
+                    relation="installed_app",
                 )
             node = self.nodes[mod.node_id]
             node.properties["settings"] = {
@@ -1161,12 +1253,22 @@ class _Analyzer:
             if handler_qn and handler_qn in self.symbols:
                 view_id = self.symbols[handler_qn]
                 self._edge(
-                    EdgeType.ROUTES_TO, eid, view_id,
-                    rel=mod.rel, line=entry.line, extractor="django.urls", confidence=0.95,
+                    EdgeType.ROUTES_TO,
+                    eid,
+                    view_id,
+                    rel=mod.rel,
+                    line=entry.line,
+                    extractor="django.urls",
+                    confidence=0.95,
                 )
                 self._edge(
-                    EdgeType.HANDLES, view_id, eid,
-                    rel=mod.rel, line=entry.line, extractor="django.urls", confidence=0.95,
+                    EdgeType.HANDLES,
+                    view_id,
+                    eid,
+                    rel=mod.rel,
+                    line=entry.line,
+                    extractor="django.urls",
+                    confidence=0.95,
                 )
                 view_node = self.nodes[view_id]
                 if view_node.properties.get("role") not in ("views",):
@@ -1362,16 +1464,28 @@ class _Analyzer:
                     continue
                 self.frameworks.add("fastapi")
                 self._edge(
-                    EdgeType.INJECTS, sid, self.symbols[hit[0]],
-                    rel=mod.rel, line=getattr(sub, "lineno", sym.start_line), extractor="fastapi.depends",
-                    confidence=0.9, relation="depends",
+                    EdgeType.INJECTS,
+                    sid,
+                    self.symbols[hit[0]],
+                    rel=mod.rel,
+                    line=getattr(sub, "lineno", sym.start_line),
+                    extractor="fastapi.depends",
+                    confidence=0.9,
+                    relation="depends",
                 )
 
     # ---------------------------------------------------------------- sqlalchemy
 
     def _add_sqlalchemy_field(
-        self, model_qn: str, mod: _Module, model_id: str, fname: str, item: ast.stmt, value: ast.Call,
-        ftype: str, order: int,
+        self,
+        model_qn: str,
+        mod: _Module,
+        model_id: str,
+        fname: str,
+        item: ast.stmt,
+        value: ast.Call,
+        ftype: str,
+        order: int,
     ) -> None:
         props: dict[str, Any] = {"order": order, "layer": "data", "role": "models"}
         type_name = None
@@ -1385,7 +1499,9 @@ class _Analyzer:
             type_name = ast.unparse(item.annotation)[:60]
         props["field_type"] = (type_name or ftype).split(".")[-1]
         for kw in value.keywords:
-            if kw.arg in ("nullable", "primary_key", "unique", "index", "default") and isinstance(kw.value, ast.Constant):
+            if kw.arg in ("nullable", "primary_key", "unique", "index", "default") and isinstance(
+                kw.value, ast.Constant
+            ):
                 props[kw.arg] = kw.value.value
         target_qn: str | None = None
         relation = None
@@ -1425,9 +1541,15 @@ class _Analyzer:
         self._edge(EdgeType.CONTAINS, model_id, fid, rel=mod.rel, extractor="sqlalchemy.models", confidence=1.0)
         if target_qn and target_qn in self.symbols and self.symbols[target_qn] != model_id:
             self._edge(
-                EdgeType.FK_TO, model_id, self.symbols[target_qn],
-                rel=mod.rel, line=item.lineno, extractor="sqlalchemy.models", confidence=0.85,
-                field=fname, relation=relation,
+                EdgeType.FK_TO,
+                model_id,
+                self.symbols[target_qn],
+                rel=mod.rel,
+                line=item.lineno,
+                extractor="sqlalchemy.models",
+                confidence=0.85,
+                field=fname,
+                relation=relation,
             )
 
     # ------------------------------------------------------------------ enrich
@@ -1441,9 +1563,12 @@ class _Analyzer:
 
         pkg_modules: dict[str, int] = {}
         for e in index.edges:
-            if e.edge_type == EdgeType.CONTAINS and index.nodes[e.source_id].node_type == NodeType.PACKAGE:
-                if index.nodes[e.target_id].node_type == NodeType.MODULE:
-                    pkg_modules[e.source_id] = pkg_modules.get(e.source_id, 0) + 1
+            if (
+                e.edge_type == EdgeType.CONTAINS
+                and index.nodes[e.source_id].node_type == NodeType.PACKAGE
+                and index.nodes[e.target_id].node_type == NodeType.MODULE
+            ):
+                pkg_modules[e.source_id] = pkg_modules.get(e.source_id, 0) + 1
 
         children: dict[str, list[NodeRecord]] = {}
         for e in index.edges:
@@ -1458,7 +1583,13 @@ class _Analyzer:
         for node in self.nodes.values():
             props = node.properties
             role = props.get("role")
-            if node.node_type in (NodeType.FUNCTION, NodeType.CLASS, NodeType.MODEL, NodeType.MIDDLEWARE, NodeType.MODULE):
+            if node.node_type in (
+                NodeType.FUNCTION,
+                NodeType.CLASS,
+                NodeType.MODEL,
+                NodeType.MIDDLEWARE,
+                NodeType.MODULE,
+            ):
                 if node.node_type == NodeType.MODULE:
                     lines = props.get("line_count", 0)
                 elif node.start_line and node.end_line:
@@ -1498,7 +1629,9 @@ class _Analyzer:
                 summary = f"{kind} with {len(self.packages)} package(s) and {routes} route(s)."
             elif node.node_type == NodeType.PACKAGE:
                 kind = "Package" if props.get("subpackage") else "App"
-                summary = f"{kind} `{node.qualified_name or node.name}` containing {pkg_modules.get(node.id, 0)} module(s)."
+                summary = (
+                    f"{kind} `{node.qualified_name or node.name}` containing {pkg_modules.get(node.id, 0)} module(s)."
+                )
             elif node.node_type in (NodeType.MODULE, NodeType.MIGRATION):
                 label = ROLE_LABEL.get(role or "", "Module")
                 kids = children.get(node.id, [])
@@ -1511,15 +1644,22 @@ class _Analyzer:
                 verbs = f" [{', '.join(props['methods'])}]" if props.get("methods") else ""
                 summary = f"Routes `{props.get('route')}`{verbs} to `{handler}`."
             elif node.node_type == NodeType.MODEL and props.get("inferred"):
-                summary = f"Model `{node.qualified_name}` defined outside the analysed code; referenced by foreign keys."
+                summary = (
+                    f"Model `{node.qualified_name}` defined outside the analysed code; referenced by foreign keys."
+                )
             elif node.node_type == NodeType.MODEL:
                 fields = [k for k in children.get(node.id, []) if k.node_type == NodeType.FIELD]
                 rel = outs.get("FK_TO", [])
-                summary = doc or f"ORM model with {len(fields)} field(s)" + (f", related to {uniq(rel)}" if rel else "") + "."
+                summary = (
+                    doc or f"ORM model with {len(fields)} field(s)" + (f", related to {uniq(rel)}" if rel else "") + "."
+                )
             elif node.node_type == NodeType.MIDDLEWARE:
-                summary = doc or "Middleware that wraps each request/response" + (
-                    f" (position {props['order'] + 1} in the chain)" if "order" in props else ""
-                ) + "."
+                summary = (
+                    doc
+                    or "Middleware that wraps each request/response"
+                    + (f" (position {props['order'] + 1} in the chain)" if "order" in props else "")
+                    + "."
+                )
             elif node.node_type in (NodeType.FUNCTION, NodeType.CLASS):
                 parts: list[str] = []
                 if reads:
@@ -1557,7 +1697,11 @@ class _Analyzer:
 
 
 def _const_arg(call: ast.Call, index: int) -> str | None:
-    if len(call.args) > index and isinstance(call.args[index], ast.Constant) and isinstance(call.args[index].value, str):
+    if (
+        len(call.args) > index
+        and isinstance(call.args[index], ast.Constant)
+        and isinstance(call.args[index].value, str)
+    ):
         return call.args[index].value
     return None
 
@@ -1602,7 +1746,13 @@ def _sqlalchemy_table(sym: SymbolInfo) -> str | None:
     return None
 
 
-_TASK_DECORATORS = {"shared_task": "celery", "task": "celery", "periodic_task": "celery", "actor": "dramatiq", "job": "rq"}
+_TASK_DECORATORS = {
+    "shared_task": "celery",
+    "task": "celery",
+    "periodic_task": "celery",
+    "actor": "dramatiq",
+    "job": "rq",
+}
 _SCHEDULE_DECORATORS = {"scheduled_job": "apscheduler", "repeat_every": "fastapi-utils"}
 
 
@@ -1616,12 +1766,18 @@ def _job_info(sym: SymbolInfo, rel: str) -> dict[str, Any] | None:
         short = d.name.split(".")[-1]
         if short in _TASK_DECORATORS:
             schedule = d.kwargs.get("run_every") or d.kwargs.get("schedule")
-            return {"kind": "scheduled" if schedule else "task", "framework": _TASK_DECORATORS[short],
-                    **({"schedule": schedule} if schedule else {})}
+            return {
+                "kind": "scheduled" if schedule else "task",
+                "framework": _TASK_DECORATORS[short],
+                **({"schedule": schedule} if schedule else {}),
+            }
         if short in _SCHEDULE_DECORATORS:
             parts = [p for p in (*d.strings, *d.args, *(f"{k}={v}" for k, v in d.kwargs.items())) if p]
-            return {"kind": "scheduled", "framework": _SCHEDULE_DECORATORS[short],
-                    **({"schedule": " ".join(dict.fromkeys(parts))} if parts else {})}
+            return {
+                "kind": "scheduled",
+                "framework": _SCHEDULE_DECORATORS[short],
+                **({"schedule": " ".join(dict.fromkeys(parts))} if parts else {}),
+            }
     if sym.kind == "method" and sym.name == "handle" and "/management/commands/" in f"/{rel}":
         command = rel.rsplit("/", 1)[-1].removesuffix(".py")
         return {"kind": "command", "framework": "django", "command": command}

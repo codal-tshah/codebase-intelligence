@@ -26,7 +26,11 @@ def build(
     truncated = len(candidates) > MAX_NODES
     chosen = candidates[:MAX_NODES]
     allowed = {n.id for n in chosen}
-    return [node_view(n, index) for n in chosen], edges_between(index, allowed, set(DEPENDENCY_EDGES)), {"truncated": truncated}
+    return (
+        [node_view(n, index) for n in chosen],
+        edges_between(index, allowed, set(DEPENDENCY_EDGES)),
+        {"truncated": truncated},
+    )
 
 
 register_view(

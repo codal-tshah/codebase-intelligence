@@ -29,10 +29,7 @@ def main() -> int:
         ok = False
         if "api/items" in text:
             trace = tools.trace_endpoint("api/items/")
-            ok = any(
-                (step.get("path") or "").endswith(q["expect_path_contains"])
-                for step in trace.get("chain", [])
-            )
+            ok = any((step.get("path") or "").endswith(q["expect_path_contains"]) for step in trace.get("chain", []))
         elif "list_items" in text:
             models = tools.list_models_for_view("list_items")
             ok = bool(models) or bool(tools.search_code("Item.objects"))

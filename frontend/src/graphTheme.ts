@@ -48,7 +48,6 @@ export const VIEW_META: Record<string, { label: string; description: string; ico
   },
 };
 
-
 /**
  * Presentation palette for layers (muted, paper-friendly). The API's layer colours were tuned for
  * the old dark theme; the UI maps layer ids to these and falls back to the API value.

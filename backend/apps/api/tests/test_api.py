@@ -237,7 +237,7 @@ def test_resolve_by_name_and_path_and_request_id(client):
 
 
 def test_summary_is_cached_until_the_index_changes(client, monkeypatch):
-    import ci_ai.summarize as summarize
+    from ci_ai import summarize
 
     calls = []
     real = summarize._build_project_summary

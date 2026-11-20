@@ -3,7 +3,7 @@ import os
 # Local-first: LiteLLM otherwise downloads a model price list from the internet on import.
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from ci_ai.agent import chat_stream  # noqa: E402
+from ci_ai.agent import chat_stream
 from ci_ai.embeddings import embed_project_chunks, embed_query
 from ci_ai.llm import llm_enabled, llm_kwargs
 from ci_ai.summarize import build_project_summary

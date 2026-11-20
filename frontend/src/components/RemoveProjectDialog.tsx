@@ -41,8 +41,18 @@ export function RemoveProjectDialog({ project, onCancel, onRemoved }: Props) {
   };
 
   return (
-    <div className="palette-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
-      <div className="auth-dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="rm-title" aria-describedby="rm-desc">
+    <div
+      className="palette-backdrop"
+      role="presentation"
+      onMouseDown={(e) => e.target === e.currentTarget && onCancel()}
+    >
+      <div
+        className="auth-dialog confirm-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="rm-title"
+        aria-describedby="rm-desc"
+      >
         <h2 id="rm-title">
           <AlertTriangle size={18} strokeWidth={1.5} aria-hidden /> Remove {project.name}?
         </h2>
@@ -68,9 +78,13 @@ export function RemoveProjectDialog({ project, onCancel, onRemoved }: Props) {
                   Your source folder is <strong>never touched</strong>: <code>{plan.source_untouched}</code>
                 </p>
               ) : (
-                <p className="rm-safe">The original repository on GitHub is not affected; you can add it again later.</p>
+                <p className="rm-safe">
+                  The original repository on GitHub is not affected; you can add it again later.
+                </p>
               )}
-              {plan.indexing ? <p className="form-error">An index job is running. Wait for it to finish, then remove.</p> : null}
+              {plan.indexing ? (
+                <p className="form-error">An index job is running. Wait for it to finish, then remove.</p>
+              ) : null}
             </>
           ) : null}
           {error ? (
@@ -83,7 +97,12 @@ export function RemoveProjectDialog({ project, onCancel, onRemoved }: Props) {
           <button ref={cancelRef} type="button" className="btn ghost" onClick={onCancel}>
             Cancel
           </button>
-          <button type="button" className="btn danger" onClick={() => void remove()} disabled={!plan || plan.indexing || busy}>
+          <button
+            type="button"
+            className="btn danger"
+            onClick={() => void remove()}
+            disabled={!plan || plan.indexing || busy}
+          >
             {busy ? "Removing…" : "Remove project"}
           </button>
         </div>

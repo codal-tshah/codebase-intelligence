@@ -9,8 +9,9 @@ from ci_core.suggestions import suggest
 
 
 def _mod(name: str) -> NodeRecord:
-    return NodeRecord(id=name, project_id="p", node_type=NodeType.MODULE, name=name,
-                      source_path=f"app/{name}.py", extractor="t")
+    return NodeRecord(
+        id=name, project_id="p", node_type=NodeType.MODULE, name=name, source_path=f"app/{name}.py", extractor="t"
+    )
 
 
 def _index(
@@ -22,7 +23,12 @@ def _index(
     props = props or {}
     recs = [
         EdgeRecord(
-            id=f"{s}>{t}:{k.value}", project_id="p", edge_type=k, source_id=s, target_id=t, extractor="t",
+            id=f"{s}>{t}:{k.value}",
+            project_id="p",
+            edge_type=k,
+            source_id=s,
+            target_id=t,
+            extractor="t",
             properties=props.get((s, t, k), {}),
         )
         for s, t, k in edges
@@ -41,15 +47,27 @@ def backend(request, monkeypatch):
 
 
 def test_scc_finds_three_node_cycle_and_ignores_dag_and_self_loops(backend):
-    idx = _index(list("abcdef"), [("a", "b", IMP), ("b", "c", IMP), ("c", "a", IMP),
-                                  ("c", "d", IMP), ("d", "e", IMP), ("f", "f", IMP)])
+    idx = _index(
+        list("abcdef"),
+        [("a", "b", IMP), ("b", "c", IMP), ("c", "a", IMP), ("c", "d", IMP), ("d", "e", IMP), ("f", "f", IMP)],
+    )
     assert graph_algo.strongly_connected_components(idx) == [["a", "b", "c"]]
     assert graph_algo.backend_name() == backend
 
 
 def test_scc_largest_first_and_edge_type_filter(backend):
-    idx = _index(list("abcde"), [("a", "b", IMP), ("b", "a", IMP), ("c", "d", IMP), ("d", "e", IMP), ("e", "c", IMP),
-                                 ("a", "c", EdgeType.CALLS), ("e", "a", EdgeType.CALLS)])
+    idx = _index(
+        list("abcde"),
+        [
+            ("a", "b", IMP),
+            ("b", "a", IMP),
+            ("c", "d", IMP),
+            ("d", "e", IMP),
+            ("e", "c", IMP),
+            ("a", "c", EdgeType.CALLS),
+            ("e", "a", EdgeType.CALLS),
+        ],
+    )
     assert graph_algo.strongly_connected_components(idx, {IMP}) == [["c", "d", "e"], ["a", "b"]]
     # CALLS edges join the two loops into one component on the full dependency subgraph
     assert graph_algo.strongly_connected_components(idx) == [["a", "b", "c", "d", "e"]]
@@ -74,7 +92,9 @@ def test_backends_agree(monkeypatch):
     pytest.importorskip("rustworkx")
     pytest.importorskip("networkx")
     names = [f"m{i}" for i in range(40)]
-    edges = [(names[i], names[(i * 7 + 3) % 40], IMP) for i in range(40)] + [(names[i], names[(i + 1) % 40], IMP) for i in range(0, 40, 3)]
+    edges = [(names[i], names[(i * 7 + 3) % 40], IMP) for i in range(40)] + [
+        (names[i], names[(i + 1) % 40], IMP) for i in range(0, 40, 3)
+    ]
     idx = _index(names, edges)
     results = []
     for name in ("rustworkx", "networkx"):
@@ -84,8 +104,10 @@ def test_backends_agree(monkeypatch):
 
 
 def test_suggest_reports_long_import_cycles_and_keeps_pair_wording():
-    idx = _index(list("abcdxy"), [("a", "b", IMP), ("b", "c", IMP), ("c", "a", IMP), ("x", "y", IMP), ("y", "x", IMP),
-                                  ("c", "d", IMP)])
+    idx = _index(
+        list("abcdxy"),
+        [("a", "b", IMP), ("b", "c", IMP), ("c", "a", IMP), ("x", "y", IMP), ("y", "x", IMP), ("c", "d", IMP)],
+    )
     cycles = [s for s in suggest(idx) if s["kind"] == "cycle"]
     titles = sorted(c["title"] for c in cycles)
     assert titles == [

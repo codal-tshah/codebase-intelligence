@@ -7,7 +7,13 @@ import { absoluteBoxes, safeFilename, toMarkdown, toMermaid, toSvg } from "./exp
 const payload: GraphPayload = {
   view: "api-flow",
   nodes: [
-    { id: "ep:/api/items", label: 'GET "/api/items" <x>', node_type: "Endpoint", layer: "api", source_path: "app/api.py" },
+    {
+      id: "ep:/api/items",
+      label: 'GET "/api/items" <x>',
+      node_type: "Endpoint",
+      layer: "api",
+      source_path: "app/api.py",
+    },
     { id: "m|Item", label: "Item|table", node_type: "Model", layer: "data" },
   ],
   edges: [

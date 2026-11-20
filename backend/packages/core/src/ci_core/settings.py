@@ -61,7 +61,9 @@ def get_settings() -> Settings:
     if mode == "server" and not api_key:
         raise SettingsError("CI_MODE=server requires CI_API_KEY")
     if mode == "server" and not roots:
-        raise SettingsError("CI_MODE=server requires CI_PROJECT_ROOTS (comma-separated directories that may be indexed)")
+        raise SettingsError(
+            "CI_MODE=server requires CI_PROJECT_ROOTS (comma-separated directories that may be indexed)"
+        )
     level = os.environ.get("CI_LOG_LEVEL", "INFO").upper()
     if level not in ("DEBUG", "INFO", "WARNING", "ERROR"):
         raise SettingsError(f"CI_LOG_LEVEL must be DEBUG|INFO|WARNING|ERROR, got {level!r}")

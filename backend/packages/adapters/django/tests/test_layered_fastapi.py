@@ -45,7 +45,9 @@ def test_every_file_parses_including_pep758_except(analysis, index):
 
 
 def test_empty_path_routes_are_the_router_prefix(index):
-    routes = sorted((n.properties["methods"][0], n.name) for n in index.nodes.values() if n.node_type == NodeType.ENDPOINT)
+    routes = sorted(
+        (n.properties["methods"][0], n.name) for n in index.nodes.values() if n.node_type == NodeType.ENDPOINT
+    )
     assert routes == [("GET", "/v1/widgets"), ("GET", "/v1/widgets/{widget_id}"), ("POST", "/v1/widgets")]
 
 
@@ -94,7 +96,11 @@ def test_typed_dependencies_resolve_handler_to_service_to_repository_to_model(in
 def test_api_flow_columns_for_one_endpoint(index):
     from ci_core.views.api_flow import build
 
-    ep = next(n for n in index.nodes.values() if n.node_type == NodeType.ENDPOINT and n.name == "/v1/widgets" and n.properties["methods"] == ["POST"])
+    ep = next(
+        n
+        for n in index.nodes.values()
+        if n.node_type == NodeType.ENDPOINT and n.name == "/v1/widgets" and n.properties["methods"] == ["POST"]
+    )
     nodes, edges, meta = build(index, ep.id)
     cols = {n.properties["column"]: [] for n in nodes}
     for n in nodes:
@@ -104,7 +110,9 @@ def test_api_flow_columns_for_one_endpoint(index):
     assert "WidgetService.create" in cols["service"]
     assert "WidgetRepository.add" in cols["data_access"]
     assert "Widget" in cols["model"]
-    assert not any("WidgetOut" in label or "WidgetIn" in label for v in cols.values() for label in v)  # schemas aren't steps
+    assert not any(
+        "WidgetOut" in label or "WidgetIn" in label for v in cols.values() for label in v
+    )  # schemas aren't steps
     assert all(e.source in {n.id for n in nodes} and e.target in {n.id for n in nodes} for e in edges)
 
 

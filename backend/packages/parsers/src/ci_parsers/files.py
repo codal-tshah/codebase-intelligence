@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import fnmatch
 import hashlib
 import os
 import re
-import base64
 import subprocess
 from pathlib import Path
 
@@ -203,7 +203,11 @@ def check_git_access(git_url: str, *, token: str | None = None, timeout: float =
     try:
         result = subprocess.run(
             ["git", "ls-remote", "--symref", git_url, "HEAD"],
-            capture_output=True, text=True, env=_git_auth_env(token), timeout=timeout, check=False,
+            capture_output=True,
+            text=True,
+            env=_git_auth_env(token),
+            timeout=timeout,
+            check=False,
         )
         if result.returncode != 0 and token and _auth_failed(result.stderr or ""):
             anonymous = check_git_access(git_url, token=None, timeout=timeout)
@@ -248,7 +252,10 @@ def clone_git_repo(git_url: str, dest: Path, *, token: str | None = None) -> str
         # stale/over-scoped token: a public repo should still clone anonymously
         result = subprocess.run(
             ["git", "clone", "--depth", "1", git_url, str(dest)],
-            capture_output=True, text=True, env=_git_auth_env(None), check=False,
+            capture_output=True,
+            text=True,
+            env=_git_auth_env(None),
+            check=False,
         )
     if result.returncode != 0:
         detail = (result.stderr or "").strip().splitlines()[-1:] or ["unknown error"]

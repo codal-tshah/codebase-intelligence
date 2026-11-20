@@ -192,7 +192,13 @@ function impactToPayload(r: ImpactReport): GraphPayload {
 function pathToPayload(r: PathResult): GraphPayload {
   return {
     view: "path",
-    nodes: r.nodes.map((n) => ({ id: n.id, label: n.name, node_type: n.node_type, source_path: n.source_path, layer: n.layer })),
+    nodes: r.nodes.map((n) => ({
+      id: n.id,
+      label: n.name,
+      node_type: n.node_type,
+      source_path: n.source_path,
+      layer: n.layer,
+    })),
     edges: r.edges,
   };
 }
@@ -295,7 +301,9 @@ function Dashboard() {
 
   // ---- bootstrap -----------------------------------------------------------------------------
   useEffect(() => {
-    getJson<Layer[]>("/layers").then(setLayers).catch(() => undefined);
+    getJson<Layer[]>("/layers")
+      .then(setLayers)
+      .catch(() => undefined);
     getJson<Project[]>("/projects")
       .then((data) => {
         setProjects(data);
@@ -372,7 +380,7 @@ function Dashboard() {
         setViews(catalog);
         setView((current) => {
           const cur = catalog.find((v) => v.id === current);
-          return cur && cur.available ? current : (catalog.find((v) => v.available)?.id ?? "layers");
+          return cur?.available ? current : (catalog.find((v) => v.available)?.id ?? "layers");
         });
       })
       .catch(() => setViews(FALLBACK_VIEWS));
@@ -424,7 +432,11 @@ function Dashboard() {
       })
       .catch((e) => {
         if (!cancelled) {
-          setGraphError(e instanceof Error && e.message.includes("unknown view") ? e.message : "Could not load the graph. Is the API running on port 8000?");
+          setGraphError(
+            e instanceof Error && e.message.includes("unknown view")
+              ? e.message
+              : "Could not load the graph. Is the API running on port 8000?",
+          );
           setPayload(null);
         }
       })
@@ -450,7 +462,11 @@ function Dashboard() {
       return {
         kind: "path" as const,
         payload: p,
-        overlay: { ids: new Set(p.nodes.map((n) => n.id)), order: pathResult.node_ids, edgeIds: new Set(p.edges.map((e) => e.id)) },
+        overlay: {
+          ids: new Set(p.nodes.map((n) => n.id)),
+          order: pathResult.node_ids,
+          edgeIds: new Set(p.edges.map((e) => e.id)),
+        },
       };
     }
     return null;
@@ -475,7 +491,7 @@ function Dashboard() {
       ...detail,
       node: {
         ...detail.node,
-        properties: { ...detail.node.properties, ...(gn.properties as Record<string, unknown>) },
+        properties: { ...detail.node.properties, ...gn.properties },
       },
     };
   }, [detail, view, payload]);
@@ -483,8 +499,8 @@ function Dashboard() {
   const exploreInspector = useMemo(() => {
     if (view !== "explore" || !selectedId || !payload) return undefined;
     const n = payload.nodes.find((x) => x.id === selectedId);
-    const p = n?.properties as Record<string, unknown> | undefined;
-    if (!p || !p.explore_expandable) return undefined;
+    const p = n?.properties;
+    if (!p?.explore_expandable) return undefined;
     return {
       expandable: true,
       expanded: Boolean(p.explore_expanded),
@@ -567,7 +583,7 @@ function Dashboard() {
 
   const expandExploreChildrenOfSelection = useCallback(() => {
     if (!selectedId) return;
-    const p = payload?.nodes.find((x) => x.id === selectedId)?.properties as Record<string, unknown> | undefined;
+    const p = payload?.nodes.find((x) => x.id === selectedId)?.properties;
     if (!p?.explore_expandable || p.explore_expanded) return;
     toggleExploreExpand(selectedId);
   }, [selectedId, payload?.nodes, toggleExploreExpand]);
@@ -588,7 +604,7 @@ function Dashboard() {
   const selectedExpandable = useMemo(() => {
     if (view !== "explore" || !selectedId || !payload) return null;
     const n = payload.nodes.find((x) => x.id === selectedId);
-    return n && n.properties?.explore_expandable ? n : null;
+    return n?.properties?.explore_expandable ? n : null;
   }, [view, selectedId, payload]);
 
   /** Open the whole tree (or the selected package) down to `level`; the server applies the node budget. */
@@ -811,10 +827,13 @@ function Dashboard() {
   const navigateById = useCallback(
     async (id: string) => {
       const type = detail?.neighbors[id]?.node_type;
-      if (type) return navigateTo(id, type);
+      if (type) {
+        await navigateTo(id, type);
+        return;
+      }
       try {
         const d = await getJson<NodeDetail>(`/projects/${projectId}/nodes/${id}`);
-        navigateTo(id, d.node.node_type);
+        await navigateTo(id, d.node.node_type);
       } catch {
         void selectNode(id);
       }
@@ -833,8 +852,7 @@ function Dashboard() {
 
   useEffect(() => {
     if (!projectId) return;
-    const e =
-      view === "explore" && exploreExpanded.length ? encodeExpandedIds(exploreExpanded) : undefined;
+    const e = view === "explore" && exploreExpanded.length ? encodeExpandedIds(exploreExpanded) : undefined;
     writeHash({ p: projectId, v: view, f: focusNodeId, n: selectedId ?? undefined, e });
   }, [projectId, view, focusNodeId, selectedId, exploreExpanded]);
 
@@ -1068,22 +1086,73 @@ function Dashboard() {
   };
 
   const paletteActions: PaletteAction[] = [
-    { id: "ask", label: "Ask a question", hint: "⌘J", icon: <MessageSquare size={16} strokeWidth={1.5} aria-hidden />, run: () => openTab("assistant") },
-    { id: "routes", label: "Browse API routes", icon: <RouteIcon size={16} strokeWidth={1.5} aria-hidden />, run: () => openTab("endpoints") },
-    { id: "tour", label: "Start the guided tour", icon: <BookOpen size={16} strokeWidth={1.5} aria-hidden />, run: () => openTab("tour") },
+    {
+      id: "ask",
+      label: "Ask a question",
+      hint: "⌘J",
+      icon: <MessageSquare size={16} strokeWidth={1.5} aria-hidden />,
+      run: () => openTab("assistant"),
+    },
+    {
+      id: "routes",
+      label: "Browse API routes",
+      icon: <RouteIcon size={16} strokeWidth={1.5} aria-hidden />,
+      run: () => openTab("endpoints"),
+    },
+    {
+      id: "tour",
+      label: "Start the guided tour",
+      icon: <BookOpen size={16} strokeWidth={1.5} aria-hidden />,
+      run: () => openTab("tour"),
+    },
     {
       id: "impact",
       label: selectedId ? `Impact of changing ${detail?.node.name ?? "selection"}` : "Impact of uncommitted changes",
       icon: <GitFork size={16} strokeWidth={1.5} aria-hidden />,
       run: () => (selectedId ? openTab("impact") : showWorkingTreeImpact()),
     },
-    { id: "suggestions", label: "Show refactoring suggestions", icon: <Lightbulb size={16} strokeWidth={1.5} aria-hidden />, run: () => openTab("suggestions") },
-    { id: "reindex", label: "Re-index changed files", icon: <RefreshCw size={16} strokeWidth={1.5} aria-hidden />, run: () => void reindex(true) },
-    { id: "copy", label: "Copy link to this view", icon: <LinkIcon size={16} strokeWidth={1.5} aria-hidden />, run: copyLink },
-    { id: "panel", label: panelOpen ? "Hide details pane" : "Show details pane", hint: "⌘\\", run: () => setPanelOpen((o) => !o) },
-    { id: "add", label: "Add a repository", icon: <Plus size={16} strokeWidth={1.5} aria-hidden />, run: () => setShowIngest(true) },
-    { id: "projects", label: "Manage projects (rename, settings, remove)", icon: <FolderCog size={16} strokeWidth={1.5} aria-hidden />, run: () => setShowProjects("projects") },
-    { id: "activity", label: "Activity log", icon: <Activity size={16} strokeWidth={1.5} aria-hidden />, run: () => setShowProjects("activity") },
+    {
+      id: "suggestions",
+      label: "Show refactoring suggestions",
+      icon: <Lightbulb size={16} strokeWidth={1.5} aria-hidden />,
+      run: () => openTab("suggestions"),
+    },
+    {
+      id: "reindex",
+      label: "Re-index changed files",
+      icon: <RefreshCw size={16} strokeWidth={1.5} aria-hidden />,
+      run: () => void reindex(true),
+    },
+    {
+      id: "copy",
+      label: "Copy link to this view",
+      icon: <LinkIcon size={16} strokeWidth={1.5} aria-hidden />,
+      run: copyLink,
+    },
+    {
+      id: "panel",
+      label: panelOpen ? "Hide details pane" : "Show details pane",
+      hint: "⌘\\",
+      run: () => setPanelOpen((o) => !o),
+    },
+    {
+      id: "add",
+      label: "Add a repository",
+      icon: <Plus size={16} strokeWidth={1.5} aria-hidden />,
+      run: () => setShowIngest(true),
+    },
+    {
+      id: "projects",
+      label: "Manage projects (rename, settings, remove)",
+      icon: <FolderCog size={16} strokeWidth={1.5} aria-hidden />,
+      run: () => setShowProjects("projects"),
+    },
+    {
+      id: "activity",
+      label: "Activity log",
+      icon: <Activity size={16} strokeWidth={1.5} aria-hidden />,
+      run: () => setShowProjects("activity"),
+    },
     { id: "status", label: "Server status", run: () => setShowProjects("status") },
     { id: "full-reindex", label: "Full re-index (rebuild from scratch)", run: () => void reindex(false) },
   ];
@@ -1156,10 +1225,20 @@ function Dashboard() {
                   e: view === "explore" && exploreExpanded.length ? encodeExpandedIds(exploreExpanded) : undefined,
                 })}
               />
-              <button type="button" className="icon-btn" onClick={copyLink} title="Copy link to this view" aria-label="Copy link to this view">
-                {copied ? <Check size={16} strokeWidth={1.5} aria-hidden /> : <LinkIcon size={16} strokeWidth={1.5} aria-hidden />}
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={copyLink}
+                title="Copy link to this view"
+                aria-label="Copy link to this view"
+              >
+                {copied ? (
+                  <Check size={16} strokeWidth={1.5} aria-hidden />
+                ) : (
+                  <LinkIcon size={16} strokeWidth={1.5} aria-hidden />
+                )}
               </button>
-<ExportMenu
+              <ExportMenu
                 projectId={projectId}
                 projectName={activeProject?.name ?? "project"}
                 viewLabel={currentView?.label ?? view}
@@ -1167,7 +1246,13 @@ function Dashboard() {
                 nodes={nodes}
                 edges={edges}
               />
-              <button type="button" className="icon-btn" onClick={() => setShowIngest(true)} title="Add a repository" aria-label="Add a repository">
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setShowIngest(true)}
+                title="Add a repository"
+                aria-label="Add a repository"
+              >
                 <Plus size={16} strokeWidth={1.5} aria-hidden />
               </button>
               <button type="button" className="btn primary" onClick={() => openTab("assistant")}>
@@ -1181,7 +1266,12 @@ function Dashboard() {
       </header>
 
       {showProjects && !showIngest ? null : (
-        <FreshnessBanner freshness={freshness} busy={reindexing} onReindex={() => void reindex(true)} onShowImpact={showWorkingTreeImpact} />
+        <FreshnessBanner
+          freshness={freshness}
+          busy={reindexing}
+          onReindex={() => void reindex(true)}
+          onShowImpact={showWorkingTreeImpact}
+        />
       )}
 
       {showProjects && !showIngest ? (
@@ -1222,7 +1312,10 @@ function Dashboard() {
           ) : null}
         </main>
       ) : (
-        <div className={`dashboard ${panelOpen ? "" : "panel-closed"}`} style={{ ["--panel-w" as string]: `${panelWidth}px` }}>
+        <div
+          className={`dashboard ${panelOpen ? "" : "panel-closed"}`}
+          style={{ ["--panel-w" as string]: `${panelWidth}px` }}
+        >
           <aside className="sidebar" aria-label="Views">
             <nav className="view-nav">
               {visibleGroups.map(({ group, items }) => (
@@ -1281,7 +1374,12 @@ function Dashboard() {
               </div>
               <label className="search-field">
                 <Filter size={14} strokeWidth={1.5} aria-hidden className="search-icon" />
-                <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter diagram" aria-label="Filter the diagram" />
+                <input
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="Filter diagram"
+                  aria-label="Filter the diagram"
+                />
               </label>
               {view === "explore" && !special ? (
                 <ExploreToolbar
@@ -1313,12 +1411,22 @@ function Dashboard() {
                 className="icon-btn toggle-btn"
                 aria-pressed={dimUnrelated}
                 onClick={() => setDimUnrelated((d) => !d)}
-                title={dimUnrelated ? "Focus mode on: unrelated nodes fade when you select" : "Focus mode off: selection only highlights"}
+                title={
+                  dimUnrelated
+                    ? "Focus mode on: unrelated nodes fade when you select"
+                    : "Focus mode off: selection only highlights"
+                }
                 aria-label="Fade nodes unrelated to the selection"
               >
                 <Focus size={16} strokeWidth={1.5} aria-hidden />
               </button>
-              <button type="button" className="icon-btn" onClick={() => setReloadKey((k) => k + 1)} title="Reload diagram" aria-label="Reload diagram">
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setReloadKey((k) => k + 1)}
+                title="Reload diagram"
+                aria-label="Reload diagram"
+              >
                 <RefreshCw size={16} strokeWidth={1.5} aria-hidden />
               </button>
               <button
@@ -1328,188 +1436,207 @@ function Dashboard() {
                 title={`${panelOpen ? "Hide" : "Show"} details (⌘\\)`}
                 aria-label={`${panelOpen ? "Hide" : "Show"} details pane`}
               >
-                {panelOpen ? <PanelRightClose size={16} strokeWidth={1.5} aria-hidden /> : <PanelRightOpen size={16} strokeWidth={1.5} aria-hidden />}
+                {panelOpen ? (
+                  <PanelRightClose size={16} strokeWidth={1.5} aria-hidden />
+                ) : (
+                  <PanelRightOpen size={16} strokeWidth={1.5} aria-hidden />
+                )}
               </button>
             </div>
 
             <div className="graph-row">
-            {view === "api-flow" && !special && projectId ? (
-              <ApiEndpointList projectId={projectId} reloadKey={reloadKey} focusedId={focusNodeId} onPick={pickFlowEndpoint} />
-            ) : null}
-            <div
-              className={`graph-pane zoom-${zoomLevel}`}
-              onKeyDown={(e) => {
-                // Enter on a focused node opens it (React Flow focuses node wrappers with Tab).
-                if (e.key !== "Enter") return;
-                const el = (e.target as HTMLElement).closest?.(".react-flow__node");
-                const id = el?.getAttribute("data-id");
-                if (!id || id.startsWith("__lane:") || e.target !== el) return;
-                e.preventDefault();
-                setPanelOpen(true);
-                void selectNode(id);
-              }}
-            >
-              {graphLoading ? (
-                <div className="graph-skeleton" aria-busy="true" aria-label="Loading diagram">
-                  {[0, 1, 2, 3, 4].map((i) => (
-                    <span key={i} className="skeleton skeleton-node" style={{ left: `${12 + (i % 3) * 28}%`, top: `${20 + Math.floor(i / 3) * 34 + (i % 2) * 8}%` }} />
-                  ))}
-                </div>
-              ) : null}
-              {graphError ? (
-                <div className="graph-overlay error" role="alert">
-                  <strong>Couldn't load this diagram.</strong>
-                  <span>{graphError}</span>
-                  <button type="button" className="btn secondary small" onClick={() => setReloadKey((k) => k + 1)}>
-                    Try again
-                  </button>
-                </div>
-              ) : null}
-              {!graphLoading && !graphError && displayed && displayed.nodes.length === 0 ? (
-                <div className="graph-overlay">
-                  <strong>Nothing to show here yet.</strong>
-                  <span className="muted">Try another view, or clear the filter.</span>
-                </div>
-              ) : null}
-              <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                nodeTypes={NODE_TYPES}
-                edgeTypes={EDGE_TYPES}
-                nodesDraggable={view !== "explore"}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onlyRenderVisibleElements
-                // Trackpad-friendly: two-finger scroll pans, pinch zooms, ⌘/Ctrl + wheel zooms (mouse users).
-                panOnScroll
-                panOnScrollMode={PanOnScrollMode.Free}
-                zoomOnScroll={false}
-                zoomOnPinch
-                zoomActivationKeyCode={ZOOM_KEYS}
-                onNodeClick={(_, node) => {
-                  if (node.type === "lane") return;
-                  if (view === "explore" && !special) {
-                    if (exploreClickTimer.current) clearTimeout(exploreClickTimer.current);
-                    exploreClickTimer.current = setTimeout(() => {
-                      setPanelOpen(true);
-                      void selectNode(node.id);
-                    }, 220);
-                    return;
-                  }
-                  setPanelOpen(true);
-                  void selectNode(node.id);
-                }}
-                onNodeDoubleClick={(_, node) => {
-                  if (node.type === "lane") return;
-                  if (special) return;
-                  if (view === "explore") {
-                    if (exploreClickTimer.current) {
-                      clearTimeout(exploreClickTimer.current);
-                      exploreClickTimer.current = null;
-                    }
-                    const kids = getNodes().filter((n) => n.parentId === node.id);
-                    const dur = reducedMotion ? 0 : 200;
-                    void fitView({
-                      nodes: kids.length ? [node, ...kids] : [node],
-                      padding: 0.3,
-                      duration: dur,
-                      includeHiddenNodes: true,
-                    }).catch(() => undefined);
-                    void selectNode(node.id);
-                    return;
-                  }
-                  const data = node.data as ArchNodeData;
-                  const type = data.nodeType;
-                  if (currentView?.focusable) setFocusNodeId(node.id);
-                  else void navigateTo(node.id, type);
-                  if (currentView?.focusable) void selectNode(node.id);
-                }}
-                onEdgeClick={(_, edge) => {
-                  setPanelOpen(true);
-                  setRightTab("inspector");
-                  if (view !== "explore" || special) return;
-                  const ge = displayed?.edges.find((x) => x.id === edge.id);
-                  if (ge) void fetchExploreUnderlying(ge);
-                }}
-                onPaneClick={clearSelection}
-                // Edges get explicit z-indexes from buildFlow: context edges under every node,
-                // the traced ones above the group boxes that contain their endpoints.
-                zIndexMode="manual"
-                minZoom={0.05}
-                maxZoom={1.8}
-                proOptions={{ hideAttribution: true }}
-              >
-                <MiniMap
-                  pannable
-                  zoomable
-                  nodeColor={(n) => (n.data as ArchNodeData | undefined)?.color ?? "#CFCBC1"}
-                  nodeStrokeWidth={0}
-                  maskColor="rgba(247, 246, 242, 0.7)"
-                  style={{ width: 150, height: 96 }}
-                  bgColor="#FCFBF8"
+              {view === "api-flow" && !special && projectId ? (
+                <ApiEndpointList
+                  projectId={projectId}
+                  reloadKey={reloadKey}
+                  focusedId={focusNodeId}
+                  onPick={pickFlowEndpoint}
                 />
-                <Controls showInteractive={false} />
-                <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#DCD8CF" />
-              {view === "explore" && !special && exploreBreadcrumbs.length > 0 ? (
-                <Panel position="top-left">
-                <nav className="explore-breadcrumbs" aria-label="Selection path">
-                  {exploreBreadcrumbs.map((c, i) => (
-                    <span key={c.id} className="explore-crumb-wrap">
-                      {i > 0 ? <span className="explore-crumb-sep" aria-hidden /> : null}
-                      <button
-                        type="button"
-                        className={`link-btn explore-crumb ${selectedId === c.id ? "active" : ""}`}
-                        onClick={() => onExploreBreadcrumbClick(c.id)}
-                      >
-                        {c.label}
-                      </button>
-                    </span>
-                  ))}
-                </nav>
-                </Panel>
               ) : null}
-                {specialBanner ? (
-                  <Panel position="top-left" className="graph-legend">
-                    <span className="overlay-title">{specialBanner}</span>
-                    <button type="button" className="link-btn" onClick={clearSpecial}>
-                      Exit
+              <div
+                className={`graph-pane zoom-${zoomLevel}`}
+                onKeyDown={(e) => {
+                  // Enter on a focused node opens it (React Flow focuses node wrappers with Tab).
+                  if (e.key !== "Enter") return;
+                  const el = (e.target as HTMLElement).closest?.(".react-flow__node");
+                  const id = el?.getAttribute("data-id");
+                  if (!id || id.startsWith("__lane:") || e.target !== el) return;
+                  e.preventDefault();
+                  setPanelOpen(true);
+                  void selectNode(id);
+                }}
+              >
+                {graphLoading ? (
+                  <div className="graph-skeleton" aria-busy="true" aria-label="Loading diagram">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <span
+                        key={i}
+                        className="skeleton skeleton-node"
+                        style={{ left: `${12 + (i % 3) * 28}%`, top: `${20 + Math.floor(i / 3) * 34 + (i % 2) * 8}%` }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                {graphError ? (
+                  <div className="graph-overlay error" role="alert">
+                    <strong>Couldn't load this diagram.</strong>
+                    <span>{graphError}</span>
+                    <button type="button" className="btn secondary small" onClick={() => setReloadKey((k) => k + 1)}>
+                      Try again
                     </button>
-                  </Panel>
+                  </div>
                 ) : null}
-                {selectedId && !special && nodes.some((n) => n.id === selectedId) ? (
-                  <Panel position="top-right">
-                    <TraceControl
-                      value={trace}
-                      onChange={setTrace}
-                      selectedName={detail?.node.name}
-                      counts={traceCounts}
-                      onClear={clearSelection}
-                    />
-                  </Panel>
+                {!graphLoading && !graphError && displayed && displayed.nodes.length === 0 ? (
+                  <div className="graph-overlay">
+                    <strong>Nothing to show here yet.</strong>
+                    <span className="muted">Try another view, or clear the filter.</span>
+                  </div>
                 ) : null}
-                {levelNote && view === "explore" ? (
-                  <Panel position="bottom-center" className="graph-legend graph-note" role="status">
-                    <span className="muted">{levelNote}</span>
-                    <button type="button" className="link-btn" onClick={() => setLevelNote(null)}>
-                      Dismiss
-                    </button>
-                  </Panel>
-                ) : null}
-                {displayed?.metadata?.truncated ? (
-                  <Panel position="bottom-center" className="graph-legend">
-                    <span className="muted">
-                      {displayed.metadata?.truncation_reason ??
-                        "Showing the most connected nodes. Filter or search to narrow down."}
-                    </span>
-                  </Panel>
-                ) : null}
-              </ReactFlow>
-            </div>
+                <ReactFlow
+                  nodes={nodes}
+                  edges={edges}
+                  nodeTypes={NODE_TYPES}
+                  edgeTypes={EDGE_TYPES}
+                  nodesDraggable={view !== "explore"}
+                  onNodesChange={onNodesChange}
+                  onEdgesChange={onEdgesChange}
+                  onlyRenderVisibleElements
+                  // Trackpad-friendly: two-finger scroll pans, pinch zooms, ⌘/Ctrl + wheel zooms (mouse users).
+                  panOnScroll
+                  panOnScrollMode={PanOnScrollMode.Free}
+                  zoomOnScroll={false}
+                  zoomOnPinch
+                  zoomActivationKeyCode={ZOOM_KEYS}
+                  onNodeClick={(_, node) => {
+                    if (node.type === "lane") return;
+                    if (view === "explore" && !special) {
+                      if (exploreClickTimer.current) clearTimeout(exploreClickTimer.current);
+                      exploreClickTimer.current = setTimeout(() => {
+                        setPanelOpen(true);
+                        void selectNode(node.id);
+                      }, 220);
+                      return;
+                    }
+                    setPanelOpen(true);
+                    void selectNode(node.id);
+                  }}
+                  onNodeDoubleClick={(_, node) => {
+                    if (node.type === "lane") return;
+                    if (special) return;
+                    if (view === "explore") {
+                      if (exploreClickTimer.current) {
+                        clearTimeout(exploreClickTimer.current);
+                        exploreClickTimer.current = null;
+                      }
+                      const kids = getNodes().filter((n) => n.parentId === node.id);
+                      const dur = reducedMotion ? 0 : 200;
+                      void fitView({
+                        nodes: kids.length ? [node, ...kids] : [node],
+                        padding: 0.3,
+                        duration: dur,
+                        includeHiddenNodes: true,
+                      }).catch(() => undefined);
+                      void selectNode(node.id);
+                      return;
+                    }
+                    const data = node.data;
+                    const type = data.nodeType;
+                    if (currentView?.focusable) setFocusNodeId(node.id);
+                    else void navigateTo(node.id, type);
+                    if (currentView?.focusable) void selectNode(node.id);
+                  }}
+                  onEdgeClick={(_, edge) => {
+                    setPanelOpen(true);
+                    setRightTab("inspector");
+                    if (view !== "explore" || special) return;
+                    const ge = displayed?.edges.find((x) => x.id === edge.id);
+                    if (ge) void fetchExploreUnderlying(ge);
+                  }}
+                  onPaneClick={clearSelection}
+                  // Edges get explicit z-indexes from buildFlow: context edges under every node,
+                  // the traced ones above the group boxes that contain their endpoints.
+                  zIndexMode="manual"
+                  minZoom={0.05}
+                  maxZoom={1.8}
+                  proOptions={{ hideAttribution: true }}
+                >
+                  <MiniMap
+                    pannable
+                    zoomable
+                    nodeColor={(n) => (n.data as ArchNodeData | undefined)?.color ?? "#CFCBC1"}
+                    nodeStrokeWidth={0}
+                    maskColor="rgba(247, 246, 242, 0.7)"
+                    style={{ width: 150, height: 96 }}
+                    bgColor="#FCFBF8"
+                  />
+                  <Controls showInteractive={false} />
+                  <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#DCD8CF" />
+                  {view === "explore" && !special && exploreBreadcrumbs.length > 0 ? (
+                    <Panel position="top-left">
+                      <nav className="explore-breadcrumbs" aria-label="Selection path">
+                        {exploreBreadcrumbs.map((c, i) => (
+                          <span key={c.id} className="explore-crumb-wrap">
+                            {i > 0 ? <span className="explore-crumb-sep" aria-hidden /> : null}
+                            <button
+                              type="button"
+                              className={`link-btn explore-crumb ${selectedId === c.id ? "active" : ""}`}
+                              onClick={() => onExploreBreadcrumbClick(c.id)}
+                            >
+                              {c.label}
+                            </button>
+                          </span>
+                        ))}
+                      </nav>
+                    </Panel>
+                  ) : null}
+                  {specialBanner ? (
+                    <Panel position="top-left" className="graph-legend">
+                      <span className="overlay-title">{specialBanner}</span>
+                      <button type="button" className="link-btn" onClick={clearSpecial}>
+                        Exit
+                      </button>
+                    </Panel>
+                  ) : null}
+                  {selectedId && !special && nodes.some((n) => n.id === selectedId) ? (
+                    <Panel position="top-right">
+                      <TraceControl
+                        value={trace}
+                        onChange={setTrace}
+                        selectedName={detail?.node.name}
+                        counts={traceCounts}
+                        onClear={clearSelection}
+                      />
+                    </Panel>
+                  ) : null}
+                  {levelNote && view === "explore" ? (
+                    <Panel position="bottom-center" className="graph-legend graph-note" role="status">
+                      <span className="muted">{levelNote}</span>
+                      <button type="button" className="link-btn" onClick={() => setLevelNote(null)}>
+                        Dismiss
+                      </button>
+                    </Panel>
+                  ) : null}
+                  {displayed?.metadata?.truncated ? (
+                    <Panel position="bottom-center" className="graph-legend">
+                      <span className="muted">
+                        {displayed.metadata?.truncation_reason ??
+                          "Showing the most connected nodes. Filter or search to narrow down."}
+                      </span>
+                    </Panel>
+                  ) : null}
+                </ReactFlow>
+              </div>
             </div>
           </section>
 
           <aside className="right-panel" aria-label="Details" hidden={!panelOpen}>
-            <div className="panel-resize" onPointerDown={startResize} role="separator" aria-orientation="vertical" aria-label="Resize details pane" />
+            <div
+              className="panel-resize"
+              onPointerDown={startResize}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize details pane"
+            />
             <div className="panel-tabs" role="tablist">
               {TABS.map((t) => (
                 <button
@@ -1534,9 +1661,7 @@ function Dashboard() {
                   layers={layers}
                   exploreEdge={exploreInspectorEdge}
                   explore={exploreInspector}
-                  onToggleExplore={
-                    exploreInspector && selectedId ? () => toggleExploreExpand(selectedId) : undefined
-                  }
+                  onToggleExplore={exploreInspector && selectedId ? () => toggleExploreExpand(selectedId) : undefined}
                   onNavigate={(id) => void navigateById(id)}
                   onFocus={(id) => {
                     clearSpecial();
@@ -1596,7 +1721,11 @@ function Dashboard() {
                 />
               ) : null}
               {rightTab === "suggestions" ? (
-                <SuggestionsPanel projectId={projectId} reloadKey={reloadKey} onPickNode={(id) => void navigateById(id)} />
+                <SuggestionsPanel
+                  projectId={projectId}
+                  reloadKey={reloadKey}
+                  onPickNode={(id) => void navigateById(id)}
+                />
               ) : null}
               {/* kept mounted so the conversation survives tab switches */}
               <div className="assistant-host" style={{ display: rightTab === "assistant" ? "flex" : "none" }}>

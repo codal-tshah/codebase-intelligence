@@ -3,7 +3,10 @@ import { layoutByLayer, layoutNodes } from "./layout";
 
 describe("layout", () => {
   it("wraps a hub's 60 spokes into several columns instead of one tall column", () => {
-    const nodes = [{ id: "hub", width: 200, height: 70 }, ...Array.from({ length: 60 }, (_, i) => ({ id: `s${i}`, width: 200, height: 70 }))];
+    const nodes = [
+      { id: "hub", width: 200, height: 70 },
+      ...Array.from({ length: 60 }, (_, i) => ({ id: `s${i}`, width: 200, height: 70 })),
+    ];
     const edges = nodes.slice(1).map((n) => ({ source: n.id, target: "hub" }));
     const pos = layoutNodes(nodes, edges);
     const spokeXs = new Set(nodes.slice(1).map((n) => pos.get(n.id)!.x));

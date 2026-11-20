@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from ci_core.insights import GraphIndex
-from ci_core.models import EdgeType, GraphEdgeView, GraphNodeView, NodeType
+from ci_core.models import EdgeType, GraphEdgeView, GraphNodeView, NodeRecord, NodeType
 from ci_core.views import ViewModule, register_view
 from ci_core.views._common import MAX_NODES, edges_between, expand, node_view
 
@@ -14,7 +14,7 @@ UI_EDGES = {EdgeType.RENDERS, EdgeType.CALLS, EdgeType.HTTP_CALLS}
 UI_ROLES = {"components", "pages", "hooks", "stores", "api-client"}
 
 
-def _is_ui(node) -> bool:
+def _is_ui(node: NodeRecord) -> bool:
     return node.node_type == NodeType.COMPONENT or node.properties.get("role") in UI_ROLES
 
 

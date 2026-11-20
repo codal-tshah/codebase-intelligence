@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Collection
 from functools import lru_cache
+from typing import TypedDict
 
 from ci_core.insights import DEPENDENCY_EDGES, GraphIndex
 from ci_core.models import EdgeType
@@ -44,21 +45,29 @@ def _adjacency(index: GraphIndex, edge_types: Collection[EdgeType]) -> dict[str,
     return {k: list(v) for k, v in out.items()}
 
 
-def _sccs(adj: dict[str, list[str]]) -> list[list[str]]:
-    ids = list(adj)
-    if _backend() == "rustworkx":
-        import rustworkx as rx
+def _sccs_rustworkx(adj: dict[str, list[str]], ids: list[str]) -> list[list[str]]:
+    import rustworkx as rx
 
-        graph = rx.PyDiGraph(multigraph=False)
-        pos = dict(zip(ids, graph.add_nodes_from(ids), strict=True))
-        graph.add_edges_from_no_data([(pos[s], pos[t]) for s, targets in adj.items() for t in targets])
-        return [[graph[i] for i in comp] for comp in rx.strongly_connected_components(graph)]
+    graph = rx.PyDiGraph(multigraph=False)
+    pos = dict(zip(ids, graph.add_nodes_from(ids), strict=True))
+    graph.add_edges_from_no_data([(pos[s], pos[t]) for s, targets in adj.items() for t in targets])
+    return [[graph[i] for i in comp] for comp in rx.strongly_connected_components(graph)]
+
+
+def _sccs_networkx(adj: dict[str, list[str]], ids: list[str]) -> list[list[str]]:
     import networkx as nx
 
-    graph = nx.DiGraph()
+    graph: nx.DiGraph[str] = nx.DiGraph()
     graph.add_nodes_from(ids)
     graph.add_edges_from((s, t) for s, targets in adj.items() for t in targets)
     return [list(comp) for comp in nx.strongly_connected_components(graph)]
+
+
+def _sccs(adj: dict[str, list[str]]) -> list[list[str]]:
+    ids = list(adj)
+    if _backend() == "rustworkx":
+        return _sccs_rustworkx(adj, ids)
+    return _sccs_networkx(adj, ids)
 
 
 def strongly_connected_components(
@@ -73,9 +82,13 @@ def strongly_connected_components(
     return sorted(comps, key=lambda c: (-len(c), c))
 
 
-def dependency_cycles(
-    index: GraphIndex, edge_types: Collection[EdgeType] = DEPENDENCY_EDGES
-) -> list[dict[str, object]]:
+class DependencyCycle(TypedDict):
+    node_ids: list[str]
+    size: int
+    cycle: list[str]
+
+
+def dependency_cycles(index: GraphIndex, edge_types: Collection[EdgeType] = DEPENDENCY_EDGES) -> list[DependencyCycle]:
     """One entry per cyclic component: its members and a shortest concrete cycle through it."""
     adj = _adjacency(index, edge_types)
     return [

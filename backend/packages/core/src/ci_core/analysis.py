@@ -16,7 +16,7 @@ entry-point group (see ``ci_indexer.analyzers``) and only need to satisfy
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -87,8 +87,8 @@ def route_segments(route: str) -> tuple[str, ...]:
     path = path.split("?", 1)[0].split("#", 1)[0]
     path = path.lstrip("^").rstrip("$")
     out: list[str] = []
-    for seg in path.split("/"):
-        seg = seg.strip()
+    for segment in path.split("/"):
+        seg = segment.strip()
         if not seg:
             continue
         if any(p.match(seg) for p in _PARAM_PATTERNS) or "${" in seg:
@@ -114,7 +114,7 @@ def _match_score(call: tuple[str, ...], route: tuple[str, ...], *, require_liter
         return None
     score = 0
     literal_hits = 0
-    for a, b in zip(call, route):
+    for a, b in zip(call, route, strict=False):
         if a == b:
             score += 2 if a == "{}" else 3
             literal_hits += a != "{}"
@@ -133,7 +133,7 @@ def _common_dirs(a: str | None, b: str | None) -> int:
     if not a or not b:
         return 0
     n = 0
-    for x, y in zip(a.split("/")[:-1], b.split("/")[:-1]):
+    for x, y in zip(a.split("/")[:-1], b.split("/")[:-1], strict=False):
         if x != y:
             break
         n += 1
@@ -203,7 +203,7 @@ def merge_results(project_id: str, results: Sequence[AnalysisResult]) -> Analysi
     return merged
 
 
-def link_http_calls(project_id: str, result: AnalysisResult, node_id_fn) -> dict[str, int]:
+def link_http_calls(project_id: str, result: AnalysisResult, node_id_fn: Callable[..., str]) -> dict[str, int]:
     """Resolve `result.http_calls` into HTTP_CALLS (to endpoints) and DEPENDS_ON (to hosts) edges.
 
     `node_id_fn(*parts)` builds stable ids (injected to keep core free of parser deps).

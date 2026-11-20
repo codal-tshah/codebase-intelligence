@@ -139,13 +139,24 @@ def classify_module(rel_path: str) -> str:
         if "versions" in dirs:
             return "migration" if stem != "__init__" else "apps"
         return "settings"
-    if "tests" in dirs or "test" in dirs or stem.startswith("test_") or stem.endswith("_test") or stem in ("tests", "conftest"):
+    if (
+        "tests" in dirs
+        or "test" in dirs
+        or stem.startswith("test_")
+        or stem.endswith("_test")
+        or stem in ("tests", "conftest")
+    ):
         return "tests"
     if "management" in dirs and "commands" in dirs:
         return "command"
     if "templatetags" in dirs:
         return "templatetags"
-    if "settings" in dirs or stem == "settings" or stem.startswith("settings_") or stem in ("local_settings", "base_settings"):
+    if (
+        "settings" in dirs
+        or stem == "settings"
+        or stem.startswith("settings_")
+        or stem in ("local_settings", "base_settings")
+    ):
         return "settings"
     if stem == "manage":
         return "manage"
@@ -163,9 +174,17 @@ def classify_module(rel_path: str) -> str:
     if stem == "serializers" or "serializers" in dirs or stem.endswith("_serializers"):
         return "serializers"
     # Pydantic request/response models play the serializer role in FastAPI
-    if stem in ("schemas", "schema", "dto", "dtos") or {"schemas", "dto", "dtos"} & set(dirs) or stem.endswith("_schemas"):
+    if (
+        stem in ("schemas", "schema", "dto", "dtos")
+        or {"schemas", "dto", "dtos"} & set(dirs)
+        or stem.endswith("_schemas")
+    ):
         return "serializers"
-    if stem in ("repositories", "repository", "repo", "repos", "crud", "dao") or {"repositories", "repos", "crud", "dao"} & set(dirs) or stem.endswith("_repository"):
+    if (
+        stem in ("repositories", "repository", "repo", "repos", "crud", "dao")
+        or {"repositories", "repos", "crud", "dao"} & set(dirs)
+        or stem.endswith("_repository")
+    ):
         return "repositories"
     if stem in ("dependencies", "deps") or "dependencies" in dirs:
         return "dependencies"

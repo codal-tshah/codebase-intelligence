@@ -44,8 +44,8 @@ export function ApiKeyPrompt() {
           <KeyRound size={18} strokeWidth={1.5} aria-hidden /> API key required
         </h2>
         <p className="muted">
-          This server runs in server mode. Enter the API key from your administrator (<code>CI_API_KEY</code>). It is kept
-          in this browser tab only and cleared when the tab closes.
+          This server runs in server mode. Enter the API key from your administrator (<code>CI_API_KEY</code>). It is
+          kept in this browser tab only and cleared when the tab closes.
         </p>
         {rejected ? (
           <p className="form-error" role="alert">

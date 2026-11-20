@@ -18,8 +18,8 @@ from ci_core.project_admin import (
     list_saved_views,
     load_settings,
     project_overview,
-    remove_project,
     removal_plan,
+    remove_project,
     rename_project,
     repo_ignore_file,
     save_settings,
@@ -28,7 +28,13 @@ from ci_core.projects import resolve_project
 from ci_core.registry import load_registry
 from ci_core.settings import get_settings
 from ci_core.views import view_catalog
-from ci_indexer import compute_freshness, create_project_from_git, create_project_from_path, index_in_progress, run_index_job
+from ci_indexer import (
+    compute_freshness,
+    create_project_from_git,
+    create_project_from_path,
+    index_in_progress,
+    run_index_job,
+)
 from ci_parsers import GitCloneError
 
 router = APIRouter()
@@ -84,8 +90,13 @@ def resolve(ref: str = Query(..., min_length=1, max_length=1024)) -> dict:
 @router.post("/projects")
 def create_project(body: CreateProjectBody, request: Request) -> dict:
     record = _register(body)
-    audit.record("project.add", project_id=record.id, project_name=record.name, actor=actor(request),
-                 detail={"source": "git" if body.git_url else "path"})
+    audit.record(
+        "project.add",
+        project_id=record.id,
+        project_name=record.name,
+        actor=actor(request),
+        detail={"source": "git" if body.git_url else "path"},
+    )
     return record.model_dump(mode="json")
 
 
@@ -94,8 +105,14 @@ def analyze_project(body: AnalyzeBody, request: Request) -> dict:
     """Ingest-style flow: register project, index synchronously, return summary."""
     record = _register(body)
     job = run_index_job(record.id)
-    audit.record("project.analyze", project_id=record.id, project_name=record.name, actor=actor(request),
-                 outcome=job.status.value, detail={"source": "git" if body.git_url else "path", "job_id": job.id})
+    audit.record(
+        "project.analyze",
+        project_id=record.id,
+        project_name=record.name,
+        actor=actor(request),
+        outcome=job.status.value,
+        detail={"source": "git" if body.git_url else "path", "job_id": job.id},
+    )
     if job.status.value == "failed":
         raise HTTPException(status_code=500, detail=job.error or "Index failed")
     summary = build_project_summary(record.id)
@@ -124,8 +141,13 @@ def put_project_settings(project_ref: str, body: SettingsBody, request: Request)
     """Ignore patterns apply on the next index (they are stored here, not written into the repo)."""
     project = require_project(project_ref)
     saved = save_settings(project.id, ignore=body.ignore, auto_refresh=body.auto_refresh)
-    audit.record("project.settings", project_id=project.id, project_name=project.name, actor=actor(request),
-                 detail={"ignore_patterns": len(saved["ignore"]), "auto_refresh": saved["auto_refresh"]})
+    audit.record(
+        "project.settings",
+        project_id=project.id,
+        project_name=project.name,
+        actor=actor(request),
+        detail={"ignore_patterns": len(saved["ignore"]), "auto_refresh": saved["auto_refresh"]},
+    )
     return {**saved, "repo_ciignore": repo_ignore_file(project)}
 
 
@@ -178,8 +200,14 @@ def index_project(project_ref: str, background: BackgroundTasks, request: Reques
 
     def _run() -> None:
         done = run_index_job(project.id, incremental=incremental, job_id=job.id)
-        audit.record("project.index", project_id=project.id, project_name=project.name, actor=who, outcome=done.status.value,
-                     detail={"incremental": incremental, "job_id": job.id, "message": done.message, "error": done.error})
+        audit.record(
+            "project.index",
+            project_id=project.id,
+            project_name=project.name,
+            actor=who,
+            outcome=done.status.value,
+            detail={"incremental": incremental, "job_id": job.id, "message": done.message, "error": done.error},
+        )
 
     background.add_task(_run)
     return job.model_dump(mode="json")
@@ -217,10 +245,17 @@ def delete_project(project_ref: str, request: Request) -> dict:
     URL); a local source folder is never modified. Refused while an index job is running."""
     project = require_project(project_ref)
     if index_in_progress(project.id) or GraphStore(project.id).has_running_job():
-        raise HTTPException(status_code=409, detail="an index job is running for this project; try again when it finishes")
+        raise HTTPException(
+            status_code=409, detail="an index job is running for this project; try again when it finishes"
+        )
     plan = remove_project(project)
-    audit.record("project.delete", project_id=project.id, project_name=project.name, actor=actor(request),
-                 detail={"deleted": plan["delete"], "source_untouched": plan["source_untouched"]})
+    audit.record(
+        "project.delete",
+        project_id=project.id,
+        project_name=project.name,
+        actor=actor(request),
+        detail={"deleted": plan["delete"], "source_untouched": plan["source_untouched"]},
+    )
     return {"deleted": True, **plan}
 
 
@@ -232,6 +267,11 @@ def patch_project(project_ref: str, body: RenameBody, request: Request) -> dict:
     if any(p.name == name and p.id != project.id for p in load_registry()):
         raise HTTPException(status_code=409, detail=f"another project is already named {name!r}")
     updated = rename_project(project, name)
-    audit.record("project.rename", project_id=project.id, project_name=updated.name, actor=actor(request),
-                 detail={"from": project.name, "to": updated.name})
+    audit.record(
+        "project.rename",
+        project_id=project.id,
+        project_name=updated.name,
+        actor=actor(request),
+        detail={"from": project.name, "to": updated.name},
+    )
     return updated.model_dump(mode="json")

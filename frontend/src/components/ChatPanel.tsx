@@ -43,7 +43,15 @@ const WELCOME: ChatMessage = {
     "Ask about endpoints, data models, authentication, or what a change would affect. Answers come from the indexed code. Linked names open in the diagram; `file:line` links open the source.",
 };
 
-export function ChatPanel({ projectId, focusNodeId, focusNodeName, onHighlightNodes, onNavigateNode, onOpenSource, seed }: Props) {
+export function ChatPanel({
+  projectId,
+  focusNodeId,
+  focusNodeName,
+  onHighlightNodes,
+  onNavigateNode,
+  onOpenSource,
+  seed,
+}: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -163,18 +171,17 @@ export function ChatPanel({ projectId, focusNodeId, focusNodeName, onHighlightNo
                   {m.tools.map((t, i) => (
                     <li key={i}>
                       <code>{t.name}</code>
-                      <span className="muted"> {formatArgs(t.args)} → {t.summary}</span>
+                      <span className="muted">
+                        {" "}
+                        {formatArgs(t.args)} → {t.summary}
+                      </span>
                     </li>
                   ))}
                 </ol>
               </details>
             ) : null}
             {m.role === "assistant" ? (
-              <MarkdownContent
-                content={m.content}
-                onNodeLink={onNavigateNode}
-                onSourceLink={onOpenSource}
-              />
+              <MarkdownContent content={m.content} onNodeLink={onNavigateNode} onSourceLink={onOpenSource} />
             ) : (
               <p>{m.content}</p>
             )}
@@ -186,7 +193,11 @@ export function ChatPanel({ projectId, focusNodeId, focusNodeName, onHighlightNo
               <div className="citations">
                 <div className="citations-head">
                   <span className="muted">Sources</span>
-                  <button type="button" className="link-btn" onClick={() => onHighlightNodes(m.citations!.map((c) => c.node_id))}>
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => onHighlightNodes(m.citations!.map((c) => c.node_id))}
+                  >
                     Highlight on diagram
                   </button>
                 </div>
@@ -254,9 +265,14 @@ export function ChatPanel({ projectId, focusNodeId, focusNodeName, onHighlightNo
           ) : (
             <span />
           )}
-          <button type="button" className="btn primary" disabled={loading || !input.trim()} onClick={() => void send(input)}>
+          <button
+            type="button"
+            className="btn primary"
+            disabled={loading || !input.trim()}
+            onClick={() => void send(input)}
+          >
             {loading ? "Answering…" : "Ask"}
-          {!loading ? <kbd className="kbd-on-accent">⌘↵</kbd> : null}
+            {!loading ? <kbd className="kbd-on-accent">⌘↵</kbd> : null}
           </button>
         </div>
       </div>

@@ -57,7 +57,7 @@ def test_index_job_fails_while_another_process_holds_the_file_lock(data_dir, pro
     from ci_core.config import project_dir
 
     project = create_project_from_path(project_copy)
-    with open(project_dir(project.id) / "index.lock", "a") as other:  # stands in for another process
+    with (project_dir(project.id) / "index.lock").open("a") as other:  # stands in for another process
         fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
         job = run_index_job(project.id)
     assert job.status == JobStatus.FAILED and "already running" in (job.error or "")

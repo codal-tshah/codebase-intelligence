@@ -21,6 +21,8 @@ export const TRACE_DEPTHS = [1, 2, 3, 4, 5, 6, 8, 10];
 
 type EdgeLike = { id: string; source: string; target: string; edge_type: string };
 
+type WalkResult = { hops: Map<string, number>; edgeIds: Set<string> };
+
 export type TraceResult = {
   /** node id → hop distance upstream (1 = direct dependant). */
   up: Map<string, number>;
@@ -33,12 +35,7 @@ export type TraceResult = {
 /** Containment is drawn by nesting, never followed as a dependency. */
 const NOT_DEPENDENCY = new Set(["CONTAINS"]);
 
-function walk(
-  start: string,
-  edges: EdgeLike[],
-  forward: boolean,
-  depth: number,
-): { hops: Map<string, number>; edgeIds: Set<string> } {
+function walk(start: string, edges: EdgeLike[], forward: boolean, depth: number): WalkResult {
   const adj = new Map<string, EdgeLike[]>();
   for (const e of edges) {
     if (NOT_DEPENDENCY.has(e.edge_type) || e.source === e.target) continue;
@@ -72,8 +69,14 @@ function walk(
 /** Multi-hop trace from `selected` over the edges that are drawn on the canvas. */
 export function traceSelection(selected: string, edges: EdgeLike[], settings: TraceSettings): TraceResult {
   const depth = Math.max(1, settings.depth);
-  const up = settings.direction === "down" ? { hops: new Map(), edgeIds: new Set<string>() } : walk(selected, edges, false, depth);
-  const down = settings.direction === "up" ? { hops: new Map(), edgeIds: new Set<string>() } : walk(selected, edges, true, depth);
+  const up: WalkResult =
+    settings.direction === "down"
+      ? { hops: new Map<string, number>(), edgeIds: new Set<string>() }
+      : walk(selected, edges, false, depth);
+  const down: WalkResult =
+    settings.direction === "up"
+      ? { hops: new Map<string, number>(), edgeIds: new Set<string>() }
+      : walk(selected, edges, true, depth);
   const edgeRole = new Map<string, TraceRole>();
   for (const id of up.edgeIds) edgeRole.set(id, "up");
   for (const id of down.edgeIds) edgeRole.set(id, edgeRole.has(id) ? "both" : "down");
@@ -153,11 +156,11 @@ export function bundleParallelEdges<
       const i = TYPE_PRIORITY.indexOf(t);
       return i < 0 ? TYPE_PRIORITY.length : i;
     };
-    const lead = [...group].sort((a, b) => rank(a.edge_type) - rank(b.edge_type))[0]!;
+    const lead = [...group].sort((a, b) => rank(a.edge_type) - rank(b.edge_type))[0];
     const confidence = Math.max(...group.map((e) => e.confidence ?? 1));
     return {
       ...lead,
-      id: group[0]!.id,
+      id: group[0].id,
       confidence,
       memberIds: group.map((e) => e.id),
       byType,

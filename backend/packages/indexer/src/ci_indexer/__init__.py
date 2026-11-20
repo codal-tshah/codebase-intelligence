@@ -10,17 +10,17 @@ from ci_indexer.pipeline import (
 )
 
 __all__ = [
+    "ChangeSet",
+    "IndexPipeline",
     "analyze_project",
     "analyzer_catalog",
     "available_analyzers",
-    "list_project_files",
-    "ChangeSet",
-    "IndexPipeline",
     "classify_changes",
     "compute_freshness",
     "create_project_from_git",
     "create_project_from_path",
     "index_in_progress",
+    "list_project_files",
     "load_fingerprints",
     "run_index_job",
 ]

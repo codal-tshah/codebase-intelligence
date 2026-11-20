@@ -30,7 +30,8 @@ describe("buildExploreLayoutModel", () => {
 import { GROUP_TITLE, layoutExploreNodes } from "./layoutExplore";
 
 type Box = { x: number; y: number; width: number; height: number };
-const overlaps = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+const overlaps = (a: Box, b: Box) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
 describe("layoutExploreNodes (nested ELK)", () => {
   // 3 levels: two root packages; pkgA expanded -> modA1 (expanded -> fnA, fnB), modA2; pkgB collapsed.
@@ -56,7 +57,9 @@ describe("layoutExploreNodes (nested ELK)", () => {
 
   it("keeps children inside parents and siblings apart at every depth", async () => {
     const pos = await layoutExploreNodes({ graphNodes: nodes, graphEdges: edges });
-    const parentOf: Record<string, string | null> = Object.fromEntries(nodes.map((x) => [x.id, x.properties!.parent_id as string | null]));
+    const parentOf: Record<string, string | null> = Object.fromEntries(
+      nodes.map((x) => [x.id, x.properties!.parent_id as string | null]),
+    );
     for (const child of nodes) {
       const p = parentOf[child.id];
       const c = pos.get(child.id)!;
@@ -73,7 +76,8 @@ describe("layoutExploreNodes (nested ELK)", () => {
     const siblingsOf = (p: string | null) => nodes.filter((x) => parentOf[x.id] === p).map((x) => pos.get(x.id)!);
     for (const p of [null, "pkgA", "modA1"]) {
       const sibs = siblingsOf(p);
-      for (let i = 0; i < sibs.length; i++) for (let j = i + 1; j < sibs.length; j++) expect(overlaps(sibs[i]!, sibs[j]!)).toBe(false);
+      for (let i = 0; i < sibs.length; i++)
+        for (let j = i + 1; j < sibs.length; j++) expect(overlaps(sibs[i], sibs[j])).toBe(false);
     }
   });
 });
@@ -82,12 +86,15 @@ describe("layoutExploreNodes (wide groups)", () => {
   it("packs many unconnected children into a screen-shaped grid, not one tall column", async () => {
     const nodes: GraphNode[] = [
       { id: "pkg", label: "plugins", node_type: "Package", properties: { explore_expanded: true, parent_id: null } },
-      ...Array.from({ length: 40 }, (_, i): GraphNode => ({
-        id: `m${i}`,
-        label: `m${i}`,
-        node_type: "Module",
-        properties: { parent_id: "pkg" },
-      })),
+      ...Array.from(
+        { length: 40 },
+        (_, i): GraphNode => ({
+          id: `m${i}`,
+          label: `m${i}`,
+          node_type: "Module",
+          properties: { parent_id: "pkg" },
+        }),
+      ),
     ];
     const edges: GraphEdge[] = [{ id: "e", source: "m1", target: "m2", edge_type: "IMPORTS" }];
     const pos = await layoutExploreNodes({ graphNodes: nodes, graphEdges: edges });
@@ -133,7 +140,6 @@ describe("Explore group title space", () => {
   });
 });
 
-
 describe("buildElkGraph edge placement", () => {
   it("declares each edge in the lowest common group, between that group's direct children", async () => {
     const { buildElkGraph } = await import("./layoutExplore");
@@ -157,13 +163,21 @@ describe("buildElkGraph edge placement", () => {
 
   it("returns orthogonal routes for sibling edges", async () => {
     const { layoutExploreGraph, routeKey } = await import("./layoutExplore");
-    const nodes: GraphNode[] = ["a", "b"].map((id) => ({ id, label: id, node_type: "Module", properties: { parent_id: null } }));
-    const { routes } = await layoutExploreGraph({ graphNodes: nodes, graphEdges: [{ id: "e", source: "a", target: "b", edge_type: "CALLS" }] });
+    const nodes: GraphNode[] = ["a", "b"].map((id) => ({
+      id,
+      label: id,
+      node_type: "Module",
+      properties: { parent_id: null },
+    }));
+    const { routes } = await layoutExploreGraph({
+      graphNodes: nodes,
+      graphEdges: [{ id: "e", source: "a", target: "b", edge_type: "CALLS" }],
+    });
     const pts = routes.get(routeKey("a", "b"))!;
     expect(pts.length).toBeGreaterThanOrEqual(2);
     for (let i = 1; i < pts.length; i++) {
-      const horizontal = Math.abs(pts[i]!.y - pts[i - 1]!.y) < 0.01;
-      const vertical = Math.abs(pts[i]!.x - pts[i - 1]!.x) < 0.01;
+      const horizontal = Math.abs(pts[i].y - pts[i - 1].y) < 0.01;
+      const vertical = Math.abs(pts[i].x - pts[i - 1].x) < 0.01;
       expect(horizontal || vertical).toBe(true);
     }
   });

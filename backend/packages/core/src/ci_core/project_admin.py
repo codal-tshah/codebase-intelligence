@@ -8,6 +8,7 @@ and the registry entry. A local folder that was indexed in place is never touche
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shutil
 import subprocess
@@ -63,10 +64,8 @@ def remove_project(project: ProjectRecord) -> dict[str, Any]:
     db._INDEX_CACHE.pop(key, None)
     factory = db._ENGINES.pop(key, None)
     if factory is not None:
-        try:
+        with contextlib.suppress(Exception):
             factory.kw["bind"].dispose()
-        except Exception:  # noqa: BLE001 - best effort
-            pass
     data_root = (get_data_dir() / "projects").resolve()
     if data.exists() and data.resolve().parent == data_root:
         shutil.rmtree(data, ignore_errors=True)
@@ -77,7 +76,7 @@ def remove_project(project: ProjectRecord) -> dict[str, Any]:
         from ci_ai.summarize import _SUMMARY_CACHE
 
         _SUMMARY_CACHE.pop(project.id, None)
-    except Exception:  # noqa: BLE001 - optional package
+    except Exception:
         pass
     return plan
 
@@ -112,7 +111,9 @@ def load_settings(project_id: str) -> dict[str, Any]:
     return {"ignore": [str(p) for p in data.get("ignore", [])], "auto_refresh": bool(data.get("auto_refresh", False))}
 
 
-def save_settings(project_id: str, *, ignore: list[str] | None = None, auto_refresh: bool | None = None) -> dict[str, Any]:
+def save_settings(
+    project_id: str, *, ignore: list[str] | None = None, auto_refresh: bool | None = None
+) -> dict[str, Any]:
     current = load_settings(project_id)
     if ignore is not None:
         clean = []
@@ -188,7 +189,9 @@ def delete_saved_view(project_id: str, view_id: str) -> bool:
 
 def git_head(root: Path) -> str | None:
     try:
-        res = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True, check=False, timeout=5)
+        res = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True, check=False, timeout=5
+        )
     except (OSError, subprocess.SubprocessError):
         return None
     return res.stdout.strip() if res.returncode == 0 else None

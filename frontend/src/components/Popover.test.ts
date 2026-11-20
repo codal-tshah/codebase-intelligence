@@ -5,7 +5,13 @@ import { levelOptions, ALL_LEVELS } from "../explore/ExploreToolbar";
 import { timeAgo } from "../indexJobs";
 
 const vp = { width: 1280, height: 800 };
-const anchor = (top: number, left: number, w = 80, h = 30) => ({ top, bottom: top + h, left, right: left + w, width: w });
+const anchor = (top: number, left: number, w = 80, h = 30) => ({
+  top,
+  bottom: top + h,
+  left,
+  right: left + w,
+  width: w,
+});
 
 describe("computePopoverPosition", () => {
   it("opens below the trigger when there is room", () => {
@@ -48,7 +54,17 @@ describe("orthogonalPath", () => {
   });
 
   it("builds an S-route when ELK gave a straight line but the handles differ", () => {
-    const { path } = orthogonalPath([{ x: 0, y: 0 }, { x: 100, y: 0 }], 0, 0, 100, 40, 0);
+    const { path } = orthogonalPath(
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ],
+      0,
+      0,
+      100,
+      40,
+      0,
+    );
     expect(path.startsWith("M0,0 L50,0")).toBe(true);
     expect(path.endsWith("L100,40")).toBe(true);
   });

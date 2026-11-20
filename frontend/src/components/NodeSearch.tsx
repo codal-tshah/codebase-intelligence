@@ -16,7 +16,15 @@ type Props = {
 };
 
 /** Server-side fuzzy search (names, paths, tags, summaries) with a keyboard-friendly dropdown. */
-export function NodeSearch({ projectId, placeholder, onPick, types, clearOnPick = true, initial = "", inputId }: Props) {
+export function NodeSearch({
+  projectId,
+  placeholder,
+  onPick,
+  types,
+  clearOnPick = true,
+  initial = "",
+  inputId,
+}: Props) {
   const [query, setQuery] = useState(initial);
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [open, setOpen] = useState(false);
@@ -85,30 +93,41 @@ export function NodeSearch({ projectId, placeholder, onPick, types, clearOnPick 
           }
         }}
       />
-      <Popover open={open && hits.length > 0} onClose={close} anchorRef={box} matchWidth role="listbox" id={listId} label="Search results" className="search-results">
-          {hits.map((h, i) => (
-              <button
-                key={h.id}
-                id={`${listId}-${i}`}
-                type="button"
-                role="option"
-                tabIndex={-1}
-                aria-selected={i === active}
-                className={`popover-item ${i === active ? "active" : ""}`}
-                onMouseEnter={() => setActive(i)}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => pick(h)}
-              >
-                <span className="search-hit-glyph"><NodeIcon type={h.node_type} /></span>
-                <span className="search-hit-main">
-                  <span className="search-hit-name">{h.name}</span>
-                  <span className="search-hit-sub">
-                    {h.node_type}
-                    {h.source_path ? ` · ${h.source_path}` : ""}
-                  </span>
-                </span>
-              </button>
-          ))}
+      <Popover
+        open={open && hits.length > 0}
+        onClose={close}
+        anchorRef={box}
+        matchWidth
+        role="listbox"
+        id={listId}
+        label="Search results"
+        className="search-results"
+      >
+        {hits.map((h, i) => (
+          <button
+            key={h.id}
+            id={`${listId}-${i}`}
+            type="button"
+            role="option"
+            tabIndex={-1}
+            aria-selected={i === active}
+            className={`popover-item ${i === active ? "active" : ""}`}
+            onMouseEnter={() => setActive(i)}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => pick(h)}
+          >
+            <span className="search-hit-glyph">
+              <NodeIcon type={h.node_type} />
+            </span>
+            <span className="search-hit-main">
+              <span className="search-hit-name">{h.name}</span>
+              <span className="search-hit-sub">
+                {h.node_type}
+                {h.source_path ? ` · ${h.source_path}` : ""}
+              </span>
+            </span>
+          </button>
+        ))}
       </Popover>
     </div>
   );
