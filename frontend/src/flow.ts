@@ -14,6 +14,10 @@ export type ArchNodeData = {
   complexity?: string | null;
   path?: string | null;
   summary?: string | null;
+  /** Summary shown on the card itself (flow views). */
+  helper?: string;
+  /** Background/scheduled job metadata from the analyzer. */
+  job?: { kind?: string; framework?: string; schedule?: string; command?: string };
   fanIn: number;
   fanOut: number;
   memberCount?: number;
@@ -57,6 +61,8 @@ export type FlowOptions = {
 const WIDTH = 216;
 const BASE_HEIGHT = 78; // padding + type line + name + path (see .arch-node in styles.css)
 const FIELD_HEIGHT = 18;
+const HELPER_HEIGHT = 32; // two clamped lines of .arch-node-helper
+const JOB_HEIGHT = 16; // .arch-node-job schedule line
 const FIELDS_CHROME = 14; // divider + spacing above the field list
 
 export type FlowBuildResult = {
@@ -115,9 +121,15 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
         ]),
       )
     : null;
+  // Flow views print each node's summary under its name (helper text), so cards are taller.
+  const helperMode = payload.view === "api-flow" || payload.view === "jobs";
   const sized = visible.map((n) => {
     const fields = fieldsByModel.get(n.id) ?? [];
-    const baseH = BASE_HEIGHT + (fields.length ? FIELDS_CHROME + (Math.min(fields.length, 12) + (fields.length > 12 ? 1 : 0)) * FIELD_HEIGHT : 0);
+    const baseH =
+      BASE_HEIGHT +
+      (helperMode && n.summary ? HELPER_HEIGHT : 0) +
+      (n.properties?.job ? JOB_HEIGHT : 0) +
+      (fields.length ? FIELDS_CHROME + (Math.min(fields.length, 12) + (fields.length > 12 ? 1 : 0)) * FIELD_HEIGHT : 0);
     const d = exploreDims?.get(n.id);
     return { id: n.id, width: d?.width ?? WIDTH, height: d?.height ?? baseH };
   });
@@ -282,6 +294,8 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
         complexity: n.complexity,
         path: n.source_path,
         summary: n.summary,
+        helper: helperMode && n.summary ? n.summary : undefined,
+        job: props.job as ArchNodeData["job"],
         fanIn: Number(props.fan_in ?? 0),
         fanOut: Number(props.fan_out ?? 0),
         memberCount: props.member_count !== undefined ? Number(props.member_count) : undefined,

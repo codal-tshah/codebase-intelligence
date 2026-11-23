@@ -15,6 +15,7 @@ from typing import Any
 import typer
 import uvicorn
 
+from ci_parsers import GitCloneError
 from ci_indexer import create_project_from_git, create_project_from_path, run_index_job
 
 app = typer.Typer(add_completion=False, help="Codebase Intelligence CLI", no_args_is_help=True)
@@ -54,7 +55,11 @@ def analyze(
 ) -> None:
     """Analyze a repository and build the local index."""
     if target.startswith(("http://", "https://")) or target.endswith(".git"):
-        project = create_project_from_git(target)
+        try:
+            project = create_project_from_git(target)
+        except GitCloneError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
     else:
         project = create_project_from_path(Path(target))
     if not as_json:
@@ -171,6 +176,140 @@ def models(project: str | None = ProjectArg, as_json: bool = JsonOpt) -> None:
     for m in items:
         rel = ", ".join(r["to"] for r in m["relations"]) or "-"
         typer.echo(f"{m['name']:<24} table={m.get('table') or '-':<20} → {rel:<24} read_by={len(m['read_by'])} written_by={len(m['written_by'])}")
+
+
+_HOOK_BEGIN = "# >>> codebase-intelligence >>>"
+_HOOK_END = "# <<< codebase-intelligence <<<"
+
+
+@app.command()
+def hook(
+    action: str = typer.Argument("install", help="install | uninstall | status"),
+    path: Path = typer.Option(Path("."), "--path", help="Repository (default: current directory)"),
+) -> None:
+    """Keep the index fresh: a git post-commit hook that re-indexes incrementally in the background."""
+    import re
+    import shlex
+
+    root = path.expanduser().resolve()
+    paths = _git_hook_paths(root)
+    if paths is None:
+        typer.echo(f"{root} is not a git repository", err=True)
+        raise typer.Exit(1)
+    hooks_dir, git_dir = paths
+    hook_path = hooks_dir / "post-commit"
+    current = hook_path.read_text(encoding="utf-8") if hook_path.exists() else ""
+    start, end = current.find(_HOOK_BEGIN), current.find(_HOOK_END)
+    installed = start != -1 and end > start
+    if action == "status":
+        typer.echo("installed" if installed else "not installed")
+        return
+    if installed:  # drop the old block (re-install refreshes the interpreter path)
+        current = current[:start] + current[end + len(_HOOK_END):].lstrip("\n")
+    if action == "uninstall":
+        if not installed:
+            typer.echo("hook was not installed")
+            return
+        if current.strip() in ("", "#!/bin/sh"):
+            hook_path.unlink()
+        else:
+            hook_path.write_text(current, encoding="utf-8")
+        typer.echo("post-commit hook removed")
+        return
+    if action != "install":
+        typer.echo("action must be install, uninstall or status", err=True)
+        raise typer.Exit(2)
+    cmd = f"{shlex.quote(sys.executable)} -m ci_cli.main analyze {shlex.quote(str(root))} --incremental"
+    # A hook without a shebang is run by sh; anything else (python, node, ...) can't take shell lines.
+    shebang, _, rest = current.partition("\n") if current.startswith("#!") else ("#!/bin/sh", "\n", current)
+    if not re.search(r"\b(ba|da|k|z)?sh\b", shebang):
+        typer.echo(f"{hook_path} is not a shell script ({shebang}); call this from it instead:\n  {cmd}", err=True)
+        raise typer.Exit(1)
+    block = (
+        f"{_HOOK_BEGIN}\n"
+        "# Re-index after each commit (background, non-blocking). Remove with: ci hook uninstall\n"
+        f"( {cmd} > {shlex.quote(str(git_dir / 'ci-analyze.log'))} 2>&1 & )\n"
+        f"{_HOOK_END}\n"
+    )
+    # Right after the shebang, so an existing `exit`/`exec` at the end of the hook can't skip it.
+    hook_path.parent.mkdir(parents=True, exist_ok=True)
+    hook_path.write_text(f"{shebang}\n{block}{rest}", encoding="utf-8")
+    hook_path.chmod(0o755)
+    typer.echo(f"post-commit hook installed in {hook_path}")
+
+
+def _git_hook_paths(root: Path) -> tuple[Path, Path] | None:
+    """(hooks dir, git dir) as git resolves them: honours core.hooksPath and worktrees (where
+    .git is a file). The ceiling stops git from silently picking up a parent repository."""
+    import os
+    import subprocess
+
+    env = {**os.environ, "GIT_CEILING_DIRECTORIES": str(root.parent)}
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--git-dir", "--git-path", "hooks"],
+            capture_output=True, text=True, env=env, check=False,
+        )
+        lines = res.stdout.splitlines() if res.returncode == 0 else []
+    except OSError:
+        lines = []
+    if len(lines) == 2:
+        return (root / lines[1]).resolve(), (root / lines[0]).resolve()
+    if (root / ".git").is_dir():
+        return root / ".git" / "hooks", root / ".git"
+    return None
+
+
+@app.command()
+def jobs(project: str | None = ProjectArg, as_json: bool = JsonOpt) -> None:
+    """Background tasks, scheduled jobs and management commands, and the models they write."""
+    items = _tools(project).jobs()
+    if as_json:
+        return _emit(items)
+    if not items:
+        typer.echo("No background or scheduled jobs detected.")
+    for j in items:
+        when = j.get("schedule") or j.get("command") or j.get("kind")
+        writes = ", ".join(j["writes"]) or "-"
+        typer.echo(f"{j['name']:<32} {j.get('framework', ''):<16} {when:<24} writes={writes}  ({j['path']}:{j['line']})")
+
+
+@app.command()
+def suggest(
+    project: str | None = ProjectArg,
+    limit: int = typer.Option(40, help="Maximum suggestions"),
+    as_json: bool = JsonOpt,
+) -> None:
+    """Optimization and reuse suggestions (hubs, large functions, duplicates, cycles, unused code)."""
+    items = _tools(project).suggestions(limit=limit)
+    if as_json:
+        return _emit(items)
+    if not items:
+        typer.echo("No suggestions.")
+    for s in items:
+        first = s["nodes"][0] if s["nodes"] else {}
+        where = f"{first.get('source_path')}:{first.get('line')}" if first.get("source_path") else ""
+        typer.echo(f"[{s['severity']:<6}] {s['title']}  {where}\n         {s['detail']}")
+
+
+@app.command()
+def docs(
+    project: str | None = ProjectArg,
+    output: str = typer.Option("docs/codebase-map", "-o", help="Directory inside the repository"),
+) -> None:
+    """Write Markdown + Mermaid diagrams (architecture, API flows, jobs, ER, suggestions) into the repo."""
+    from ci_core.db import GraphStore
+    from ci_core.docgen import write_docs
+
+    record = _require(project)
+    root = Path(record.root_path)
+    try:
+        written = write_docs(GraphStore(record.id).load_index(), record.name, root, output)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    for path in written:
+        typer.echo(f"wrote {path.relative_to(root.resolve())}")
 
 
 @app.command()

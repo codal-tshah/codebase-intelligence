@@ -13,4 +13,11 @@ describe("explore hash", () => {
     expect(enc.length).toBeLessThanOrEqual(1800);
     expect(decodeExpandedIds(enc).length).toBeGreaterThan(0);
   });
+
+  it("caps at an id boundary, never emitting a truncated id", () => {
+    const ids = Array.from({ length: 80 }, (_, i) => i.toString(16).padStart(32, "0"));
+    const enc = encodeExpandedIds(ids);
+    expect(enc.length).toBeLessThanOrEqual(1800);
+    expect(decodeExpandedIds(enc).every((id) => ids.includes(id))).toBe(true);
+  });
 });

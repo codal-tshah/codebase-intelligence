@@ -100,6 +100,59 @@ class GraphTools:
             ][:40],
         }
 
+    def find_references(self, query: str, limit: int = 60) -> dict:
+        """Every place that refers to a symbol: callers, importers, renderers, routes, DI, HTTP callers, model access."""
+        node = self.index.nodes.get(query) or self.resolve(query)
+        if node is None:
+            return {"error": f"no node matches {query!r}"}
+        refs = []
+        for e in self.index.incoming.get(node.id, []):
+            if e.edge_type == EdgeType.CONTAINS:
+                continue
+            src = self.index.nodes[e.source_id]
+            refs.append({**_brief(src), "relation": e.edge_type.value, "confidence": e.confidence,
+                         "line": e.properties.get("line") or src.start_line})
+        refs.sort(key=lambda r: (r["relation"], r.get("path") or "", r.get("line") or 0))
+        return {"target": _brief(node), "count": len(refs), "references": refs[:limit]}
+
+    def build_context(self, query: str, max_snippets: int = 6, snippet_lines: int = 40) -> dict:
+        """One-call context pack for an agent: the node, its source, direct callers/callees with
+        their source, models touched and (for endpoints) the end-to-end trace."""
+        node = self.index.nodes.get(query) or self.resolve(query)
+        if node is None:
+            return {"error": f"no node matches {query!r}"}
+
+        def snippet(n: NodeRecord) -> dict | None:
+            if not n.source_path or not n.start_line or n.source_path not in self.allowed_paths:
+                return None
+            end = min(n.end_line or n.start_line + snippet_lines, n.start_line + snippet_lines)
+            return {"name": n.name, **self.read_source_snippet(n.source_path, n.start_line, end)}
+
+        out_edges = [e for e in self.index.outgoing.get(node.id, []) if e.edge_type != EdgeType.CONTAINS]
+        in_edges = [e for e in self.index.incoming.get(node.id, []) if e.edge_type != EdgeType.CONTAINS]
+        callees = [self.index.nodes[e.target_id] for e in out_edges if e.edge_type in (EdgeType.CALLS, EdgeType.INJECTS, EdgeType.ROUTES_TO)]
+        callers = [self.index.nodes[e.source_id] for e in in_edges if e.edge_type in (EdgeType.CALLS, EdgeType.HTTP_CALLS, EdgeType.RENDERS)]
+        models = [
+            {"name": self.index.nodes[e.target_id].name, "access": e.edge_type.value}
+            for e in out_edges
+            if e.edge_type in (EdgeType.READS_MODEL, EdgeType.WRITES_MODEL, EdgeType.QUERIES)
+        ]
+        related = [n for n in {n.id: n for n in [*callees, *callers]}.values() if n.id != node.id]
+        snippets = [s for s in (snippet(n) for n in related) if s][: max(0, max_snippets - 1)]
+        context: dict = {
+            "node": self.get_node(node.id),
+            "source": snippet(node),
+            "callers": [_brief(n) for n in callers[:20]],
+            "callees": [_brief(n) for n in callees[:20]],
+            "models": models[:20],
+            "related_source": snippets,
+        }
+        if node.node_type == NodeType.ENDPOINT:
+            context["trace"] = self.trace_endpoint(node.id)
+        if node.properties.get("job"):
+            context["job"] = node.properties["job"]
+        return context
+
     def _neighbours(self, node_id: str, edge_type: EdgeType, *, incoming: bool) -> list[dict]:
         edges = self.index.incoming.get(node_id, []) if incoming else self.index.outgoing.get(node_id, [])
         out = []
@@ -210,6 +263,22 @@ class GraphTools:
                 }
             )
         return out
+
+    def jobs(self) -> list[dict]:
+        """Background/scheduled jobs and management commands with the models they write."""
+        from ci_core.views.jobs import job_data_access, job_nodes
+
+        out = []
+        for j in job_nodes(self.index):
+            reads, writes = job_data_access(self.index, j.id)
+            out.append({**_brief(j), **j.properties["job"], "writes": writes, "reads": reads})
+        return out
+
+    def suggestions(self, limit: int = 40) -> list[dict]:
+        """Optimization and reuse leads: hubs, large functions, duplicates, cycles, scattered writes, unused code."""
+        from ci_core.suggestions import suggest
+
+        return suggest(self.index, limit=limit)
 
     def overview(self) -> dict:
         project = self.store.get_project()

@@ -48,3 +48,17 @@ def test_api_lifespan_reconciles_orphaned_jobs(data_dir, project_copy):
     with TestClient(app) as client:
         assert client.get("/health").status_code == 200
     assert store.get_job(job.id).status == JobStatus.FAILED
+
+
+def test_index_job_fails_while_another_process_holds_the_file_lock(data_dir, project_copy):
+    import pytest
+
+    fcntl = pytest.importorskip("fcntl")
+    from ci_core.config import project_dir
+
+    project = create_project_from_path(project_copy)
+    with open(project_dir(project.id) / "index.lock", "a") as other:  # stands in for another process
+        fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        job = run_index_job(project.id)
+    assert job.status == JobStatus.FAILED and "already running" in (job.error or "")
+    assert run_index_job(project.id).status == JobStatus.COMPLETED  # released: next run proceeds

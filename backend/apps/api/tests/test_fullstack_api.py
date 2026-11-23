@@ -66,3 +66,43 @@ def test_graph_lookup_routes_404_on_unknown_nodes(fs_client):
     assert fs_client.get(f"/projects/{pid}/graph/neighborhood", params={"node_id": "nope"}).status_code == 404
     assert fs_client.get(f"/projects/{pid}/graph/neighborhood", params={"node_id": "x", "depth": 9}).status_code == 422
     assert fs_client.get(f"/projects/{pid}/graph/edges", params={"source": "a", "target": "b"}).status_code == 404
+
+
+def test_background_jobs_suggestions_and_docs_routes(fs_client):
+    pid = fs_client.project_id
+    jobs = fs_client.get(f"/projects/{pid}/background-jobs")
+    assert jobs.status_code == 200 and jobs.json()["count"] == 0  # fixture has no jobs
+    views = {v["id"]: v for v in fs_client.get(f"/projects/{pid}/views").json()}
+    assert views["jobs"]["available"] is False
+    sug = fs_client.get(f"/projects/{pid}/suggestions?limit=5")
+    assert sug.status_code == 200 and sug.json()["count"] <= 5
+    assert fs_client.get(f"/projects/{pid}/suggestions?limit=0").status_code == 422
+    files = fs_client.get(f"/projects/{pid}/docs").json()["files"]
+    assert "```mermaid" in files["api-flows.md"] and "erDiagram" in files["data-model.md"]
+
+
+def test_git_check_route_validates_and_reports(fs_client, monkeypatch):
+    import ci_api.main as api
+
+    assert fs_client.get("/git/check?url=https://gitlab.com/o/r").status_code == 422
+    import ci_parsers
+
+    denied = lambda url, token=None: {"ok": False, "reason": "private", "needs_token": True}  # noqa: E731
+    monkeypatch.setattr(api, "check_git_access", denied)
+    monkeypatch.setattr(ci_parsers, "check_git_access", denied)  # used by create_project_from_git
+    body = fs_client.get("/git/check?url=https://github.com/o/r").json()
+    assert body["ok"] is False and body["needs_token"] is True and "token_configured" in body
+    res = fs_client.post("/projects/analyze", json={"git_url": "https://github.com/o/r"})
+    assert res.status_code == 400 and "cannot access repository" in res.json()["detail"]
+
+
+def test_build_context_and_find_references(fs_client):
+    from ci_ai import GraphTools
+
+    tools = GraphTools(fs_client.project_id)
+    ctx = tools.build_context("get_item")
+    assert ctx["node"]["name"] == "get_item"
+    assert ctx["source"] and "def get_item" in ctx["source"]["content"]
+    assert any(m["name"] == "Item" for m in ctx["models"])
+    refs = tools.find_references("Item")
+    assert refs["count"] > 0 and {"READS_MODEL"} <= {r["relation"] for r in refs["references"]}

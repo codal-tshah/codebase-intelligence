@@ -124,6 +124,18 @@ function isAncestorOrSelf(a: string, b: string, parentOf: Map<string, string | u
   return false;
 }
 
+/** Layout used at the root and inside every expanded group. */
+const GROUP_LAYOUT = {
+  "elk.algorithm": "layered",
+  "elk.direction": "RIGHT",
+  "elk.spacing.nodeNode": "28",
+  "elk.layered.spacing.nodeNodeBetweenLayers": "48",
+  "elk.separateConnectedComponents": "true",
+  "elk.spacing.componentComponent": "24",
+  "elk.aspectRatio": "1.6",
+  "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+};
+
 /**
  * Nested ELK model. Groups are NOT given a fixed size: ELK sizes each compound node to fit
  * its laid-out children (with a minimum), so children never spill out and siblings never
@@ -146,6 +158,7 @@ export function buildElkGraph(input: ExploreLayoutInput): ElkNode {
       return {
         id: n.id,
         layoutOptions: {
+          ...GROUP_LAYOUT,
           "elk.padding": `[top=${GROUP_TITLE},left=${GROUP_PAD},bottom=${GROUP_PAD},right=${GROUP_PAD}]`,
           "elk.nodeSize.constraints": "MINIMUM_SIZE",
           "elk.nodeSize.minimum": `(${GROUP_MIN_W}, ${GROUP_TITLE + GROUP_PAD * 2 + 40})`,
@@ -165,14 +178,13 @@ export function buildElkGraph(input: ExploreLayoutInput): ElkNode {
   return {
     id: "explore-root",
     layoutOptions: {
-      "elk.algorithm": "layered",
-      "elk.direction": "RIGHT",
-      "elk.spacing.nodeNode": "28",
+      ...GROUP_LAYOUT,
       "elk.layered.spacing.nodeNodeBetweenLayers": "64",
       "elk.spacing.componentComponent": "40",
-      "elk.hierarchyHandling": "INCLUDE_CHILDREN",
-      "elk.edgeRouting": "ORTHOGONAL",
-      "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+      // Each group is laid out on its own (inside-out), so unconnected children pack into a
+      // screen-shaped grid instead of one tall layer. React Flow draws the edges itself, so
+      // ELK's cross-hierarchy routing (the reason for INCLUDE_CHILDREN) isn't needed.
+      "elk.hierarchyHandling": "SEPARATE_CHILDREN",
     },
     children: (childMap.get(undefined) ?? []).map(toElk),
     edges,

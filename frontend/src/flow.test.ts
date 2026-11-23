@@ -84,3 +84,25 @@ describe("buildFlow selection highlight", () => {
     expect(state.c).toBe("overlay");
   });
 });
+
+describe("buildFlow helper text", () => {
+  const base = { layers: [], hiddenLayers: new Set<string>(), filter: "", overlay: null, selectedId: null };
+  const nodes = [
+    { id: "j", label: "sync_orders", node_type: "Function", summary: "Saves orders", properties: { job: { kind: "scheduled", schedule: "0 * * * *" } } },
+    { id: "f", label: "save", node_type: "Function", summary: "Writes Order", properties: {} },
+  ];
+
+  it("flow views put the summary on the card and make room for it", () => {
+    const flow = buildFlow({ view: "jobs", nodes, edges: [] }, base);
+    const job = flow.nodes.find((n) => n.id === "j")!;
+    const fn = flow.nodes.find((n) => n.id === "f")!;
+    expect(job.data.helper).toBe("Saves orders");
+    expect(job.data.job?.schedule).toBe("0 * * * *");
+    expect(job.height!).toBeGreaterThan(fn.height!); // schedule line reserved too
+  });
+
+  it("other views keep the summary as a tooltip only", () => {
+    const flow = buildFlow({ view: "layers", nodes, edges: [] }, base);
+    expect(flow.nodes.find((n) => n.id === "f")?.data.helper).toBeUndefined();
+  });
+});

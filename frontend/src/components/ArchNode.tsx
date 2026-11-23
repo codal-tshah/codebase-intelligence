@@ -64,6 +64,12 @@ function ArchNodeBase({ data, selected }: NodeProps<Node<ArchNodeData>>) {
       <div className="arch-node-name" title={data.label}>
         {data.label}
       </div>
+      {data.job ? (
+        <div className="arch-node-job" title={data.job.framework}>
+          ⏱ {data.job.schedule || data.job.command || data.job.kind}
+        </div>
+      ) : null}
+      {data.helper ? <div className="arch-node-helper">{data.helper.replace(/`/g, "")}</div> : null}
       {exploreGroup && data.exploreChildCount !== undefined ? (
         <div className="arch-node-explore-meta muted">
           {data.exploreChildCount} {data.exploreChildCount === 1 ? "child" : "children"}

@@ -6,21 +6,7 @@ from typing import Any
 
 from ci_core.insights import DEPENDENCY_EDGES, GraphIndex
 from ci_core.models import EdgeType
-
-
-def _lift_to_visible(
-    index: GraphIndex, nid: str | None, visible: set[str], parent: dict[str, str]
-) -> str | None:
-    if nid is None:
-        return None
-    cur: str | None = nid
-    seen = 0
-    while cur and cur in index.nodes and seen < 512:
-        seen += 1
-        if cur in visible:
-            return cur
-        cur = parent.get(cur)
-    return None
+from ci_core.views.explore import _lift_to_visible
 
 
 def underlying_edges_between_visible(

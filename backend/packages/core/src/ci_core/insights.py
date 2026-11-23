@@ -10,6 +10,7 @@ import difflib
 from collections import defaultdict, deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Any
 
 from ci_core.layers import LAYER_BY_ID, layer_order
@@ -67,6 +68,20 @@ class GraphIndex:
     def layer_of(self, node_id: str) -> str | None:
         node = self.nodes.get(node_id)
         return node.properties.get("layer") if node else None
+
+    @cached_property
+    def contains_parent(self) -> dict[str, str]:
+        """Child id -> parent id along CONTAINS (built once per index; treat as read-only)."""
+        return {e.target_id: e.source_id for e in self.edges if e.edge_type == EdgeType.CONTAINS}
+
+    @cached_property
+    def contains_children(self) -> dict[str, list[str]]:
+        """Parent id -> child ids along CONTAINS (built once per index; treat as read-only)."""
+        children: dict[str, list[str]] = {}
+        for e in self.edges:
+            if e.edge_type == EdgeType.CONTAINS:
+                children.setdefault(e.source_id, []).append(e.target_id)
+        return children
 
 
 def classify_complexity(lines: int, fan_out: int) -> str:
@@ -589,11 +604,7 @@ def impact_for_request(
 
 
 def _contains_parent_map(index: GraphIndex) -> dict[str, str]:
-    parent: dict[str, str] = {}
-    for e in index.edges:
-        if e.edge_type == EdgeType.CONTAINS:
-            parent[e.target_id] = e.source_id
-    return parent
+    return index.contains_parent
 
 
 def neighborhood_subgraph(

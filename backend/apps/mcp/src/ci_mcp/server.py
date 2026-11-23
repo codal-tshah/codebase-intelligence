@@ -28,8 +28,9 @@ from ci_core.registry import load_registry
 
 INSTRUCTIONS = """Codebase Intelligence: a static-analysis knowledge graph of the project (API endpoints, handlers,
 services, ORM models, UI components, external services, and the edges between them — including frontend→backend HTTP
-calls). Start with `project_overview` or `search_nodes`, then `trace_endpoint`, `get_node`, `impact_analysis`,
-`find_path` or `list_models`. Results include node ids and file:line locations; quote code with `read_source`.
+calls). Start with `project_overview` or `search_nodes`; use `build_context` before editing a symbol; then `trace_endpoint`, `get_node`, `impact_analysis`,
+`find_path`, `list_models` or `list_jobs`. `suggest_optimizations` gives review leads; `generate_docs` writes
+Mermaid diagrams into the repo. Results include node ids and file:line locations; quote code with `read_source`.
 Edges carry confidence; treat < 0.7 as inferred."""
 
 
@@ -158,6 +159,37 @@ def build_server(default_project: str | None = None, *, auto_index: bool = True)
     @server.tool(description="Data models: tables, fields, relations, and which code reads/writes each.")
     def list_models(project: str | None = None) -> dict:
         return call(project, "list_models")
+
+    @server.tool(
+        description="Context pack for a symbol or endpoint in one call: details, source, callers/callees with source, "
+        "models touched, endpoint trace. Use before editing code."
+    )
+    def build_context(node: str, max_snippets: int = 6, project: str | None = None) -> dict:
+        return call(project, "build_context", node=node, max_snippets=max_snippets)
+
+    @server.tool(description="Every reference to a symbol (calls, imports, renders, routes, DI, HTTP, model access) with file:line.")
+    def find_references(node: str, project: str | None = None) -> dict:
+        return call(project, "find_references", node=node)
+
+    @server.tool(description="Background tasks, scheduled jobs and management commands with schedules and the models they write.")
+    def list_jobs(project: str | None = None) -> dict:
+        return call(project, "list_jobs")
+
+    @server.tool(description="Optimization and reuse suggestions: hubs, large functions, duplicated helpers, import cycles, scattered model writes, unused code.")
+    def suggest_optimizations(limit: int = 40, project: str | None = None) -> dict:
+        return call(project, "suggest_optimizations", limit=limit)
+
+    @server.tool(
+        description="Write Markdown + Mermaid docs (architecture, API flows, jobs, ER diagram, suggestions) into the repository, "
+        "default docs/codebase-map. Re-index first if the code changed."
+    )
+    def generate_docs(output_dir: str = "docs/codebase-map", project: str | None = None) -> dict:
+        from ci_core.docgen import write_docs
+
+        record = resolver.resolve(project)
+        root = Path(record.root_path)
+        written = write_docs(resolver.tools(project).index, record.name, root, output_dir)
+        return {"written": [str(p.relative_to(root.resolve())) for p in written]}
 
     @server.tool(description="Read lines of an indexed source file (secrets redacted).")
     def read_source(path: str, start_line: int = 1, end_line: int | None = None, project: str | None = None) -> dict:

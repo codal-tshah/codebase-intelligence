@@ -44,7 +44,7 @@ from ci_adapters_typescript.roles import (
     sdk_for,
 )
 
-ANALYZER_VERSION = "1"
+ANALYZER_VERSION = "2"
 EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 RESOLVE_EXTS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 MAX_BYTES = 600_000
@@ -1209,6 +1209,9 @@ class _Analyzer:
             parent = mod.symbols.get(sym.parent)
             if parent is not None and parent.role:
                 role = parent.role
+        job = _ts_job(sym.decorators)
+        if job:
+            role = "tasks"
         sym.role = role
         props: dict[str, Any] = {
             "kind": sym.kind,
@@ -1221,6 +1224,8 @@ class _Analyzer:
             props["bases"] = sym.bases
         if sym.decorators:
             props["decorators"] = sorted(deco_names)
+        if job:
+            props["job"] = job
         if sym.parent:
             props["parent_class"] = sym.parent
         self.nodes[sym.id] = NodeRecord(
@@ -1521,6 +1526,8 @@ class _Analyzer:
             outs = out_names.get(node.id, {})
             http = http_by_source.get(node.id, [])
             tags: list[str] = [role] if role else []
+            if props.get("job"):
+                tags.append("job")
             if node.node_type == NodeType.COMPONENT:
                 tags.append("react")
             if http:
@@ -1587,3 +1594,16 @@ class _Analyzer:
 def _join(*parts: str) -> str:
     segs = [p.strip("/") for p in parts if p and p.strip("/")]
     return "/" + "/".join(segs)
+
+
+# NestJS @nestjs/schedule and Bull/BullMQ queue processors.
+_TS_JOB_DECORATORS = {"Cron": "scheduled", "Interval": "scheduled", "Timeout": "scheduled", "Process": "task", "OnQueueActive": "task"}
+
+
+def _ts_job(decorators: list[tuple[str, list[str], Node]]) -> dict[str, Any] | None:
+    for name, args, _node in decorators:
+        if name in _TS_JOB_DECORATORS:
+            framework = "nestjs-schedule" if _TS_JOB_DECORATORS[name] == "scheduled" else "bull"
+            schedule = " ".join(a for a in args if not a.startswith("@")) or (args[0] if args else "")
+            return {"kind": _TS_JOB_DECORATORS[name], "framework": framework, **({"schedule": schedule} if schedule else {})}
+    return None

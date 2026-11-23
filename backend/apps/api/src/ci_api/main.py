@@ -34,6 +34,7 @@ from ci_core.serializers import node_summary
 from ci_core.settings import get_settings
 from ci_core.source import resolve_source_path
 from ci_core.views.explore import underlying_between
+from ci_parsers import GitCloneError, check_git_access
 from ci_indexer import (
     analyzer_catalog,
     compute_freshness,
@@ -105,7 +106,7 @@ class ChatMessage(BaseModel):
 
 class CreateProjectBody(BaseModel):
     path: str | None = None
-    git_url: str | None = Field(default=None, description="Public GitHub repository URL")
+    git_url: str | None = Field(default=None, description="GitHub repository URL (private repos need CI_GITHUB_TOKEN)")
 
     @field_validator("git_url")
     @classmethod
@@ -142,7 +143,10 @@ def _register(body: "CreateProjectBody") -> ProjectRecord:
                 status_code=403,
                 detail="git_url ingest is disabled in server mode; clone under CI_PROJECT_ROOTS and use path",
             )
-        return create_project_from_git(body.git_url)
+        try:
+            return create_project_from_git(body.git_url)
+        except GitCloneError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     raise HTTPException(status_code=400, detail="path or git_url required")
 
 
@@ -184,6 +188,17 @@ def resolve(ref: str = Query(..., min_length=1, max_length=1024)) -> dict:
     if record is None:
         raise HTTPException(status_code=404, detail="no matching project")
     return record.model_dump(mode="json")
+
+
+@app.get("/git/check")
+def git_check(url: str = Query(..., min_length=1, max_length=512)) -> dict:
+    """Preflight for the ingest form: can this server read the GitHub repo (with CI_GITHUB_TOKEN if set)?"""
+    if not _GITHUB_URL.match(url.strip()):
+        raise HTTPException(status_code=422, detail="Must be a valid GitHub repository URL (https://github.com/owner/repo)")
+    if get_settings().mode == "server":
+        raise HTTPException(status_code=403, detail="git_url ingest is disabled in server mode")
+    settings = get_settings()
+    return {**check_git_access(url.strip(), token=settings.github_token), "token_configured": bool(settings.github_token)}
 
 
 @app.post("/projects")
@@ -244,6 +259,29 @@ def models(project_ref: str) -> dict:
     pid = _pid(project_ref)
     items = GraphTools(pid).models(limit=500)
     return {"count": len(items), "models": items}
+
+
+@app.get("/projects/{project_ref:path}/background-jobs")
+def background_jobs(project_ref: str) -> dict:
+    """Background tasks, scheduled jobs and management commands with the models they read/write."""
+    items = GraphTools(_pid(project_ref)).jobs()
+    return {"count": len(items), "jobs": items}
+
+
+@app.get("/projects/{project_ref:path}/suggestions")
+def suggestions(project_ref: str, limit: int = Query(default=40, ge=1, le=200)) -> dict:
+    """Optimization and reuse leads derived from the graph."""
+    items = GraphTools(_pid(project_ref)).suggestions(limit=limit)
+    return {"count": len(items), "suggestions": items}
+
+
+@app.get("/projects/{project_ref:path}/docs")
+def generated_docs(project_ref: str) -> dict:
+    """Markdown + Mermaid docs (what `ci docs` writes), returned instead of written to disk."""
+    from ci_core.docgen import render_docs
+
+    project = _require_project(project_ref)
+    return {"files": render_docs(GraphStore(project.id).load_index(), project.name)}
 
 
 @app.get("/projects/{project_ref:path}/summary")
@@ -521,7 +559,8 @@ def create_app(ui_dir: Path | None = None) -> FastAPI:
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
 
-    root = FastAPI(title="Codebase Intelligence", version=app.version)
+    # Starlette doesn't run a mounted sub-app's lifespan, so the combined app runs it itself.
+    root = FastAPI(title="Codebase Intelligence", version=app.version, lifespan=_lifespan)
     root.mount("/api", app)
     ui_dir = ui_dir.resolve()
     if (ui_dir / "assets").is_dir():

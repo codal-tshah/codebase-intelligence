@@ -52,19 +52,13 @@ def _project_id(index: GraphIndex) -> str | None:
 
 
 def _contains_parent(index: GraphIndex) -> dict[str, str]:
-    parent: dict[str, str] = {}
-    for e in index.edges:
-        if e.edge_type == EdgeType.CONTAINS:
-            parent[e.target_id] = e.source_id
-    return parent
+    # Cached on the index: these helpers run once per visible node, so rescanning every edge
+    # here made each explore request O(visible × edges).
+    return index.contains_parent
 
 
 def _contains_children(index: GraphIndex) -> dict[str, list[str]]:
-    ch: dict[str, list[str]] = defaultdict(list)
-    for e in index.edges:
-        if e.edge_type == EdgeType.CONTAINS:
-            ch[e.source_id].append(e.target_id)
-    return ch
+    return index.contains_children
 
 
 def _expand_closure(index: GraphIndex, expanded: set[str]) -> set[str]:
@@ -440,7 +434,7 @@ def build(
     for nid in sorted(visible, key=lambda i: (index.nodes[i].node_type.value, index.nodes[i].name)):
         n = index.nodes[nid]
         view = node_view(n, index)
-        cnt = child_count.get(nid, len(_direct_structural_children(index, nid)))
+        cnt = child_count[nid] if nid in child_count else len(_direct_structural_children(index, nid))
         exp = _is_expandable(index, nid)
         view.properties["explore_expandable"] = exp
         view.properties["child_count"] = cnt

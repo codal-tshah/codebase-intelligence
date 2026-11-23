@@ -47,7 +47,7 @@ from ci_adapters_django.roles import (
     layer_for_role,
 )
 
-ADAPTER_VERSION = "3"
+ADAPTER_VERSION = "4"
 
 RELATION_FIELDS = {"ForeignKey", "OneToOneField", "ManyToManyField"}
 FIELD_KWARGS = ("max_length", "null", "blank", "unique", "primary_key", "db_index", "related_name", "on_delete")
@@ -524,6 +524,10 @@ class _Analyzer:
             if any(d.name.split(".")[-1] == "receiver" for d in sym.decorators):
                 role = "signals"
             if mod.role in ("tasks",) or any(d.name.split(".")[-1] in ("shared_task", "task") for d in sym.decorators):
+                role = "tasks"
+            job = _job_info(sym, mod.rel)
+            if job:
+                props["job"] = job
                 role = "tasks"
 
         props["role"] = role
@@ -1427,6 +1431,8 @@ class _Analyzer:
                 tags.append("orm")
             if props.get("signal"):
                 tags.append("signal")
+            if props.get("job"):
+                tags.append("job")
             if props.get("methods"):
                 tags.extend(m.lower() for m in props["methods"])
             if role in ("manage", "wsgi", "asgi") or props.get("entry_point"):
@@ -1546,4 +1552,30 @@ def _sqlalchemy_table(sym: SymbolInfo) -> str | None:
     for kw in node.keywords:
         if kw.arg == "table" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
             return node.name.lower()
+    return None
+
+
+_TASK_DECORATORS = {"shared_task": "celery", "task": "celery", "periodic_task": "celery", "actor": "dramatiq", "job": "rq"}
+_SCHEDULE_DECORATORS = {"scheduled_job": "apscheduler", "repeat_every": "fastapi-utils"}
+
+
+def _job_info(sym: SymbolInfo, rel: str) -> dict[str, Any] | None:
+    """Background/scheduled job metadata: {"kind", "framework", "schedule"?} or None.
+
+    Celery/Dramatiq/RQ tasks, APScheduler ``@scheduled_job``, fastapi-utils ``@repeat_every``
+    and Django management commands (``Command.handle`` under ``management/commands/``).
+    """
+    for d in sym.decorators:
+        short = d.name.split(".")[-1]
+        if short in _TASK_DECORATORS:
+            schedule = d.kwargs.get("run_every") or d.kwargs.get("schedule")
+            return {"kind": "scheduled" if schedule else "task", "framework": _TASK_DECORATORS[short],
+                    **({"schedule": schedule} if schedule else {})}
+        if short in _SCHEDULE_DECORATORS:
+            parts = [p for p in (*d.strings, *d.args, *(f"{k}={v}" for k, v in d.kwargs.items())) if p]
+            return {"kind": "scheduled", "framework": _SCHEDULE_DECORATORS[short],
+                    **({"schedule": " ".join(dict.fromkeys(parts))} if parts else {})}
+    if sym.kind == "method" and sym.name == "handle" and "/management/commands/" in f"/{rel}":
+        command = rel.rsplit("/", 1)[-1].removesuffix(".py")
+        return {"kind": "command", "framework": "django", "command": command}
     return None

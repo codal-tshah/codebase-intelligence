@@ -77,3 +77,28 @@ describe("layoutExploreNodes (nested ELK)", () => {
     }
   });
 });
+
+describe("layoutExploreNodes (wide groups)", () => {
+  it("packs many unconnected children into a screen-shaped grid, not one tall column", async () => {
+    const nodes: GraphNode[] = [
+      { id: "pkg", label: "plugins", node_type: "Package", properties: { explore_expanded: true, parent_id: null } },
+      ...Array.from({ length: 40 }, (_, i): GraphNode => ({
+        id: `m${i}`,
+        label: `m${i}`,
+        node_type: "Module",
+        properties: { parent_id: "pkg" },
+      })),
+    ];
+    const edges: GraphEdge[] = [{ id: "e", source: "m1", target: "m2", edge_type: "IMPORTS" }];
+    const pos = await layoutExploreNodes({ graphNodes: nodes, graphEdges: edges });
+    const group = pos.get("pkg")!;
+    expect(group.height).toBeLessThan(group.width * 1.5);
+    const kids = Array.from({ length: 40 }, (_, i) => pos.get(`m${i}`)!);
+    for (const a of kids) {
+      expect(a.x + a.width).toBeLessThanOrEqual(group.width);
+      expect(a.y + a.height).toBeLessThanOrEqual(group.height);
+      for (const b of kids) if (a !== b) expect(overlaps(a, b)).toBe(false);
+    }
+    expect(pos.get("m2")!.x).toBeGreaterThan(pos.get("m1")!.x); // edges still read left to right
+  });
+});
