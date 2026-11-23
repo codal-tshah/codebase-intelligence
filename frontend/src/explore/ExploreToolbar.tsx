@@ -6,7 +6,10 @@ export const ALL_LEVELS = 64;
 const MAX_LISTED = 10;
 
 /** Level choices for the current graph: 1..min(maxDepth, 10), plus "All" when deeper. */
-export function levelOptions(maxDepth: number | undefined, { includeAll }: { includeAll: boolean }): SelectOption<number>[] {
+export function levelOptions(
+  maxDepth: number | undefined,
+  { includeAll }: { includeAll: boolean },
+): SelectOption<number>[] {
   const max = Math.max(1, maxDepth ?? 3);
   const listed = Math.min(max, MAX_LISTED);
   const out: SelectOption<number>[] = Array.from({ length: listed }, (_, i) => ({
@@ -37,10 +40,23 @@ type Props = {
 export function ExploreToolbar(p: Props) {
   return (
     <div className="canvas-toolbar-explore" role="group" aria-label="Explore controls">
-      <button type="button" className="icon-btn" onClick={p.onBack} disabled={!p.canGoBack} title="Back" aria-label="Back one expand">
+      <button
+        type="button"
+        className="icon-btn"
+        onClick={p.onBack}
+        disabled={!p.canGoBack}
+        title="Back"
+        aria-label="Back one expand"
+      >
         <ArrowLeft size={16} strokeWidth={1.5} aria-hidden />
       </button>
-      <button type="button" className="icon-btn" onClick={p.onReset} title="Reset to top level" aria-label="Reset explore">
+      <button
+        type="button"
+        className="icon-btn"
+        onClick={p.onReset}
+        title="Reset to top level"
+        aria-label="Reset explore"
+      >
         <ChevronsLeft size={16} strokeWidth={1.5} aria-hidden />
       </button>
       <span className="muted explore-depth">

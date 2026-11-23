@@ -14,7 +14,15 @@ type Props = {
   autoRunToken: number;
 };
 
-export function ImpactPanel({ projectId, selectedNodeId, selectedNodeName, report, onReport, onPickNode, autoRunToken }: Props) {
+export function ImpactPanel({
+  projectId,
+  selectedNodeId,
+  selectedNodeName,
+  report,
+  onReport,
+  onPickNode,
+  autoRunToken,
+}: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [files, setFiles] = useState("");
@@ -68,7 +76,12 @@ export function ImpactPanel({ projectId, selectedNodeId, selectedNodeName, repor
         </button>
         <span className="depth">
           depth
-          <MenuSelect label="Impact depth" value={depth} onChange={setDepth} options={[1, 2, 3, 4, 5, 6].map((d) => ({ value: d, label: String(d) }))} />
+          <MenuSelect
+            label="Impact depth"
+            value={depth}
+            onChange={setDepth}
+            options={[1, 2, 3, 4, 5, 6].map((d) => ({ value: d, label: String(d) }))}
+          />
         </span>
       </div>
       <form
@@ -79,7 +92,11 @@ export function ImpactPanel({ projectId, selectedNodeId, selectedNodeName, repor
           if (list.length) void run({ files: list });
         }}
       >
-        <input value={files} onChange={(e) => setFiles(e.target.value)} placeholder="or file paths: shop/models.py, …" />
+        <input
+          value={files}
+          onChange={(e) => setFiles(e.target.value)}
+          placeholder="or file paths: shop/models.py, …"
+        />
         <button type="submit" className="btn ghost small" disabled={busy || !files.trim()}>
           Analyze
         </button>
@@ -99,7 +116,8 @@ export function ImpactPanel({ projectId, selectedNodeId, selectedNodeName, repor
             </div>
           </div>
           <p className="muted">
-            {report.changed.length} changed · {report.affected.length} affected · {report.affected_endpoints.length} endpoint(s)
+            {report.changed.length} changed · {report.affected.length} affected · {report.affected_endpoints.length}{" "}
+            endpoint(s)
             {report.changed_files.length ? ` · ${report.changed_files.length} file(s)` : ""}
           </p>
           {report.notes.length > 0 ? (

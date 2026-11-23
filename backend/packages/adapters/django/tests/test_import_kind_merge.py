@@ -27,22 +27,12 @@ def imkind_root(tmp_path: Path) -> Path:
     (pkg / "__init__.py").write_text("")
     (pkg / "b.py").write_text('"""target module"""\n')
     (pkg / "a.py").write_text(
-        "import imkind.b\n"
-        "from typing import TYPE_CHECKING\n"
-        "if TYPE_CHECKING:\n"
-        "    import imkind.b\n"
+        "import imkind.b\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import imkind.b\n"
     )
     (pkg / "c.py").write_text(
-        "from typing import TYPE_CHECKING\n"
-        "if TYPE_CHECKING:\n"
-        "    import imkind.b\n"
-        "import imkind.b\n"
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import imkind.b\nimport imkind.b\n"
     )
-    (pkg / "d.py").write_text(
-        "from typing import TYPE_CHECKING\n"
-        "if TYPE_CHECKING:\n"
-        "    import imkind.b\n"
-    )
+    (pkg / "d.py").write_text("from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import imkind.b\n")
     return tmp_path
 
 

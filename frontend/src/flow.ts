@@ -1,8 +1,24 @@
 import { MarkerType, Position, type Edge, type Node } from "@xyflow/react";
 import { buildExploreLayoutModel, type ExploreLayoutInput } from "./explore/layoutExplore";
-import { ACCENT, EDGE_STYLE, EXPLORE_DOWNSTREAM, EXPLORE_UPSTREAM, IMPACT_COLORS, JOB_COLOR, layerColor } from "./graphTheme";
+import {
+  ACCENT,
+  EDGE_STYLE,
+  EXPLORE_DOWNSTREAM,
+  EXPLORE_UPSTREAM,
+  IMPACT_COLORS,
+  JOB_COLOR,
+  layerColor,
+} from "./graphTheme";
 import { LANE_HEADER, layoutByLayer, layoutNodes } from "./layout";
-import { bundleLabel, bundleParallelEdges, DEFAULT_TRACE, nodeRole, traceSelection, type TraceRole, type TraceSettings } from "./trace";
+import {
+  bundleLabel,
+  bundleParallelEdges,
+  DEFAULT_TRACE,
+  nodeRole,
+  traceSelection,
+  type TraceRole,
+  type TraceSettings,
+} from "./trace";
 import type { GraphPayload, Layer } from "./types";
 
 export type NodeVisualState = "default" | "selected" | "overlay" | "dim";
@@ -176,15 +192,15 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
         { rowsPerColumn: 8, order: columnOrder, laneGap: 96 },
       )
     : layersMode
-    ? layoutByLayer(
-        sized.map((s) => {
-          const n = visibleById.get(s.id)!;
-          return { ...s, layer: n.layer, rank: degree.get(s.id) ?? 0 };
-        }),
-        // rows grow with graph size so the whole picture stays roughly screen-shaped
-        { rowsPerColumn: Math.max(8, Math.ceil(Math.sqrt(sized.length) * 1.4)) },
-      )
-    : null;
+      ? layoutByLayer(
+          sized.map((s) => {
+            const n = visibleById.get(s.id)!;
+            return { ...s, layer: n.layer, rank: degree.get(s.id) ?? 0 };
+          }),
+          // rows grow with graph size so the whole picture stays roughly screen-shaped
+          { rowsPerColumn: Math.max(8, Math.ceil(Math.sqrt(sized.length) * 1.4)) },
+        )
+      : null;
   const positions = exploreMode
     ? new Map(sized.map((s) => [s.id, { x: 0, y: 0 }]))
     : laneLayout
@@ -197,7 +213,10 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
   // (e.g. its parent was collapsed) every visible node would be dimmed.
   const sel = opts.selectedId && sizeById.has(opts.selectedId) ? opts.selectedId : null;
   const parentOfVisible = new Map(
-    visible.map((n) => [n.id, exploreMode ? ((n.properties?.parent_id as string | null | undefined) ?? undefined) : undefined]),
+    visible.map((n) => [
+      n.id,
+      exploreMode ? ((n.properties?.parent_id as string | null | undefined) ?? undefined) : undefined,
+    ]),
   );
   // Explore draws containment by nesting, so CONTAINS edges to a nested child are redundant clutter.
   const drawnEdges = exploreMode
@@ -303,8 +322,7 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
     const exp = exploreMode && Boolean(props.explore_expandable);
     const nch = Number(props.child_count ?? 0);
     const parentRaw = props.parent_id as string | null | undefined;
-    const parentId =
-      exploreMode && parentRaw && allowed.has(parentRaw) && parentRaw !== n.id ? parentRaw : undefined;
+    const parentId = exploreMode && parentRaw && allowed.has(parentRaw) && parentRaw !== n.id ? parentRaw : undefined;
     const truncatedChildren = exploreMode ? Number(props.truncated_children ?? 0) : 0;
     const isGroup =
       exploreMode &&
@@ -327,7 +345,8 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
       data: {
         // Module/package names are full paths; show the last segment (the path line keeps the rest).
         label:
-          (n.node_type === "Module" || n.node_type === "Package" || n.node_type === "Migration") && n.label.includes("/")
+          (n.node_type === "Module" || n.node_type === "Package" || n.node_type === "Migration") &&
+          n.label.includes("/")
             ? n.label.slice(n.label.lastIndexOf("/") + 1)
             : n.label,
         nodeType: n.node_type,
@@ -375,7 +394,9 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
     const columnLabels = new Map((payload.metadata?.columns ?? []).map((c) => [c.id, c.label]));
     for (const lane of laneLayout.lanes) {
       const name =
-        columnLabels.get(lane.id) ?? opts.layers.find((l) => l.id === lane.id)?.name ?? (lane.id === "other" ? "Other" : lane.id);
+        columnLabels.get(lane.id) ??
+        opts.layers.find((l) => l.id === lane.id)?.name ??
+        (lane.id === "other" ? "Other" : lane.id);
       nodes.unshift({
         id: `__lane:${lane.id}`,
         type: "lane",
@@ -385,7 +406,11 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
         selectable: false,
         draggable: false,
         focusable: false,
-        data: { label: name, count: lane.count, color: columnsMode ? ACCENT : layerColor(opts.layers, lane.id) } as unknown as ArchNodeData,
+        data: {
+          label: name,
+          count: lane.count,
+          color: columnsMode ? ACCENT : layerColor(opts.layers, lane.id),
+        } as unknown as ArchNodeData,
       });
     }
   }
@@ -408,7 +433,8 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
         ? overlay.ids.has(e.source) && overlay.ids.has(e.target)
         : false;
     const role = trace?.edgeRole.get(e.id);
-    const edgeSelected = opts.selectedEdgeId !== undefined && opts.selectedEdgeId !== null && e.memberIds.includes(opts.selectedEdgeId);
+    const edgeSelected =
+      opts.selectedEdgeId !== undefined && opts.selectedEdgeId !== null && e.memberIds.includes(opts.selectedEdgeId);
     const emphasised = Boolean(role || edgeSelected || inOverlay);
     let opacity: number;
     if (overlay) opacity = inOverlay ? 1 : 0.15;
@@ -416,7 +442,13 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
     else opacity = contextMode ? 0.28 : 0.7;
     const lowConfidence = (e.confidence ?? 1) < 0.7;
     const stroke =
-      role === "up" ? EXPLORE_UPSTREAM : role === "down" ? EXPLORE_DOWNSTREAM : role === "both" || inOverlay ? ACCENT : style.color;
+      role === "up"
+        ? EXPLORE_UPSTREAM
+        : role === "down"
+          ? EXPLORE_DOWNSTREAM
+          : role === "both" || inOverlay
+            ? ACCENT
+            : style.color;
     const baseWidth = weight > 1 ? Math.min(1 + Math.log10(weight + 1) * 1.4, 4) : 1.2;
     const strokeWidth = emphasised ? Math.max(baseWidth, 2) : contextMode ? 1 : baseWidth;
     const showMarker = emphasised || !contextMode;
@@ -428,14 +460,25 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
       // Rendered for the trace / selection and (CSS-revealed on hover) on modest graphs.
       label: emphasised || hoverLabels || lowConfidence ? text : undefined,
       // Inferred (low-confidence) links keep their label visible so they are never mistaken for facts.
-      className: emphasised ? "edge--hl" : lowConfidence && !contextMode ? "edge--hl edge--inferred" : contextMode && !sel ? "edge--context" : undefined,
+      className: emphasised
+        ? "edge--hl"
+        : lowConfidence && !contextMode
+          ? "edge--hl edge--inferred"
+          : contextMode && !sel
+            ? "edge--context"
+            : undefined,
       animated: Boolean(inOverlay),
       // Manual z-index (see ReactFlow zIndexMode): context edges sit beneath every node, the
       // trace rises above the group boxes that contain its endpoints but stays under leaf cards.
       zIndex: emphasised ? Math.max(depth(e.source), depth(e.target)) : 0,
       interactionWidth: 24,
       markerEnd: showMarker ? { type: MarkerType.ArrowClosed, color: stroke, width: 14, height: 14 } : undefined,
-      labelStyle: { fill: "#5E5A51", fontSize: 10, fontWeight: 500, fontFamily: "Schibsted Grotesk Variable, Schibsted Grotesk, system-ui, sans-serif" },
+      labelStyle: {
+        fill: "#5E5A51",
+        fontSize: 10,
+        fontWeight: 500,
+        fontFamily: "Schibsted Grotesk Variable, Schibsted Grotesk, system-ui, sans-serif",
+      },
       labelBgStyle: { fill: "#F7F6F2", fillOpacity: 0.95 },
       labelBgPadding: [5, 3] as [number, number],
       data: { memberIds: e.memberIds, byType: e.byType, weight, traceRole: role },

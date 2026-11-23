@@ -144,7 +144,11 @@ def compute_freshness(project_id: str, root: Path) -> dict[str, Any]:
     if not changed and head == indexed_commit:
         return {**base, "status": "fresh", "message": "Index matches the current code."}
     if not changed:
-        return {**base, "status": "fresh", "message": "Index matches the current code (commit moved without source changes)."}
+        return {
+            **base,
+            "status": "fresh",
+            "message": "Index matches the current code (commit moved without source changes).",
+        }
 
     uncommitted = git_dirty_files(root)
     if head and head == indexed_commit and uncommitted is not None:

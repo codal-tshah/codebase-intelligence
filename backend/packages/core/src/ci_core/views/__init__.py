@@ -63,12 +63,12 @@ def _load_plugins() -> None:
 
     try:
         eps = entry_points(group="codebase_intelligence.views")
-    except Exception:  # noqa: BLE001
+    except Exception:
         return
     for ep in eps:
         try:
             ep.load()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.warning("could not load view plugin %s: %s", ep.name, exc)
 
 
@@ -114,7 +114,8 @@ def build_view(
     index: GraphIndex, view: str, focus_node_id: str | None = None, params: dict[str, Any] | None = None
 ) -> GraphViewPayload:
     module = get_view(view) or get_view("layers")
-    assert module is not None
+    if module is None:
+        raise RuntimeError("layers view plugin is missing")
     nodes, edges, meta = module.build(index, focus_node_id, params) if params else module.build(index, focus_node_id)
     present = {n.layer for n in nodes if n.layer}
     present_layers = []

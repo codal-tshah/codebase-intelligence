@@ -71,7 +71,7 @@ def expand(
     limit: int = MAX_NODES,
 ) -> set[str]:
     """BFS from `seeds` along outgoing `forward` and incoming `backward` edge types."""
-    collected: set[str] = set(s for s in seeds if s in index.nodes)
+    collected: set[str] = {s for s in seeds if s in index.nodes}
     frontier: deque[tuple[str, int]] = deque((s, 0) for s in collected)
     while frontier and len(collected) < limit:
         cur, d = frontier.popleft()

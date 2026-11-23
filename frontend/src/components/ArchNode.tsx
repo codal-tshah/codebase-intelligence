@@ -42,7 +42,11 @@ function ArchNodeBase({ data, selected }: NodeProps<Node<ArchNodeData>>) {
         data.onExploreChevronClick?.();
       }}
     >
-      {expanded ? <ChevronDown size={16} strokeWidth={1.5} aria-hidden /> : <ChevronRight size={16} strokeWidth={1.5} aria-hidden />}
+      {expanded ? (
+        <ChevronDown size={16} strokeWidth={1.5} aria-hidden />
+      ) : (
+        <ChevronRight size={16} strokeWidth={1.5} aria-hidden />
+      )}
     </button>
   ) : null;
 
@@ -55,7 +59,9 @@ function ArchNodeBase({ data, selected }: NodeProps<Node<ArchNodeData>>) {
       </span>
       <span className="arch-group-meta">
         {data.nodeType}
-        {data.exploreChildCount !== undefined ? ` · ${data.exploreChildCount} ${data.exploreChildCount === 1 ? "child" : "children"}` : ""}
+        {data.exploreChildCount !== undefined
+          ? ` · ${data.exploreChildCount} ${data.exploreChildCount === 1 ? "child" : "children"}`
+          : ""}
       </span>
       {chevron}
     </div>

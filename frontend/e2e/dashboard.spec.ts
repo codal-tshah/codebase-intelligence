@@ -3,7 +3,9 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { fixtureProject, openView } from "./helpers";
 
-const FIXTURE = process.env.E2E_FIXTURE_PATH ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../backend/benchmarks/fixtures/fullstack_app");
+const FIXTURE =
+  process.env.E2E_FIXTURE_PATH ??
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../backend/benchmarks/fixtures/fullstack_app");
 
 test("ingest a local path from the dashboard", async ({ page }) => {
   await page.goto("/");
@@ -20,10 +22,16 @@ test("ingest a local path from the dashboard", async ({ page }) => {
 test("switch views from the sidebar", async ({ page }) => {
   const p = await fixtureProject(page);
   await openView(page, p.id, "layers");
-  await page.getByRole("navigation").getByRole("button", { name: /API flow/ }).click();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: /API flow/ })
+    .click();
   await expect(page.locator(".canvas-title h2")).toHaveText("API flow");
   await expect(page).toHaveURL(/v=api-flow/);
-  await page.getByRole("navigation").getByRole("button", { name: /Data model/ }).click();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: /Data model/ })
+    .click();
   await expect(page.locator(".canvas-title h2")).toHaveText("Data model");
   await expect(page.locator(".react-flow__node-arch").first()).toBeVisible();
 });
@@ -104,7 +112,14 @@ test("export menu offers every format and downloads SVG", async ({ page }) => {
   await openView(page, p.id, "api-flow");
   await page.getByRole("button", { name: "Export this view" }).click();
   const menu = page.getByRole("menu", { name: "Export formats" });
-  for (const f of ["SVG image", "PNG image", "Mermaid diagram", "Markdown report", "This view as JSON", "Full graph as JSON"]) {
+  for (const f of [
+    "SVG image",
+    "PNG image",
+    "Mermaid diagram",
+    "Markdown report",
+    "This view as JSON",
+    "Full graph as JSON",
+  ]) {
     await expect(menu.getByRole("menuitem", { name: new RegExp(f) })).toBeEnabled();
   }
   const download = page.waitForEvent("download");

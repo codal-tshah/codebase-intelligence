@@ -11,6 +11,7 @@ import ast
 import hashlib
 import io
 import tokenize
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -213,9 +214,7 @@ class _ImportCollector(ast.NodeVisitor):
     def _is_tc_name(self, node: ast.expr) -> bool:
         if isinstance(node, ast.Name):
             return node.id in self._tc_names
-        if isinstance(node, ast.Attribute) and node.attr == "TYPE_CHECKING":
-            return True
-        return False
+        return bool(isinstance(node, ast.Attribute) and node.attr == "TYPE_CHECKING")
 
     def _is_type_only_guard(self, node: ast.expr) -> bool:
         """Whole ``if`` test whose body is not executed at import time under normal runtime."""
@@ -316,8 +315,8 @@ class _ImportCollector(ast.NodeVisitor):
 def _first_line(doc: str | None) -> str | None:
     if not doc:
         return None
-    for line in doc.strip().splitlines():
-        line = line.strip()
+    for doc_line in doc.strip().splitlines():
+        line = doc_line.strip()
         if line:
             return line[:240]
     return None
@@ -343,8 +342,10 @@ def _class_info(node: ast.ClassDef, module: str, parent_qn: str | None = None) -
                 info.attrs[item.targets[0].id] = ref
         elif isinstance(item, ast.ClassDef) and item.name == "Meta":
             for meta_item in item.body:
-                if isinstance(meta_item, ast.Assign) and len(meta_item.targets) == 1 and isinstance(
-                    meta_item.targets[0], ast.Name
+                if (
+                    isinstance(meta_item, ast.Assign)
+                    and len(meta_item.targets) == 1
+                    and isinstance(meta_item.targets[0], ast.Name)
                 ):
                     key = meta_item.targets[0].id
                     ref = dotted_name(meta_item.value)
@@ -377,7 +378,7 @@ def _function_info(
     )
 
 
-def _iter_calls(nodes: list[ast.AST], *, descend_defs: bool):
+def _iter_calls(nodes: Sequence[ast.AST], *, descend_defs: bool) -> Iterator[ast.Call]:
     """Yield Call nodes, optionally refusing to enter nested function/class definitions."""
     stack: list[ast.AST] = list(reversed(nodes))
     while stack:
@@ -508,7 +509,9 @@ def _instance_attr_types(cls: ast.ClassDef, aliases: dict[str, str]) -> dict[str
                 target, value = node.targets[0], node.value
             elif isinstance(node, ast.AnnAssign):
                 target, value, ann = node.target, node.value, node.annotation
-            if not (isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id == "self"):
+            if not (
+                isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id == "self"
+            ):
                 continue
             t = _annotation_type(ann, aliases) if ann is not None else None
             t = t or _constructed_type(value, aliases)
@@ -662,9 +665,7 @@ def parse_python_source(
                 if edge:
                     calls.append(edge)
 
-    module_level = [
-        n for n in tree.body if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-    ]
+    module_level = [n for n in tree.body if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
     for call in _iter_calls(module_level, descend_defs=False):
         edge = _call_edge("<module>", call)
         if edge:
@@ -683,9 +684,7 @@ def parse_python_source(
     )
 
 
-def parse_python_file(
-    root: Path, file_path: Path, *, module_name: str | None = None
-) -> ParseResult:
+def parse_python_file(root: Path, file_path: Path, *, module_name: str | None = None) -> ParseResult:
     source = file_path.read_text(encoding="utf-8", errors="replace")
     module = module_name or module_name_from_path(root, file_path)
     return parse_python_source(
@@ -711,11 +710,13 @@ def structural_fingerprint(result: ParseResult) -> str:
         params = ""
         if isinstance(sym.node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             a = sym.node.args
-            params = ",".join(
-                x.arg for x in [*a.posonlyargs, *a.args, *a.kwonlyargs]
-            ) + ("*" if a.vararg else "") + ("**" if a.kwarg else "")
+            params = (
+                ",".join(x.arg for x in [*a.posonlyargs, *a.args, *a.kwonlyargs])
+                + ("*" if a.vararg else "")
+                + ("**" if a.kwarg else "")
+            )
         parts.append(f"S|{sym.kind}|{sym.qualified_name}|{','.join(sym.bases)}|{decos}|{params}")
-        for key, value in sorted({**sym.attrs, **{f'Meta.{k}': v for k, v in sym.meta_attrs.items()}}.items()):
+        for key, value in sorted({**sym.attrs, **{f"Meta.{k}": v for k, v in sym.meta_attrs.items()}}.items()):
             parts.append(f"A|{sym.qualified_name}|{key}={value}")
     for imp in sorted(result.imports, key=lambda i: (i.module, ",".join(i.names))):
         parts.append(f"I|{imp.module}|{','.join(sorted(imp.names))}")

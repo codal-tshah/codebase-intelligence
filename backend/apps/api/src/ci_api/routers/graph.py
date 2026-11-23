@@ -11,7 +11,14 @@ from ci_ai import GraphTools
 from ci_api.deps import MAX_ID, check_expanded, pid, require_project
 from ci_api.schemas import ImpactBody
 from ci_core.db import GraphStore
-from ci_core.insights import build_tour, find_path, impact_for_request, list_endpoints, neighborhood_subgraph, search_nodes
+from ci_core.insights import (
+    build_tour,
+    find_path,
+    impact_for_request,
+    list_endpoints,
+    neighborhood_subgraph,
+    search_nodes,
+)
 from ci_core.layers import layer_catalog
 from ci_core.serializers import node_summary
 from ci_core.settings import get_settings
@@ -70,10 +77,18 @@ def graph_neighborhood(
 @router.get("/projects/{project_ref:path}/graph/edges")
 def graph_explore_underlying_edges(
     project_ref: str,
-    source: str = Query(..., min_length=1, max_length=MAX_ID, description="Visible explore node id (aggregated arc source)"),
-    target: str = Query(..., min_length=1, max_length=MAX_ID, description="Visible explore node id (aggregated arc target)"),
-    expanded: str | None = Query(default=None, description="Same expanded= list as /graph/explore so lifting matches the canvas"),
-    extra_child_offsets: list[str] | None = Query(default=None, description="Same as explore view: node_id=offset for structural paging"),
+    source: str = Query(
+        ..., min_length=1, max_length=MAX_ID, description="Visible explore node id (aggregated arc source)"
+    ),
+    target: str = Query(
+        ..., min_length=1, max_length=MAX_ID, description="Visible explore node id (aggregated arc target)"
+    ),
+    expanded: str | None = Query(
+        default=None, description="Same expanded= list as /graph/explore so lifting matches the canvas"
+    ),
+    extra_child_offsets: list[str] | None = Query(
+        default=None, description="Same as explore view: node_id=offset for structural paging"
+    ),
     limit: int = Query(200, ge=1, le=500),
 ) -> dict:
     check_expanded(expanded, extra_child_offsets)
@@ -257,4 +272,12 @@ def get_source(
 
 def _language_for(path: str) -> str:
     ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
-    return {"py": "python", "ts": "typescript", "tsx": "tsx", "js": "javascript", "jsx": "jsx", "mjs": "javascript", "cjs": "javascript"}.get(ext, ext or "text")
+    return {
+        "py": "python",
+        "ts": "typescript",
+        "tsx": "tsx",
+        "js": "javascript",
+        "jsx": "jsx",
+        "mjs": "javascript",
+        "cjs": "javascript",
+    }.get(ext, ext or "text")

@@ -42,20 +42,26 @@ export function ApiEndpointList({ projectId, reloadKey, focusedId, onPick }: Pro
   useEffect(() => {
     if (!items?.length || autoPicked.current) return;
     autoPicked.current = true;
-    if (!focusedId || !items.some((e) => e.id === focusedId)) onPick(items[0]!);
+    if (!focusedId || !items.some((e) => e.id === focusedId)) onPick(items[0]);
   }, [items, focusedId, onPick]);
 
   useEffect(() => {
-    listRef.current?.querySelector<HTMLElement>(`[data-ep="${CSS.escape(focusedId ?? "")}"]`)?.scrollIntoView({ block: "nearest" });
+    listRef.current
+      ?.querySelector<HTMLElement>(`[data-ep="${CSS.escape(focusedId ?? "")}"]`)
+      ?.scrollIntoView({ block: "nearest" });
   }, [focusedId, items]);
 
-  const methods = useMemo(() => [...new Set((items ?? []).flatMap((e) => (e.methods.length ? e.methods : ["ANY"])))].sort(), [items]);
+  const methods = useMemo(
+    () => [...new Set((items ?? []).flatMap((e) => (e.methods.length ? e.methods : ["ANY"])))].sort(),
+    [items],
+  );
   const groups = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const out = new Map<string, EndpointInfo[]>();
     for (const e of items ?? []) {
       if (method && !(e.methods.length ? e.methods : ["ANY"]).includes(method)) continue;
-      if (needle && !`${e.route} ${e.handler?.name ?? ""} ${e.source_path ?? ""}`.toLowerCase().includes(needle)) continue;
+      if (needle && !`${e.route} ${e.handler?.name ?? ""} ${e.source_path ?? ""}`.toLowerCase().includes(needle))
+        continue;
       const g = groupOf(e);
       out.set(g, [...(out.get(g) ?? []), e]);
     }
@@ -68,18 +74,27 @@ export function ApiEndpointList({ projectId, reloadKey, focusedId, onPick }: Pro
       <div className="api-list-head">
         <label className="search-field">
           <Search size={14} strokeWidth={1.5} aria-hidden className="search-icon" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter routes" aria-label="Filter routes" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Filter routes"
+            aria-label="Filter routes"
+          />
         </label>
         <div className="chip-row" role="group" aria-label="Filter by HTTP method">
           {["", ...methods].map((m) => (
-            <button key={m || "all"} type="button" className={`chip ${method === m ? "active" : ""}`} aria-pressed={method === m} onClick={() => setMethod(m)}>
+            <button
+              key={m || "all"}
+              type="button"
+              className={`chip ${method === m ? "active" : ""}`}
+              aria-pressed={method === m}
+              onClick={() => setMethod(m)}
+            >
               {m || "All"}
             </button>
           ))}
         </div>
-        <p className="muted api-list-count">
-          {items ? `${shown} of ${items.length} routes` : "Loading routes…"}
-        </p>
+        <p className="muted api-list-count">{items ? `${shown} of ${items.length} routes` : "Loading routes…"}</p>
       </div>
       {error ? (
         <p className="form-error pad" role="alert">
@@ -105,13 +120,21 @@ export function ApiEndpointList({ projectId, reloadKey, focusedId, onPick }: Pro
                   >
                     <span className="api-item-line">
                       {(e.methods.length ? e.methods : ["ANY"]).map((m) => (
-                        <span key={m} className="method-badge" style={{ ["--method" as string]: METHOD_COLORS[m] ?? "#8A867C" }}>
+                        <span
+                          key={m}
+                          className="method-badge"
+                          style={{ ["--method" as string]: METHOD_COLORS[m] ?? "#8A867C" }}
+                        >
                           {m}
                         </span>
                       ))}
                       <span className="api-item-path mono">{e.route}</span>
                     </span>
-                    {e.handler ? <span className="api-item-handler muted">{e.handler.name}</span> : <span className="api-item-handler muted">handler not resolved</span>}
+                    {e.handler ? (
+                      <span className="api-item-handler muted">{e.handler.name}</span>
+                    ) : (
+                      <span className="api-item-handler muted">handler not resolved</span>
+                    )}
                   </button>
                 </li>
               ))}

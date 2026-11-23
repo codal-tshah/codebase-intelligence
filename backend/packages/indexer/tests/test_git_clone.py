@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
 from ci_core.settings import get_settings
 from ci_parsers import GitCloneError, clone_git_repo
 from ci_parsers.files import _git_auth_env
@@ -72,7 +73,11 @@ def test_check_git_access_classifies_results(monkeypatch):
         return lambda args, **kw: subprocess.CompletedProcess(args, code, stdout, stderr)
 
     monkeypatch.setattr(subprocess, "run", fake("ref: refs/heads/develop\tHEAD\nabc\tHEAD\n"))
-    assert check_git_access("https://github.com/o/r") == {"ok": True, "default_branch": "develop", "authenticated": False}
+    assert check_git_access("https://github.com/o/r") == {
+        "ok": True,
+        "default_branch": "develop",
+        "authenticated": False,
+    }
     monkeypatch.setattr(subprocess, "run", fake(stderr="remote: Repository not found.", code=128))
     res = check_git_access("https://github.com/o/r")
     assert res["ok"] is False and res["needs_token"] is True and "CI_GITHUB_TOKEN" in res["reason"]
@@ -109,7 +114,9 @@ def test_same_repo_name_under_different_owners_gets_separate_clones(tmp_path, mo
 
     cloned: list[Path] = []
     monkeypatch.setattr(ci_parsers, "check_git_access", lambda url, token=None: {"ok": True})
-    monkeypatch.setattr(ci_parsers, "clone_git_repo", lambda url, dest, token=None: cloned.append(dest) or dest.mkdir(parents=True))
+    monkeypatch.setattr(
+        ci_parsers, "clone_git_repo", lambda url, dest, token=None: cloned.append(dest) or dest.mkdir(parents=True)
+    )
     monkeypatch.setattr(pipeline, "create_project_from_path", lambda dest, git_url=None: (dest, git_url))
     a = pipeline.create_project_from_git("https://github.com/a/api", work_root=tmp_path)
     b = pipeline.create_project_from_git("http://www.github.com/b/api.git", work_root=tmp_path)

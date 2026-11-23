@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from ci_core.analysis import AnalysisResult
-
 from ci_adapters_django.adapter import ADAPTER_VERSION, analyze_django_project
+from ci_core.analysis import AnalysisResult
 
 
 class PythonAnalyzer:

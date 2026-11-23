@@ -57,13 +57,16 @@ def build(
 ) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
     jobs = job_nodes(index)
     focused = bool(focus and focus in index.nodes)
-    if focused:
+    if focused and focus is not None:
         collected = expand(index, [focus], forward=FORWARD, depth=4)
         collected |= expand(index, [focus], backward=UPSTREAM, depth=1, limit=MAX_NODES)
     else:
         collected = expand(index, [n.id for n in jobs[:60]], forward=FORWARD, depth=3)
     # deterministic order so truncation (and generated docs) are stable across runs
-    ordered = sorted((index.nodes[i] for i in collected if i in index.nodes), key=lambda n: (n.source_path or "", n.start_line or 0, n.id))
+    ordered = sorted(
+        (index.nodes[i] for i in collected if i in index.nodes),
+        key=lambda n: (n.source_path or "", n.start_line or 0, n.id),
+    )
     nodes = [node_view(n, index) for n in ordered][:MAX_NODES]
     allowed = {n.id for n in nodes}
     meta = {"job_count": len(jobs), "focused": focused}

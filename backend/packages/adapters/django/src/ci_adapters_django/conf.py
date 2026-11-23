@@ -25,9 +25,7 @@ class SettingsInfo:
 
 def _string_list(node: ast.AST | None) -> list[str]:
     if isinstance(node, (ast.List, ast.Tuple)):
-        return [
-            e.value for e in node.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)
-        ]
+        return [e.value for e in node.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         return [*_string_list(node.left), *_string_list(node.right)]
     return []
@@ -51,7 +49,7 @@ def extract_settings(pr: ParseResult, rel: str) -> SettingsInfo | None:
             if target.id == "INSTALLED_APPS":
                 info.installed_apps.extend(_string_list(value))
                 found = True
-            elif target.id == "MIDDLEWARE" or target.id == "MIDDLEWARE_CLASSES":
+            elif target.id in {"MIDDLEWARE", "MIDDLEWARE_CLASSES"}:
                 info.middleware.extend(_string_list(value))
                 found = True
             elif target.id == "ROOT_URLCONF" and isinstance(value, ast.Constant) and isinstance(value.value, str):
@@ -132,7 +130,8 @@ def _collect_patterns(node: ast.AST | None, prefix: str, out: list[UrlEntry]) ->
     target = node.args[1] if len(node.args) > 1 else None
     name = next((_const_str(kw.value) for kw in node.keywords if kw.arg == "name"), None)
     if _is_include(target):
-        assert isinstance(target, ast.Call)
+        if not isinstance(target, ast.Call):
+            return
         if target.args and isinstance(target.args[0], (ast.List, ast.Tuple)):
             _collect_patterns(target.args[0], route, out)
             return
@@ -150,13 +149,22 @@ def extract_url_entries(pr: ParseResult) -> list[UrlEntry]:
     saw_urlpatterns = False
     for node in pr.tree.body:
         value: ast.AST | None = None
-        if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == "urlpatterns" for t in node.targets
+        if (
+            (
+                isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "urlpatterns" for t in node.targets)
+            )
+            or (
+                isinstance(node, ast.AugAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == "urlpatterns"
+            )
+            or (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == "urlpatterns"
+            )
         ):
-            value = node.value
-        elif isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name) and node.target.id == "urlpatterns":
-            value = node.value
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == "urlpatterns":
             value = node.value
         if value is not None:
             saw_urlpatterns = True
@@ -181,7 +189,9 @@ def extract_url_entries(pr: ParseResult) -> list[UrlEntry]:
                 continue
             route = _clean_segment(prefix).strip("/") + "/"
             entries.append(
-                UrlEntry(node.lineno, node.end_lineno or node.lineno, route, "view", _view_ref(node.args[1]), None, True)
+                UrlEntry(
+                    node.lineno, node.end_lineno or node.lineno, route, "view", _view_ref(node.args[1]), None, True
+                )
             )
     return entries
 

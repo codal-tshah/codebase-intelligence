@@ -2,7 +2,10 @@ import { getJson, postJson } from "./api";
 import type { Job } from "./types";
 
 /** Start an index job and poll it until it finishes, reporting progress along the way. */
-export async function runIndexJob(projectId: string, opts: { incremental: boolean; onProgress?: (job: Job) => void }): Promise<Job> {
+export async function runIndexJob(
+  projectId: string,
+  opts: { incremental: boolean; onProgress?: (job: Job) => void },
+): Promise<Job> {
   let job = await postJson<Job>(`/projects/${projectId}/index?incremental=${opts.incremental}`, {});
   opts.onProgress?.(job);
   while (job.status === "pending" || job.status === "running") {

@@ -87,12 +87,26 @@ export function Popover({
     el.style.maxHeight = "none";
     const minWidth = matchWidth ? a.width : 0;
     const width = Math.max(el.offsetWidth, minWidth);
-    const pos = computePopoverPosition(a, { width, height: el.scrollHeight }, { width: window.innerWidth, height: window.innerHeight }, placement);
+    const pos = computePopoverPosition(
+      a,
+      { width, height: el.scrollHeight },
+      { width: window.innerWidth, height: window.innerHeight },
+      placement,
+    );
     el.style.maxHeight = `${pos.maxHeight}px`;
     setStyle((prev) =>
-      prev.top === pos.top && prev.left === pos.left && prev.maxHeight === pos.maxHeight && prev.minWidth === (minWidth || undefined)
+      prev.top === pos.top &&
+      prev.left === pos.left &&
+      prev.maxHeight === pos.maxHeight &&
+      prev.minWidth === (minWidth || undefined)
         ? prev
-        : { position: "fixed", top: pos.top, left: pos.left, maxHeight: pos.maxHeight, minWidth: minWidth || undefined },
+        : {
+            position: "fixed",
+            top: pos.top,
+            left: pos.left,
+            maxHeight: pos.maxHeight,
+            minWidth: minWidth || undefined,
+          },
     );
   }, [anchorRef, matchWidth, placement]);
 
@@ -147,7 +161,7 @@ export function Popover({
 /** Roving focus inside a popover: arrows / Home / End / type-ahead over `[data-pop-item]`. */
 export function usePopoverKeys(containerSelector = "[data-pop-item]:not([disabled])") {
   return (e: ReactKeyboardEvent<HTMLElement>) => {
-    const root = e.currentTarget as HTMLElement;
+    const root = e.currentTarget;
     const items = [...root.querySelectorAll<HTMLElement>(containerSelector)];
     if (!items.length) return;
     const i = items.indexOf(document.activeElement as HTMLElement);
@@ -167,7 +181,7 @@ export function usePopoverKeys(containerSelector = "[data-pop-item]:not([disable
     }
     if (next >= 0) {
       e.preventDefault();
-      items[next]!.focus();
+      items[next].focus();
     }
   };
 }
@@ -215,7 +229,9 @@ export function MenuSelect<T extends string | number>({
     if (!open) return;
     const t = setTimeout(() => {
       const list = document.getElementById(listId);
-      const el = list?.querySelector<HTMLElement>('[aria-selected="true"]') ?? list?.querySelector<HTMLElement>("[data-pop-item]");
+      const el =
+        list?.querySelector<HTMLElement>('[aria-selected="true"]') ??
+        list?.querySelector<HTMLElement>("[data-pop-item]");
       el?.focus();
     }, 0);
     return () => clearTimeout(t);
@@ -244,7 +260,16 @@ export function MenuSelect<T extends string | number>({
         <span className="menu-select-value">{current?.label ?? placeholder ?? label}</span>
         <ChevronDown size={14} strokeWidth={1.5} aria-hidden />
       </button>
-      <Popover open={open} onClose={close} anchorRef={trigger} matchWidth role="listbox" id={listId} label={label} onKeyDown={keys}>
+      <Popover
+        open={open}
+        onClose={close}
+        anchorRef={trigger}
+        matchWidth
+        role="listbox"
+        id={listId}
+        label={label}
+        onKeyDown={keys}
+      >
         {options.map((o) => (
           <button
             key={String(o.value)}

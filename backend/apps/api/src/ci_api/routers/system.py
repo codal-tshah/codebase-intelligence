@@ -35,8 +35,8 @@ def status() -> dict:
             for j in GraphStore(p.id).recent_jobs(limit=3):
                 if j.status.value in ("pending", "running"):
                     running.append({"project_id": p.id, "project_name": p.name, **j.model_dump(mode="json")})
-        except Exception:  # noqa: BLE001 - a broken project database must not break the status page
-            continue
+        except Exception:
+            pass  # stale registry row or missing store; skip this project
     out = {
         "status": "ok",
         "version": __version__,
@@ -77,11 +77,16 @@ def views() -> list[dict]:
 def git_check(url: str = Query(..., min_length=1, max_length=512)) -> dict:
     """Preflight for the ingest form: can this server read the GitHub repo (with CI_GITHUB_TOKEN if set)?"""
     if not GITHUB_URL.match(url.strip()):
-        raise HTTPException(status_code=422, detail="Must be a valid GitHub repository URL (https://github.com/owner/repo)")
+        raise HTTPException(
+            status_code=422, detail="Must be a valid GitHub repository URL (https://github.com/owner/repo)"
+        )
     if get_settings().mode == "server":
         raise HTTPException(status_code=403, detail="git_url ingest is disabled in server mode")
     settings = get_settings()
-    return {**check_git_access(url.strip(), token=settings.github_token), "token_configured": bool(settings.github_token)}
+    return {
+        **check_git_access(url.strip(), token=settings.github_token),
+        "token_configured": bool(settings.github_token),
+    }
 
 
 @router.get("/audit")

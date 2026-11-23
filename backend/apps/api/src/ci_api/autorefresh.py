@@ -50,8 +50,14 @@ def refresh_once() -> int:
     n = 0
     for project_id, name, head in due_projects():
         job = run_index_job(project_id, incremental=True)
-        audit.record("project.auto_refresh", project_id=project_id, project_name=name, actor="auto-refresh",
-                     outcome=job.status.value, detail={"head": head[:12], "message": job.message, "error": job.error})
+        audit.record(
+            "project.auto_refresh",
+            project_id=project_id,
+            project_name=name,
+            actor="auto-refresh",
+            outcome=job.status.value,
+            detail={"head": head[:12], "message": job.message, "error": job.error},
+        )
         n += 1
     return n
 
@@ -64,5 +70,5 @@ async def run_forever() -> None:
         await asyncio.sleep(every)
         try:
             await asyncio.to_thread(refresh_once)
-        except Exception:  # noqa: BLE001 - keep the loop alive
+        except Exception:
             log.exception("auto-refresh failed")

@@ -114,7 +114,7 @@ export function exploreReducer(state: ExploreState, action: ExploreAction): Expl
     }
     case "back": {
       if (!state.history.length) return state;
-      const prev = state.history[state.history.length - 1]!;
+      const prev = state.history[state.history.length - 1];
       return {
         expanded: [...prev.expanded],
         childOffsets: { ...prev.childOffsets },
@@ -140,10 +140,7 @@ export function exploreReducer(state: ExploreState, action: ExploreAction): Expl
   }
 }
 
-export function createExploreState(
-  expanded: string[] = [],
-  childOffsets: Record<string, number> = {},
-): ExploreState {
+export function createExploreState(expanded: string[] = [], childOffsets: Record<string, number> = {}): ExploreState {
   return { expanded: uniqExpanded(expanded), childOffsets: { ...childOffsets }, history: [] };
 }
 

@@ -41,7 +41,7 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
 }
 
 async function parse<T>(res: Response): Promise<T> {
-  const body = await res.json().catch(() => ({}));
+  const body: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = (body as { detail?: unknown }).detail;
     const msg =
@@ -55,9 +55,9 @@ async function parse<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export const getJson = <T,>(path: string): Promise<T> => apiFetch(path).then((r) => parse<T>(r));
+export const getJson = <T>(path: string): Promise<T> => apiFetch(path).then((r) => parse<T>(r));
 
-export const postJson = <T,>(path: string, body: unknown): Promise<T> =>
+export const postJson = <T>(path: string, body: unknown): Promise<T> =>
   apiFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -65,7 +65,7 @@ export const postJson = <T,>(path: string, body: unknown): Promise<T> =>
   }).then((r) => parse<T>(r));
 
 /** PUT / PATCH / DELETE with a JSON body (or none). */
-export const sendJson = <T,>(method: "PUT" | "PATCH" | "DELETE" | "POST", path: string, body?: unknown): Promise<T> =>
+export const sendJson = <T>(method: "PUT" | "PATCH" | "DELETE" | "POST", path: string, body?: unknown): Promise<T> =>
   apiFetch(path, {
     method,
     headers: body === undefined ? {} : { "Content-Type": "application/json" },

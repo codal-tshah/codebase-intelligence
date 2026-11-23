@@ -23,7 +23,16 @@ type Props = {
 
 /** Manage projects: search/sort, stats, re-index, rename, per-project settings, remove; plus the
  * audit log and the server status page. */
-export function ProjectsPage({ currentId, initialTab = "projects", onOpen, onAdd, onRemoved, onRenamed, onIndexed, onClose }: Props) {
+export function ProjectsPage({
+  currentId,
+  initialTab = "projects",
+  onOpen,
+  onAdd,
+  onRemoved,
+  onRenamed,
+  onIndexed,
+  onClose,
+}: Props) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [items, setItems] = useState<ProjectOverview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +56,11 @@ export function ProjectsPage({ currentId, initialTab = "projects", onOpen, onAdd
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const list = (items ?? []).filter(
-      (p) => !needle || p.name.toLowerCase().includes(needle) || p.root_path.toLowerCase().includes(needle) || (p.framework ?? "").toLowerCase().includes(needle),
+      (p) =>
+        !needle ||
+        p.name.toLowerCase().includes(needle) ||
+        p.root_path.toLowerCase().includes(needle) ||
+        (p.framework ?? "").toLowerCase().includes(needle),
     );
     return list.sort((a, b) =>
       sort === "name"
@@ -65,7 +78,10 @@ export function ProjectsPage({ currentId, initialTab = "projects", onOpen, onAdd
       load();
       onIndexed(p.id);
     } catch (e) {
-      setJobs((m) => ({ ...m, [p.id]: { id: "", status: "failed", message: "", error: e instanceof Error ? e.message : "failed" } }));
+      setJobs((m) => ({
+        ...m,
+        [p.id]: { id: "", status: "failed", message: "", error: e instanceof Error ? e.message : "failed" },
+      }));
     }
   };
 
@@ -87,7 +103,14 @@ export function ProjectsPage({ currentId, initialTab = "projects", onOpen, onAdd
         <h1 id="projects-title">Projects</h1>
         <div className="panel-tabs projects-tabs" role="tablist">
           {(["projects", "activity", "status"] as Tab[]).map((t) => (
-            <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={tab === t}
+              className={tab === t ? "active" : ""}
+              onClick={() => setTab(t)}
+            >
               {t === "projects" ? "Projects" : t === "activity" ? "Activity" : "Status"}
             </button>
           ))}
@@ -109,7 +132,12 @@ export function ProjectsPage({ currentId, initialTab = "projects", onOpen, onAdd
           <div className="projects-toolbar">
             <label className="search-field">
               <Search size={14} strokeWidth={1.5} aria-hidden className="search-icon" />
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, path, framework" aria-label="Search projects" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search name, path, framework"
+                aria-label="Search projects"
+              />
             </label>
             <span className="muted">Sort</span>
             <MenuSelect<SortKey>
@@ -173,7 +201,10 @@ export function ProjectsPage({ currentId, initialTab = "projects", onOpen, onAdd
                         {p.name}
                         {p.id === currentId ? <span className="badge">open</span> : null}
                         {p.stale ? (
-                          <span className="badge badge-warn" title={`HEAD ${p.head_commit?.slice(0, 8)} · indexed ${p.indexed_commit?.slice(0, 8)}`}>
+                          <span
+                            className="badge badge-warn"
+                            title={`HEAD ${p.head_commit?.slice(0, 8)} · indexed ${p.indexed_commit?.slice(0, 8)}`}
+                          >
                             new commits since index
                           </span>
                         ) : null}
@@ -196,7 +227,8 @@ export function ProjectsPage({ currentId, initialTab = "projects", onOpen, onAdd
                       <p className={job.status === "failed" ? "form-error" : "muted"} role="status">
                         {running ? (
                           <>
-                            <progress max={1} value={job.progress ?? 0} aria-label="Index progress" /> {job.message || "Indexing…"}
+                            <progress max={1} value={job.progress ?? 0} aria-label="Index progress" />{" "}
+                            {job.message || "Indexing…"}
                           </>
                         ) : job.status === "failed" ? (
                           `Index failed: ${job.error ?? "unknown error"}`
@@ -205,7 +237,9 @@ export function ProjectsPage({ currentId, initialTab = "projects", onOpen, onAdd
                         )}
                       </p>
                     ) : null}
-                    {settingsFor === p.id ? <ProjectSettingsForm projectId={p.id} onClose={() => setSettingsFor(null)} /> : null}
+                    {settingsFor === p.id ? (
+                      <ProjectSettingsForm projectId={p.id} onClose={() => setSettingsFor(null)} />
+                    ) : null}
                   </div>
                   <div className="project-row-actions">
                     <button type="button" className="btn secondary small" onClick={() => onOpen(p.id)}>
@@ -229,7 +263,13 @@ export function ProjectsPage({ currentId, initialTab = "projects", onOpen, onAdd
                     >
                       Full re-index
                     </button>
-                    <button type="button" className="icon-btn" title="Rename" aria-label={`Rename ${p.name}`} onClick={() => setRenaming({ id: p.id, name: p.name })}>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Rename"
+                      aria-label={`Rename ${p.name}`}
+                      onClick={() => setRenaming({ id: p.id, name: p.name })}
+                    >
                       <Pencil size={14} strokeWidth={1.5} aria-hidden />
                     </button>
                     <button
@@ -298,7 +338,10 @@ function ProjectSettingsForm({ projectId, onClose }: { projectId: string; onClos
     setState("saving");
     try {
       const s = await sendJson<ProjectSettings>("PUT", `/projects/${projectId}/settings`, {
-        ignore: text.split("\n").map((l) => l.trim()).filter(Boolean),
+        ignore: text
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean),
         auto_refresh: auto,
       });
       setSettings(s);
@@ -332,7 +375,8 @@ function ProjectSettingsForm({ projectId, onClose }: { projectId: string; onClos
         />
       </label>
       <p className="muted">
-        Stored in this tool's data folder, not in your repository. Generated folders (node_modules, .venv, dist, build, htmlcov, coverage) are always skipped.
+        Stored in this tool's data folder, not in your repository. Generated folders (node_modules, .venv, dist, build,
+        htmlcov, coverage) are always skipped.
       </p>
       {settings?.repo_ciignore ? (
         <details>
@@ -343,7 +387,8 @@ function ProjectSettingsForm({ projectId, onClose }: { projectId: string; onClos
       <label className="switch-row">
         <input type="checkbox" checked={auto} onChange={(e) => (setAuto(e.target.checked), setState("idle"))} />
         <span>
-          Keep up to date automatically: re-index changed files when git HEAD moves (after <code>git pull</code>, a commit or a branch switch)
+          Keep up to date automatically: re-index changed files when git HEAD moves (after <code>git pull</code>, a
+          commit or a branch switch)
         </span>
       </label>
       <div className="auth-actions">
@@ -387,7 +432,12 @@ function AuditLog() {
   }, []);
   if (error) return <p className="form-error">Couldn't load the activity log: {error}</p>;
   if (!entries) return <p className="muted pad">Loading…</p>;
-  if (!entries.length) return <p className="muted pad">No activity recorded yet. Adding, indexing, renaming, settings changes and removals appear here.</p>;
+  if (!entries.length)
+    return (
+      <p className="muted pad">
+        No activity recorded yet. Adding, indexing, renaming, settings changes and removals appear here.
+      </p>
+    );
   return (
     <div className="audit-wrap">
       <table className="audit-table">
@@ -442,7 +492,11 @@ function StatusPanel() {
         </div>
         <div>
           <dt>Mode</dt>
-          <dd>{s.mode === "server" ? "Server (API key required, paths limited to CI_PROJECT_ROOTS)" : "Local (single user)"}</dd>
+          <dd>
+            {s.mode === "server"
+              ? "Server (API key required, paths limited to CI_PROJECT_ROOTS)"
+              : "Local (single user)"}
+          </dd>
         </div>
         <div>
           <dt>AI answers</dt>
@@ -450,7 +504,9 @@ function StatusPanel() {
         </div>
         <div>
           <dt>Private GitHub</dt>
-          <dd>{s.github_token_configured ? "CI_GITHUB_TOKEN configured" : "No token (public repos and local paths only)"}</dd>
+          <dd>
+            {s.github_token_configured ? "CI_GITHUB_TOKEN configured" : "No token (public repos and local paths only)"}
+          </dd>
         </div>
         <div>
           <dt>Projects</dt>
@@ -464,7 +520,11 @@ function StatusPanel() {
         ) : null}
         <div>
           <dt>Running jobs</dt>
-          <dd>{s.active_jobs.length ? s.active_jobs.map((j) => `${j.project_name}: ${j.message || j.status}`).join(" · ") : "none"}</dd>
+          <dd>
+            {s.active_jobs.length
+              ? s.active_jobs.map((j) => `${j.project_name}: ${j.message || j.status}`).join(" · ")
+              : "none"}
+          </dd>
         </div>
         <div>
           <dt>Analyzers</dt>

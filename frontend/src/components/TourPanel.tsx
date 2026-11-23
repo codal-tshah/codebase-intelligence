@@ -32,9 +32,7 @@ export function TourPanel({ projectId, layers, activeStep, onSelect, onPickNode 
   return (
     <div className="tour">
       <div className="tour-head">
-        <p className="muted">
-          A suggested reading order: entry points first, then routing, handlers, data and tests.
-        </p>
+        <p className="muted">A suggested reading order: entry points first, then routing, handlers, data and tests.</p>
         <div className="tour-nav">
           <button
             type="button"

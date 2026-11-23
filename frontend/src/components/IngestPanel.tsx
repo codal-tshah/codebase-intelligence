@@ -13,7 +13,13 @@ type Props = {
 const GITHUB = /^https?:\/\/(www\.)?github\.com\/[\w.-]+\/[\w.-]+\/?(\.git)?$/i;
 const LOCAL = /^(\/|~\/|[A-Za-z]:\\)/;
 
-type Access = { ok: boolean; reason?: string; default_branch?: string | null; needs_token?: boolean; token_configured?: boolean };
+type Access = {
+  ok: boolean;
+  reason?: string;
+  default_branch?: string | null;
+  needs_token?: boolean;
+  token_configured?: boolean;
+};
 
 /** Debounced preflight: can the server read this GitHub repo (with CI_GITHUB_TOKEN if set)? */
 function useGitAccess(url: string | null): Access | "checking" | null {
@@ -54,11 +60,12 @@ export function IngestPanel({ onAnalyze, busy, error, progress }: Props) {
       </div>
       <h2>Connect a repository</h2>
       <p className="muted">
-        Paste a GitHub URL or an absolute local path. Private repositories need <code>CI_GITHUB_TOKEN</code> set
-        on the server (or clone locally and use the path). A local folder is read, never modified; the index lives
-        in this tool's data folder. In server mode only folders under <code>CI_PROJECT_ROOTS</code> can be added. The analyzers detect Python (Django, FastAPI, Flask,
-        SQLAlchemy) and TypeScript/JavaScript (React, Next.js, Express, NestJS) automatically, link frontend calls to
-        backend routes, and build an explorable graph. Nothing leaves your machine unless you enable an LLM.
+        Paste a GitHub URL or an absolute local path. Private repositories need <code>CI_GITHUB_TOKEN</code> set on the
+        server (or clone locally and use the path). A local folder is read, never modified; the index lives in this
+        tool's data folder. In server mode only folders under <code>CI_PROJECT_ROOTS</code> can be added. The analyzers
+        detect Python (Django, FastAPI, Flask, SQLAlchemy) and TypeScript/JavaScript (React, Next.js, Express, NestJS)
+        automatically, link frontend calls to backend routes, and build an explorable graph. Nothing leaves your machine
+        unless you enable an LLM.
       </p>
       <form
         onSubmit={(e) => {
@@ -81,7 +88,8 @@ export function IngestPanel({ onAnalyze, busy, error, progress }: Props) {
         {isGit && access && access !== "checking" ? (
           access.ok ? (
             <p className="muted ingest-access">
-              <Check size={12} strokeWidth={1.5} aria-hidden /> Reachable{access.default_branch ? ` · default branch ${access.default_branch}` : ""}
+              <Check size={12} strokeWidth={1.5} aria-hidden /> Reachable
+              {access.default_branch ? ` · default branch ${access.default_branch}` : ""}
               {access.token_configured ? " · using server token" : ""}
             </p>
           ) : (

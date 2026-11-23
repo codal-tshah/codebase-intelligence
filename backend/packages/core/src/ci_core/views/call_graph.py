@@ -18,6 +18,7 @@ def build(
 ) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
     seed = focus if focus in index.nodes else None
     if seed is None:
+
         def call_degree(node_id: str) -> int:
             return sum(1 for e in index.outgoing.get(node_id, []) if e.edge_type in CALL_TYPES) + sum(
                 1 for e in index.incoming.get(node_id, []) if e.edge_type in CALL_TYPES

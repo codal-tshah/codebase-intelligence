@@ -38,8 +38,12 @@ class RenameBody(BaseModel):
 class SettingsBody(BaseModel):
     """Per-project settings stored in the data directory (never written into the repository)."""
 
-    ignore: list[str] | None = Field(default=None, max_length=200, description="gitignore-style patterns, one per entry")
-    auto_refresh: bool | None = Field(default=None, description="Re-index changed files automatically when git HEAD moves")
+    ignore: list[str] | None = Field(
+        default=None, max_length=200, description="gitignore-style patterns, one per entry"
+    )
+    auto_refresh: bool | None = Field(
+        default=None, description="Re-index changed files automatically when git HEAD moves"
+    )
 
 
 class SavedViewBody(BaseModel):
@@ -52,7 +56,9 @@ class ImpactBody(BaseModel):
 
     files: list[str] = Field(default_factory=list)
     node_ids: list[str] = Field(default_factory=list)
-    base: str | None = Field(default=None, description="Git ref to diff against (e.g. origin/main); ignored if files set")
+    base: str | None = Field(
+        default=None, description="Git ref to diff against (e.g. origin/main); ignored if files set"
+    )
     depth: int = Field(default=3, ge=1, le=6)
 
 

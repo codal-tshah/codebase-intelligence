@@ -22,7 +22,9 @@ export function toMermaid(payload: GraphPayload, title?: string): string {
   if (title) lines.unshift(`%% ${title.replace(/\n/g, " ")}`);
   for (const n of payload.nodes) {
     const shape = n.node_type === "Model" || n.node_type === "Table" ? ["[(", ")]"] : ["[", "]"];
-    lines.push(`  ${ids.get(n.id)}${shape[0]}"${mermaidLabel(n.label)}<br/><small>${mermaidLabel(n.node_type)}</small>"${shape[1]}`);
+    lines.push(
+      `  ${ids.get(n.id)}${shape[0]}"${mermaidLabel(n.label)}<br/><small>${mermaidLabel(n.node_type)}</small>"${shape[1]}`,
+    );
   }
   for (const e of payload.edges) {
     const a = ids.get(e.source);
@@ -56,7 +58,10 @@ export function toMarkdown(payload: GraphPayload, meta: { project: string; view:
     "",
     "| Name | Type | Layer | Source |",
     "|---|---|---|---|",
-    ...payload.nodes.map((n) => `| ${mdCell(n.label)} | ${mdCell(n.node_type)} | ${mdCell(n.layer)} | ${n.source_path ? `\`${mdCell(n.source_path)}\`` : ""} |`),
+    ...payload.nodes.map(
+      (n) =>
+        `| ${mdCell(n.label)} | ${mdCell(n.node_type)} | ${mdCell(n.layer)} | ${n.source_path ? `\`${mdCell(n.source_path)}\`` : ""} |`,
+    ),
     "",
     "## Relations",
     "",
@@ -72,13 +77,22 @@ export function toMarkdown(payload: GraphPayload, meta: { project: string; view:
 }
 
 export function toJson(payload: GraphPayload, meta: { project: string; view: string }): string {
-  return JSON.stringify({ version: 1, project: meta.project, view: meta.view, nodes: payload.nodes, edges: payload.edges }, null, 2);
+  return JSON.stringify(
+    { version: 1, project: meta.project, view: meta.view, nodes: payload.nodes, edges: payload.edges },
+    null,
+    2,
+  );
 }
 
 // ------------------------------------------------------------------ SVG / PNG
 
 function xml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 function clip(text: string, max: number): string {
@@ -99,7 +113,12 @@ export function absoluteBoxes(nodes: Node<ArchNodeData>[]): Map<string, Box> {
   };
   for (const n of nodes) {
     const { x, y } = abs(n);
-    out.set(n.id, { x, y, w: Number(n.width ?? n.measured?.width ?? 216), h: Number(n.height ?? n.measured?.height ?? 78) });
+    out.set(n.id, {
+      x,
+      y,
+      w: Number(n.width ?? n.measured?.width ?? 216),
+      h: Number(n.height ?? n.measured?.height ?? 78),
+    });
   }
   return out;
 }
@@ -138,7 +157,9 @@ export function toSvg(nodes: Node<ArchNodeData>[], edges: Edge[]): string {
     `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>`,
   ];
   // groups first (they sit behind their children), then leaves
-  const ordered = [...nodes].filter((n) => boxes.has(n.id)).sort((a, b) => Number(Boolean(b.data.exploreGroup)) - Number(Boolean(a.data.exploreGroup)));
+  const ordered = [...nodes]
+    .filter((n) => boxes.has(n.id))
+    .sort((a, b) => Number(Boolean(b.data.exploreGroup)) - Number(Boolean(a.data.exploreGroup)));
   for (const n of ordered) {
     const b = boxes.get(n.id)!;
     const x = b.x + ox;
@@ -153,7 +174,9 @@ export function toSvg(nodes: Node<ArchNodeData>[], edges: Edge[]): string {
       `<text x="${x + 14}" y="${y + 42}" font-size="13" font-weight="600" fill="#1d1c19">${xml(clip(String(n.data.label ?? n.id), group ? 48 : 28))}</text>`,
     );
     if (!group && n.data.path) {
-      parts.push(`<text x="${x + 14}" y="${y + 60}" font-size="10.5" font-family="'IBM Plex Mono', ui-monospace, monospace" fill="#6b675d">${xml(clip(n.data.path, 32))}</text>`);
+      parts.push(
+        `<text x="${x + 14}" y="${y + 60}" font-size="10.5" font-family="'IBM Plex Mono', ui-monospace, monospace" fill="#6b675d">${xml(clip(n.data.path, 32))}</text>`,
+      );
     }
     parts.push("</g>");
   }
@@ -205,11 +228,13 @@ export async function svgToPng(svg: string, scale = 2): Promise<Blob> {
 }
 
 export function safeFilename(...parts: string[]): string {
-  return parts
-    .join("-")
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 80) || "graph";
+  return (
+    parts
+      .join("-")
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 80) || "graph"
+  );
 }

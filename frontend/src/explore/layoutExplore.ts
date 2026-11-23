@@ -184,8 +184,8 @@ export function buildElkGraph(input: ExploreLayoutInput): ElkNode {
     // one end contains the other: nesting already expresses it
     if (i === sc.length || i === tc.length) continue;
     const container = i === 0 ? undefined : sc[i - 1];
-    const s = sc[i]!;
-    const t = tc[i]!;
+    const s = sc[i];
+    const t = tc[i];
     const key = routeKey(s, t);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -245,11 +245,11 @@ export function flattenElk(laid: ElkNode): ElkLayoutResult {
 export function extractRoutes(laid: ElkNode): ExploreRoutes {
   const routes: ExploreRoutes = new Map();
   const visit = (n: ElkNode, ox: number, oy: number) => {
-    for (const e of (n.edges ?? []) as ElkExtendedEdge[]) {
+    for (const e of n.edges ?? []) {
       const sec = e.sections?.[0];
       if (!sec) continue;
       const pts = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint].map((p) => ({ x: p.x + ox, y: p.y + oy }));
-      routes.set(routeKey(e.sources[0]!, e.targets[0]!), pts);
+      routes.set(routeKey(e.sources[0], e.targets[0]), pts);
     }
     for (const c of n.children ?? []) visit(c, ox + (c.x ?? 0), oy + (c.y ?? 0));
   };
@@ -257,7 +257,9 @@ export function extractRoutes(laid: ElkNode): ExploreRoutes {
   return routes;
 }
 
-export async function layoutExploreGraph(input: ExploreLayoutInput): Promise<{ positions: ElkLayoutResult; routes: ExploreRoutes }> {
+export async function layoutExploreGraph(
+  input: ExploreLayoutInput,
+): Promise<{ positions: ElkLayoutResult; routes: ExploreRoutes }> {
   if (!input.graphNodes.length) return { positions: new Map(), routes: new Map() };
   const ELK = (await import("elkjs/lib/elk.bundled.js")).default;
   const elk = new ELK();

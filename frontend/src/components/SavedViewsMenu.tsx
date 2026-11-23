@@ -37,7 +37,10 @@ export function SavedViewsMenu({ projectId, current, describe }: Props) {
   const save = async () => {
     try {
       const state = Object.fromEntries(Object.entries(current()).filter(([, v]) => v)) as Record<string, string>;
-      const v = await postJson<SavedView>(`/projects/${projectId}/saved-views`, { name: name.trim() || describe, state });
+      const v = await postJson<SavedView>(`/projects/${projectId}/saved-views`, {
+        name: name.trim() || describe,
+        state,
+      });
       setItems((list) => [...(list ?? []), v]);
       setName("");
     } catch (e) {
@@ -65,7 +68,15 @@ export function SavedViewsMenu({ projectId, current, describe }: Props) {
       >
         <Bookmark size={16} strokeWidth={1.5} aria-hidden />
       </button>
-      <Popover open={open} onClose={close} anchorRef={trigger} placement="bottom-end" role="dialog" label="Saved views" className="saved-pop">
+      <Popover
+        open={open}
+        onClose={close}
+        anchorRef={trigger}
+        placement="bottom-end"
+        role="dialog"
+        label="Saved views"
+        className="saved-pop"
+      >
         <form
           className="saved-form"
           onSubmit={(e) => {
@@ -76,7 +87,13 @@ export function SavedViewsMenu({ projectId, current, describe }: Props) {
           <label className="sr-only" htmlFor="saved-name">
             Name for this view
           </label>
-          <input id="saved-name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} placeholder="Name this view" />
+          <input
+            id="saved-name"
+            value={name}
+            maxLength={120}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Name this view"
+          />
           <button type="submit" className="btn primary small">
             Save
           </button>
@@ -87,7 +104,9 @@ export function SavedViewsMenu({ projectId, current, describe }: Props) {
           </p>
         ) : null}
         {items === null && !error ? <p className="muted pad">Loading…</p> : null}
-        {items && items.length === 0 ? <p className="muted pad">No saved views yet. Save the current diagram, selection and expansions.</p> : null}
+        {items && items.length === 0 ? (
+          <p className="muted pad">No saved views yet. Save the current diagram, selection and expansions.</p>
+        ) : null}
         {items?.map((v) => (
           <div key={v.id} className="saved-row">
             <button type="button" className="popover-item" data-pop-item onClick={() => openView(v)}>

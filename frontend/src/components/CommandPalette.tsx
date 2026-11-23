@@ -61,8 +61,12 @@ export function CommandPalette({ open, projectId, views, actions, onClose, onPic
     const match = (s: string) => !q || s.toLowerCase().includes(q);
     return [
       ...hits.map((hit) => ({ kind: "node" as const, key: `n:${hit.id}`, hit })),
-      ...views.filter((v) => v.available && match(v.label)).map((view) => ({ kind: "view" as const, key: `v:${view.id}`, view })),
-      ...actions.filter((a) => match(a.label)).map((action) => ({ kind: "action" as const, key: `a:${action.id}`, action })),
+      ...views
+        .filter((v) => v.available && match(v.label))
+        .map((view) => ({ kind: "view" as const, key: `v:${view.id}`, view })),
+      ...actions
+        .filter((a) => match(a.label))
+        .map((action) => ({ kind: "action" as const, key: `a:${action.id}`, action })),
     ];
   }, [hits, views, actions, query]);
 
@@ -86,7 +90,13 @@ export function CommandPalette({ open, projectId, views, actions, onClose, onPic
 
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className="palette"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="palette-input">
           <Search size={16} strokeWidth={1.5} aria-hidden />
           <input

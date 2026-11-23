@@ -38,14 +38,14 @@ def available_analyzers() -> list[Analyzer]:
     found: dict[str, Analyzer] = {a.id: a for a in _builtin()}
     try:
         eps = entry_points(group=ENTRY_POINT_GROUP)
-    except Exception:  # noqa: BLE001 - broken metadata must not break indexing
+    except Exception:
         eps = []
     for ep in eps:
         if ep.name in found:
             continue
         try:
             obj = ep.load()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.warning("could not load analyzer %s: %s", ep.name, exc)
             continue
         analyzer = obj() if isinstance(obj, type) else obj
@@ -100,7 +100,7 @@ def analyze_project(project_id: str, root: Path) -> ProjectAnalysis:
         try:
             results.append(analyzer.analyze(project_id, root, mine))
             used.append(analyzer)
-        except Exception as exc:  # noqa: BLE001 - one analyzer failing must not lose the others
+        except Exception as exc:
             log.exception("analyzer %s failed", analyzer.id)
             results.append(AnalysisResult(analyzer=analyzer.id, warnings=[f"analyzer {analyzer.id} failed: {exc}"]))
 

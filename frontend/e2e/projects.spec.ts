@@ -31,17 +31,26 @@ test.describe("project lifecycle", () => {
   test("add a repository, explore it, then remove it without touching the source", async ({ page }) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "ci-e2e-"));
     const src = path.join(root, "shop-e2e");
-    fs.cpSync(FIXTURE, src, { recursive: true, filter: (p) => !p.includes("node_modules") && !p.includes("__pycache__") });
+    fs.cpSync(FIXTURE, src, {
+      recursive: true,
+      filter: (p) => !p.includes("node_modules") && !p.includes("__pycache__"),
+    });
     const before = treeDigest(src);
     try {
       await page.goto("/");
-      await page.getByRole("button", { name: /Add a repository|Add repository/ }).first().click();
+      await page
+        .getByRole("button", { name: /Add a repository|Add repository/ })
+        .first()
+        .click();
       await page.getByPlaceholder(/github\.com\/owner\/repository/).fill(src);
       await page.getByRole("button", { name: "Analyze local project" }).click();
       await expect(page.locator(".overview-title")).toHaveText("shop-e2e", { timeout: 45_000 });
 
       // explore: expand a package and select a node (trace bar appears)
-      await page.getByRole("navigation").getByRole("button", { name: /Explore/ }).click();
+      await page
+        .getByRole("navigation")
+        .getByRole("button", { name: /Explore/ })
+        .click();
       const chevron = page.locator(".arch-chevron[aria-expanded='false']").first();
       await chevron.waitFor();
       await chevron.click();
@@ -66,7 +75,9 @@ test.describe("project lifecycle", () => {
       expect(projects.some((p) => p.name === "shop-e2e")).toBe(false);
       expect(fs.existsSync(src)).toBe(true);
       expect(treeDigest(src)).toBe(before);
-      const audit = (await (await page.request.get("/api/audit?action=project.delete&limit=5")).json()) as { entries: { project_name: string }[] };
+      const audit = (await (await page.request.get("/api/audit?action=project.delete&limit=5")).json()) as {
+        entries: { project_name: string }[];
+      };
       expect(audit.entries.some((e) => e.project_name === "shop-e2e")).toBe(true);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });

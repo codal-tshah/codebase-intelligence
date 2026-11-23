@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections import defaultdict
 from typing import Any
 
@@ -53,7 +54,7 @@ def _project_id(index: GraphIndex) -> str | None:
 
 def _contains_parent(index: GraphIndex) -> dict[str, str]:
     # Cached on the index: these helpers run once per visible node, so rescanning every edge
-    # here made each explore request O(visible × edges).
+    # here made each explore request O(visible x edges).
     return index.contains_parent
 
 
@@ -99,10 +100,7 @@ def _direct_structural_children(index: GraphIndex, nid: str) -> list[str]:
         c = index.nodes.get(cid)
         if c is None:
             continue
-        if node.node_type == NodeType.PROJECT:
-            if c.node_type in (NodeType.PACKAGE, NodeType.MODULE):
-                out.append(cid)
-        elif node.node_type == NodeType.PACKAGE:
+        if node.node_type in (NodeType.PROJECT, NodeType.PACKAGE):
             if c.node_type in (NodeType.PACKAGE, NodeType.MODULE):
                 out.append(cid)
         elif node.node_type == NodeType.MODULE:
@@ -148,7 +146,7 @@ def structural_depths(index: GraphIndex) -> dict[str, int]:
     """Absolute Explore level of every structural node: top-level roots are level 1, their
     children level 2, and so on. Cached per loaded index (the store rebuilds it on re-index)."""
     cached = index.__dict__.get(_DEPTH_ATTR)
-    if cached is not None:
+    if isinstance(cached, dict):
         return cached
     proj = _project_id(index)
     depths: dict[str, int] = {}
@@ -262,9 +260,7 @@ def _collect_visible(
     return visible, child_count, truncated_children
 
 
-def _lift_to_visible(
-    index: GraphIndex, nid: str | None, visible: set[str], parent: dict[str, str]
-) -> str | None:
+def _lift_to_visible(index: GraphIndex, nid: str | None, visible: set[str], parent: dict[str, str]) -> str | None:
     if nid is None:
         return None
     cur: str | None = nid
@@ -360,10 +356,8 @@ def _parse_offsets_param(params: dict[str, Any]) -> dict[str, int]:
                 k, _, v = s.partition("=")
                 k, v = k.strip(), v.strip()
                 if k:
-                    try:
+                    with contextlib.suppress(TypeError, ValueError):
                         out[k] = max(0, int(v))
-                    except (TypeError, ValueError):
-                        pass
         return out
     if isinstance(raw, str) and raw.strip().startswith("{"):
         try:
@@ -372,24 +366,20 @@ def _parse_offsets_param(params: dict[str, Any]) -> dict[str, int]:
             obj = json.loads(raw)
             if isinstance(obj, dict):
                 for k, v in obj.items():
-                    try:
+                    with contextlib.suppress(TypeError, ValueError):
                         out[str(k)] = max(0, int(v))
-                    except (TypeError, ValueError):
-                        pass
         except Exception:
             pass
         return out
     if isinstance(raw, str):
-        for part in raw.split(","):
-            part = part.strip()
+        for chunk in raw.split(","):
+            part = chunk.strip()
             if "=" in part:
                 k, _, v = part.partition("=")
                 k, v = k.strip(), v.strip()
                 if k:
-                    try:
+                    with contextlib.suppress(TypeError, ValueError):
                         out[k] = max(0, int(v))
-                    except (TypeError, ValueError):
-                        pass
     return out
 
 
@@ -405,6 +395,20 @@ def _visible_depths(parent_id: dict[str, str | None]) -> dict[str, int]:
         depth[u] = d
         queue.extend((v, d + 1) for v in children.get(u, []))
     return depth
+
+
+def _nearest_visible_parent(nid: str, visible: set[str], parent_map: dict[str, str]) -> str | None:
+    cur: str | None = nid
+    guard = 0
+    while cur and guard < 512:
+        cand = parent_map.get(cur)
+        if not cand:
+            break
+        if cand in visible:
+            return cand
+        cur = cand
+        guard += 1
+    return None
 
 
 def _explore_visible_bundle(
@@ -428,21 +432,7 @@ def _explore_visible_bundle(
     visible, child_count, trunc_page = _collect_visible(index, proj, expanded_set, extra_child_offsets)
     parent_map = _contains_parent(index)
 
-    parent_id: dict[str, str | None] = {}
-    for nid in visible:
-        cur: str | None = nid
-        found: str | None = None
-        guard = 0
-        while cur and guard < 512:
-            cand = parent_map.get(cur)
-            if not cand:
-                break
-            if cand in visible:
-                found = cand
-                break
-            cur = cand
-            guard += 1
-        parent_id[nid] = found
+    parent_id = {nid: _nearest_visible_parent(nid, visible, parent_map) for nid in visible}
 
     depth = _visible_depths(parent_id)
 
@@ -461,21 +451,7 @@ def _explore_visible_bundle(
             visible = set(ranked[:BUDGET])
         child_count = {k: v for k, v in child_count.items() if k in visible}
         truncated_children = {k: v for k, v in truncated_children.items() if k in visible}
-        parent_id = {}
-        for nid in visible:
-            cur: str | None = nid
-            found: str | None = None
-            guard = 0
-            while cur and guard < 512:
-                cand = parent_map.get(cur)
-                if not cand:
-                    break
-                if cand in visible:
-                    found = cand
-                    break
-                cur = cand
-                guard += 1
-            parent_id[nid] = found
+        parent_id = {nid: _nearest_visible_parent(nid, visible, parent_map) for nid in visible}
         depth = _visible_depths(parent_id)
 
     return visible, child_count, truncated_children, parent_id, depth, truncated, reason
@@ -515,8 +491,8 @@ def build(
     expanded_set = _expand_closure(index, expanded_set)
 
     extra_offsets = _parse_offsets_param(params)
-    visible, child_count, truncated_children, parent_id, depth, truncated, reason = (
-        _explore_visible_bundle(index, proj, expanded_set, extra_offsets)
+    visible, child_count, truncated_children, parent_id, depth, truncated, reason = _explore_visible_bundle(
+        index, proj, expanded_set, extra_offsets
     )
     parent = _contains_parent(index)
 
@@ -575,13 +551,9 @@ def underlying_between(
     expanded_set = {e for e in expanded_set if e in index.nodes}
     expanded_set = _expand_closure(index, expanded_set)
 
-    visible, _, _, _, _, _, _ = _explore_visible_bundle(
-        index, proj, expanded_set, extra_offsets or {}
-    )
+    visible, _, _, _, _, _, _ = _explore_visible_bundle(index, proj, expanded_set, extra_offsets or {})
     parent = _contains_parent(index)
-    return underlying_edges_between_visible(
-        index, source_id, target_id, visible, parent, cap=cap
-    )
+    return underlying_edges_between_visible(index, source_id, target_id, visible, parent, cap=cap)
 
 
 register_view(

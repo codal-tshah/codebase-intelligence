@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import threading
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
-from collections.abc import Iterable
 
 from sqlalchemy import (
     Column,
@@ -228,9 +228,7 @@ class GraphStore:
                     session.query(EdgeRow).filter(
                         (EdgeRow.source_id.in_(node_ids)) | (EdgeRow.target_id.in_(node_ids))
                     ).delete(synchronize_session=False)
-                    session.query(NodeRow).filter(NodeRow.id.in_(node_ids)).delete(
-                        synchronize_session=False
-                    )
+                    session.query(NodeRow).filter(NodeRow.id.in_(node_ids)).delete(synchronize_session=False)
             now = utcnow()
             for node in nodes:
                 row = session.get(NodeRow, node.id)
@@ -359,7 +357,10 @@ class GraphStore:
         """Newest first (index history for the project list and status page)."""
         with self.session() as session:
             rows = session.scalars(
-                select(JobRow).where(JobRow.project_id == self.project_id).order_by(JobRow.created_at.desc()).limit(limit)
+                select(JobRow)
+                .where(JobRow.project_id == self.project_id)
+                .order_by(JobRow.created_at.desc())
+                .limit(limit)
             ).all()
             return [
                 IndexJobRecord(
@@ -378,7 +379,9 @@ class GraphStore:
     def has_running_job(self) -> bool:
         with self.session() as session:
             row = session.scalars(
-                select(JobRow.id).where(JobRow.project_id == self.project_id, JobRow.status == JobStatus.RUNNING.value).limit(1)
+                select(JobRow.id)
+                .where(JobRow.project_id == self.project_id, JobRow.status == JobStatus.RUNNING.value)
+                .limit(1)
             ).first()
             return row is not None
 
@@ -507,16 +510,10 @@ class GraphStore:
     def clear_graph(self, *, keep_chunks: bool = False) -> None:
         """Remove every node and edge (and chunks unless `keep_chunks`) so no stale rows survive."""
         with self.session() as session:
-            session.query(EdgeRow).filter(EdgeRow.project_id == self.project_id).delete(
-                synchronize_session=False
-            )
+            session.query(EdgeRow).filter(EdgeRow.project_id == self.project_id).delete(synchronize_session=False)
             if not keep_chunks:
-                session.query(ChunkRow).filter(ChunkRow.project_id == self.project_id).delete(
-                    synchronize_session=False
-                )
-            session.query(NodeRow).filter(NodeRow.project_id == self.project_id).delete(
-                synchronize_session=False
-            )
+                session.query(ChunkRow).filter(ChunkRow.project_id == self.project_id).delete(synchronize_session=False)
+            session.query(NodeRow).filter(NodeRow.project_id == self.project_id).delete(synchronize_session=False)
             session.commit()
 
     def delete_chunks(self, paths: set[str]) -> None:

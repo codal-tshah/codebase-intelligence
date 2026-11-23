@@ -64,13 +64,18 @@ export function SuggestionsPanel({ projectId, reloadKey, onPickNode }: Props) {
     );
   }
   if (items.length === 0) {
-    return <p className="muted pad">No suggestions: no hotspots, large functions, duplicates, cycles or unused code were detected.</p>;
+    return (
+      <p className="muted pad">
+        No suggestions: no hotspots, large functions, duplicates, cycles or unused code were detected.
+      </p>
+    );
   }
 
   return (
     <div className="suggestions">
       <p className="muted">
-        Leads for a reviewer, found by static heuristics. Dynamic calls can be missed, so confirm in the source before acting.
+        Leads for a reviewer, found by static heuristics. Dynamic calls can be missed, so confirm in the source before
+        acting.
       </p>
       <div className="chip-row" role="group" aria-label="Filter suggestions">
         {["all", ...kinds].map((k) => (
@@ -98,7 +103,11 @@ export function SuggestionsPanel({ projectId, reloadKey, onPickNode }: Props) {
               <ul>
                 {s.nodes.slice(0, 8).map((n) => (
                   <li key={n.id}>
-                    <button type="button" onClick={() => onPickNode(n.id)} title={n.source_path ? `${n.source_path}${n.line ? `:${n.line}` : ""}` : n.name}>
+                    <button
+                      type="button"
+                      onClick={() => onPickNode(n.id)}
+                      title={n.source_path ? `${n.source_path}${n.line ? `:${n.line}` : ""}` : n.name}
+                    >
                       <NodeIcon type={n.type} size={12} />
                       <span className="impact-name">{n.name}</span>
                       <span className="impact-sub">{n.source_path ?? n.type}</span>

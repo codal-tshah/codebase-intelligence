@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import threading
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from ci_core.config import get_data_dir
@@ -17,12 +18,19 @@ _LOCK = threading.Lock()
 MAX_READ = 1000
 
 
-def _path():
+def _path() -> Path:
     return get_data_dir() / "audit.jsonl"
 
 
-def record(action: str, *, project_id: str | None = None, project_name: str | None = None, actor: str | None = None,
-           detail: dict[str, Any] | None = None, outcome: str = "ok") -> dict[str, Any]:
+def record(
+    action: str,
+    *,
+    project_id: str | None = None,
+    project_name: str | None = None,
+    actor: str | None = None,
+    detail: dict[str, Any] | None = None,
+    outcome: str = "ok",
+) -> dict[str, Any]:
     """Append one entry. Failures to write never break the action being audited."""
     entry = {
         "ts": datetime.now(UTC).isoformat(timespec="seconds"),

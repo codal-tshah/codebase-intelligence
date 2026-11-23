@@ -15,9 +15,7 @@ export function mergeExploreLayoutPositions(
   routes?: ExploreRoutes,
 ): { nodes: Node<ArchNodeData>[]; edges: Edge[] } {
   const posById = new Map(laidOut.map((n) => [n.id, n.position]));
-  const dimById = new Map(
-    laidOut.map((n) => [n.id, { width: n.width as number | undefined, height: n.height as number | undefined }]),
-  );
+  const dimById = new Map(laidOut.map((n) => [n.id, { width: n.width, height: n.height }]));
   const nodes = styled.nodes.map((n) => {
     const p = posById.get(n.id);
     const d = dimById.get(n.id);
@@ -67,7 +65,9 @@ type Args = {
  */
 export function useExploreLayout(a: Args) {
   const { fitView, fitBounds } = useReactFlow();
-  const laidOutRef = useRef<{ nodes: Node<ArchNodeData>[]; edges: Edge[]; gen: number; routes: ExploreRoutes } | null>(null);
+  const laidOutRef = useRef<{ nodes: Node<ArchNodeData>[]; edges: Edge[]; gen: number; routes: ExploreRoutes } | null>(
+    null,
+  );
   const genRef = useRef(0);
   // Explore reads these from refs inside the structure effect so they don't trigger ELK.
   const selectedRef = useRef(a.selectedId);

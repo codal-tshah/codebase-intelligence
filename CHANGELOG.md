@@ -2,6 +2,13 @@
 
 All notable changes. Dates are when the work landed on a branch; versions are not tagged yet.
 
+## Unreleased: code quality baseline (2026-11-19)
+
+### Added
+- **Ruff:** expanded lint set, isort, format (`line-length` 120); documented per-rule ignores in `backend/pyproject.toml`.
+- **Mypy:** strict on `ci_core` + `ci_parsers` (`ci_core.db` excluded until SQLAlchemy plugin); `py.typed` markers.
+- **Frontend:** type-aware ESLint, Prettier, `format:check` / `typecheck` scripts; CI + `.editorconfig` + `.pre-commit-config.yaml` + VS Code settings.
+
 ## Unreleased: graph analytics P0 (2026-11-19)
 
 ### Added

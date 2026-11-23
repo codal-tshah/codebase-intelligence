@@ -6,8 +6,13 @@ from ci_core.models import NodeRecord, NodeType
 
 def _ep(route, methods=None, path="api/urls.py"):
     return NodeRecord(
-        id=route + str(methods), project_id="p", node_type=NodeType.ENDPOINT, name=route,
-        source_path=path, extractor="t", properties={"route": route, "methods": methods or []},
+        id=route + str(methods),
+        project_id="p",
+        node_type=NodeType.ENDPOINT,
+        name=route,
+        source_path=path,
+        extractor="t",
+        properties={"route": route, "methods": methods or []},
     )
 
 

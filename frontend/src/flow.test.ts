@@ -87,7 +87,12 @@ describe("buildFlow selection highlight", () => {
   it("marks direction: upstream nodes/edges vs downstream, with hop counts and raised z-index", () => {
     const payload: GraphPayload = {
       view: "call-graph",
-      nodes: ["caller", "sel", "callee", "deep", "x"].map((id) => ({ id, label: id, node_type: "Function", properties: {} })),
+      nodes: ["caller", "sel", "callee", "deep", "x"].map((id) => ({
+        id,
+        label: id,
+        node_type: "Function",
+        properties: {},
+      })),
       edges: [
         { id: "e1", source: "caller", target: "sel", edge_type: "CALLS" },
         { id: "e2", source: "sel", target: "callee", edge_type: "CALLS" },
@@ -130,7 +135,12 @@ describe("buildFlow selection highlight", () => {
   });
 
   it("large graphs draw unselected edges as faint context beneath nodes", () => {
-    const nodes = Array.from({ length: 200 }, (_, i) => ({ id: `n${i}`, label: `n${i}`, node_type: "Module", properties: {} }));
+    const nodes = Array.from({ length: 200 }, (_, i) => ({
+      id: `n${i}`,
+      label: `n${i}`,
+      node_type: "Module",
+      properties: {},
+    }));
     const edges = nodes.slice(1).map((n, i) => ({ id: `e${i}`, source: "n0", target: n.id, edge_type: "IMPORTS" }));
     const flow = buildFlow({ view: "layers", nodes, edges }, { ...base, selectedId: null });
     expect(flow.edges.every((e) => e.zIndex === 0 && !e.markerEnd && Number(e.style?.opacity) < 0.3)).toBe(true);
@@ -140,7 +150,13 @@ describe("buildFlow selection highlight", () => {
 describe("buildFlow helper text", () => {
   const base = { layers: [], hiddenLayers: new Set<string>(), filter: "", overlay: null, selectedId: null };
   const nodes = [
-    { id: "j", label: "sync_orders", node_type: "Function", summary: "Saves orders", properties: { job: { kind: "scheduled", schedule: "0 * * * *" } } },
+    {
+      id: "j",
+      label: "sync_orders",
+      node_type: "Function",
+      summary: "Saves orders",
+      properties: { job: { kind: "scheduled", schedule: "0 * * * *" } },
+    },
     { id: "f", label: "save", node_type: "Function", summary: "Writes Order", properties: {} },
   ];
 

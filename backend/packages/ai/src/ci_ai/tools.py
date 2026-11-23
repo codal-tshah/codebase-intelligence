@@ -110,8 +110,14 @@ class GraphTools:
             if e.edge_type == EdgeType.CONTAINS:
                 continue
             src = self.index.nodes[e.source_id]
-            refs.append({**_brief(src), "relation": e.edge_type.value, "confidence": e.confidence,
-                         "line": e.properties.get("line") or src.start_line})
+            refs.append(
+                {
+                    **_brief(src),
+                    "relation": e.edge_type.value,
+                    "confidence": e.confidence,
+                    "line": e.properties.get("line") or src.start_line,
+                }
+            )
         refs.sort(key=lambda r: (r["relation"], r.get("path") or "", r.get("line") or 0))
         return {"target": _brief(node), "count": len(refs), "references": refs[:limit]}
 
@@ -130,8 +136,16 @@ class GraphTools:
 
         out_edges = [e for e in self.index.outgoing.get(node.id, []) if e.edge_type != EdgeType.CONTAINS]
         in_edges = [e for e in self.index.incoming.get(node.id, []) if e.edge_type != EdgeType.CONTAINS]
-        callees = [self.index.nodes[e.target_id] for e in out_edges if e.edge_type in (EdgeType.CALLS, EdgeType.INJECTS, EdgeType.ROUTES_TO)]
-        callers = [self.index.nodes[e.source_id] for e in in_edges if e.edge_type in (EdgeType.CALLS, EdgeType.HTTP_CALLS, EdgeType.RENDERS)]
+        callees = [
+            self.index.nodes[e.target_id]
+            for e in out_edges
+            if e.edge_type in (EdgeType.CALLS, EdgeType.INJECTS, EdgeType.ROUTES_TO)
+        ]
+        callers = [
+            self.index.nodes[e.source_id]
+            for e in in_edges
+            if e.edge_type in (EdgeType.CALLS, EdgeType.HTTP_CALLS, EdgeType.RENDERS)
+        ]
         models = [
             {"name": self.index.nodes[e.target_id].name, "access": e.edge_type.value}
             for e in out_edges
@@ -184,8 +198,12 @@ class GraphTools:
         seen = {ep.id}
         frontier = [ep.id]
         follow = {
-            EdgeType.ROUTES_TO, EdgeType.CALLS, EdgeType.READS_MODEL, EdgeType.WRITES_MODEL,
-            EdgeType.DEPENDS_ON, EdgeType.INJECTS,
+            EdgeType.ROUTES_TO,
+            EdgeType.CALLS,
+            EdgeType.READS_MODEL,
+            EdgeType.WRITES_MODEL,
+            EdgeType.DEPENDS_ON,
+            EdgeType.INJECTS,
         }
         for _ in range(3):
             nxt: list[str] = []
@@ -245,7 +263,14 @@ class GraphTools:
                 if e.edge_type == EdgeType.CONTAINS and target.node_type == NodeType.FIELD:
                     fields.append(f"{target.name}: {target.properties.get('field_type', '')}")
                 elif e.edge_type == EdgeType.FK_TO:
-                    relations.append({"to": target.name, "to_id": target.id, "field": e.properties.get("field"), "relation": e.properties.get("relation")})
+                    relations.append(
+                        {
+                            "to": target.name,
+                            "to_id": target.id,
+                            "field": e.properties.get("field"),
+                            "relation": e.properties.get("relation"),
+                        }
+                    )
             for e in self.index.incoming.get(m.id, []):
                 src = self.index.nodes[e.source_id].name
                 if e.edge_type == EdgeType.READS_MODEL:

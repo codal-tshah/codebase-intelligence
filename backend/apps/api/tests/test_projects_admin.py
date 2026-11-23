@@ -67,7 +67,7 @@ def test_delete_removes_a_managed_clone(client, data_dir):
 
 
 def test_delete_refused_while_indexing(client, monkeypatch):
-    import ci_api.routers.projects as projects
+    from ci_api.routers import projects
 
     monkeypatch.setattr(projects, "index_in_progress", lambda pid: True)
     res = client.delete(f"/projects/{client.project_id}")
@@ -86,7 +86,9 @@ def test_rename_unique_and_survives_reindex(client, project_copy):
 def test_settings_ignore_patterns_apply_on_next_index(client):
     pid = client.project_id
     files_before = client.get("/projects/overview").json()[0]["files"]
-    res = client.put(f"/projects/{pid}/settings", json={"ignore": ["*/admin.py", "# comment", ""], "auto_refresh": True})
+    res = client.put(
+        f"/projects/{pid}/settings", json={"ignore": ["*/admin.py", "# comment", ""], "auto_refresh": True}
+    )
     assert res.status_code == 200
     assert res.json()["ignore"] == ["*/admin.py"] and res.json()["auto_refresh"] is True
     job = client.post(f"/projects/{pid}/index").json()
@@ -98,7 +100,10 @@ def test_settings_ignore_patterns_apply_on_next_index(client):
 
 def test_saved_views_roundtrip(client):
     pid = client.project_id
-    v = client.post(f"/projects/{pid}/saved-views", json={"name": "Orders flow", "state": {"v": "api-flow", "n": "abc", "x": "dropped"}}).json()
+    v = client.post(
+        f"/projects/{pid}/saved-views",
+        json={"name": "Orders flow", "state": {"v": "api-flow", "n": "abc", "x": "dropped"}},
+    ).json()
     assert v["state"] == {"v": "api-flow", "n": "abc"}
     assert [i["name"] for i in client.get(f"/projects/{pid}/saved-views").json()["views"]] == ["Orders flow"]
     assert client.delete(f"/projects/{pid}/saved-views/{v['id']}").status_code == 200

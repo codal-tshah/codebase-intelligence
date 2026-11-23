@@ -22,11 +22,6 @@ from typing import Any
 import tree_sitter_typescript as tsts
 from tree_sitter import Language, Node, Parser
 
-from ci_core.analysis import AnalysisResult, HttpCall
-from ci_core.insights import GraphIndex, classify_complexity
-from ci_core.models import EdgeRecord, EdgeType, NodeRecord, NodeType
-from ci_parsers import file_sha256, stable_node_id
-
 from ci_adapters_typescript.roles import (
     HTTP_CLIENT_OBJECTS,
     HTTP_VERBS,
@@ -43,6 +38,10 @@ from ci_adapters_typescript.roles import (
     package_root,
     sdk_for,
 )
+from ci_core.analysis import AnalysisResult, HttpCall
+from ci_core.insights import GraphIndex, classify_complexity
+from ci_core.models import EdgeRecord, EdgeType, NodeRecord, NodeType
+from ci_parsers import file_sha256, stable_node_id
 
 ANALYZER_VERSION = "2"
 EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
@@ -142,7 +141,17 @@ def _function_value(value: Node | None) -> Node | None:
         return value
     if value.type == "call_expression":
         callee = _callee_text(value.child_by_field_name("function")).split(".")[-1]
-        if callee in ("memo", "forwardRef", "observer", "styled", "withRouter", "lazy", "connect", "defineComponent", "useCallback"):
+        if callee in (
+            "memo",
+            "forwardRef",
+            "observer",
+            "styled",
+            "withRouter",
+            "lazy",
+            "connect",
+            "defineComponent",
+            "useCallback",
+        ):
             for arg in _named(value.child_by_field_name("arguments")):
                 if arg.type in FUNCTION_NODES:
                     return arg
@@ -516,7 +525,7 @@ class _Analyzer:
                     elif _function_value(right) is not None:
                         sym = self._function_sym(mod, "default", right, _function_value(right))
                         mod.default_export = sym.name
-                elif left.startswith("exports.") or left.startswith("module.exports."):
+                elif left.startswith(("exports.", "module.exports.")):
                     key = left.rsplit(".", 1)[-1]
                     fn = _function_value(right)
                     if fn is not None:
@@ -533,7 +542,9 @@ class _Analyzer:
         if fn is not None:
             stem = Path(mod.rel).name.split(".")[0]
             name = stem[:1].upper() + stem[1:] if _contains_jsx(fn) else "default"
-            sym = self._function_sym(mod, name if name not in ("Index", "Page", "Route") else f"{name}Default", value, fn)
+            sym = self._function_sym(
+                mod, name if name not in ("Index", "Page", "Route") else f"{name}Default", value, fn
+            )
             sym.exported = True
             mod.default_export = sym.name
             return
@@ -584,7 +595,11 @@ class _Analyzer:
             return
         if name_node.type == "object_pattern" and value.type == "call_expression":
             if _callee_text(value.child_by_field_name("function")) == "require":
-                spec = _string_value(_named(value.child_by_field_name("arguments"))[0]) if _named(value.child_by_field_name("arguments")) else None
+                spec = (
+                    _string_value(_named(value.child_by_field_name("arguments"))[0])
+                    if _named(value.child_by_field_name("arguments"))
+                    else None
+                )
                 if spec:
                     mod.import_specs.append((spec, _line(decl)))
                     for child in _named(name_node):
@@ -619,10 +634,24 @@ class _Analyzer:
             if tail in ("Router", "express", "Hono", "fastify", "Koa", "createServer") or callee.endswith("Router"):
                 mod.router_vars.add(name)
             # stores/contexts are still useful symbols for search and impact
-            if tail in ("createContext", "createSlice", "create", "defineStore", "createStore", "configureStore", "atom"):
+            if tail in (
+                "createContext",
+                "createSlice",
+                "create",
+                "defineStore",
+                "createStore",
+                "configureStore",
+                "atom",
+            ):
                 sym = _Sym(
-                    id=self._sym_id(mod, name), name=name, kind="object", node=value,
-                    start=_line(decl), end=_end_line(decl), exported=exported, role="stores",
+                    id=self._sym_id(mod, name),
+                    name=name,
+                    kind="object",
+                    node=value,
+                    start=_line(decl),
+                    end=_end_line(decl),
+                    exported=exported,
+                    role="stores",
                 )
                 self._add_sym(mod, sym)
             return
@@ -639,8 +668,13 @@ class _Analyzer:
                     members.append((member_name, child, member_fn))
             if members:
                 obj = _Sym(
-                    id=self._sym_id(mod, name), name=name, kind="object", node=value,
-                    start=_line(decl), end=_end_line(decl), exported=exported,
+                    id=self._sym_id(mod, name),
+                    name=name,
+                    kind="object",
+                    node=value,
+                    start=_line(decl),
+                    end=_end_line(decl),
+                    exported=exported,
                 )
                 self._add_sym(mod, obj)
                 for member_name, child, member_fn in members:
@@ -652,7 +686,7 @@ class _Analyzer:
     ) -> _Sym:
         fn = fn or node
         params = fn.child_by_field_name("parameters") or fn.child_by_field_name("parameter")
-        short = name.split(".")[-1]
+        short = name.rsplit(".", maxsplit=1)[-1]
         has_jsx = _contains_jsx(fn)
         sym = _Sym(
             id=self._sym_id(mod, name),
@@ -662,9 +696,13 @@ class _Analyzer:
             start=_line(node),
             end=_end_line(node),
             parent=parent,
-            is_component=kind == "function" and is_component_name(short) and (has_jsx or mod.rel.endswith((".tsx", ".jsx"))),
+            is_component=kind == "function"
+            and is_component_name(short)
+            and (has_jsx or mod.rel.endswith((".tsx", ".jsx"))),
             is_hook=is_hook_name(short),
-            params=len(_named(params)) if params is not None and params.type != "identifier" else (1 if params is not None else 0),
+            params=len(_named(params))
+            if params is not None and params.type != "identifier"
+            else (1 if params is not None else 0),
         )
         return self._add_sym(mod, sym)
 
@@ -681,8 +719,14 @@ class _Analyzer:
                     elif clause.type in ("identifier", "member_expression"):  # JS grammar: `extends X` directly
                         bases.append(_callee_text(clause))
         cls = _Sym(
-            id=self._sym_id(mod, name), name=name, kind="class", node=node,
-            start=_line(node), end=_end_line(node), decorators=decorators, bases=bases,
+            id=self._sym_id(mod, name),
+            name=name,
+            kind="class",
+            node=node,
+            start=_line(node),
+            end=_end_line(node),
+            decorators=decorators,
+            bases=bases,
         )
         cls.is_component = any(b.split(".")[-1] in ("Component", "PureComponent") for b in bases)
         self._add_sym(mod, cls)
@@ -773,7 +817,11 @@ class _Analyzer:
         if node.type in ("jsx_self_closing_element", "jsx_opening_element"):
             return _callee_text(node.child_by_field_name("name"))
         if node.type == "jsx_element":
-            return self._component_ref(node.child_by_field_name("open_tag")) if node.child_by_field_name("open_tag") else ""
+            return (
+                self._component_ref(node.child_by_field_name("open_tag"))
+                if node.child_by_field_name("open_tag")
+                else ""
+            )
         if node.type == "jsx_expression":
             inner = _named(node)
             return self._component_ref(inner[0]) if inner else ""
@@ -831,7 +879,11 @@ class _Analyzer:
             and first.startswith(("/", "*"))
             and len(args) >= 2
             and ROUTER_OBJECTS.match(obj_tail or "")
-            and (obj_tail in mod.router_vars or obj_tail in ("app", "router", "server") or any(a.type in FUNCTION_NODES for a in args[1:]))
+            and (
+                obj_tail in mod.router_vars
+                or obj_tail in ("app", "router", "server")
+                or any(a.type in FUNCTION_NODES for a in args[1:])
+            )
         ):
             rid = stable_node_id(self.pid, "ts-endpoint", mod.rel, str(_line(node)), tail, first)
             handlers: list[Node] = []
@@ -842,8 +894,14 @@ class _Analyzer:
                     handlers.append(arg)
             self.routes.append(
                 _Route(
-                    id=rid, module=mod, verb=tail.upper(), path=first, line=_line(node), end_line=_end_line(node),
-                    handlers=handlers, framework="express",
+                    id=rid,
+                    module=mod,
+                    verb=tail.upper(),
+                    path=first,
+                    line=_line(node),
+                    end_line=_end_line(node),
+                    handlers=handlers,
+                    framework="express",
                 )
             )
             self.frameworks.add("express")
@@ -978,10 +1036,14 @@ class _Analyzer:
             pkg_dir = self.workspace_names[root]
             rest = spec[len(root) :].lstrip("/")
             data = self.package_dirs.get(pkg_dir, {})
-            entries = [rest] if rest else [str(data.get("source") or ""), str(data.get("main") or ""), "src/index", "index"]
+            entries = (
+                [rest] if rest else [str(data.get("source") or ""), str(data.get("main") or ""), "src/index", "index"]
+            )
             for entry in entries:
                 if entry:
-                    hit = self._file_for(posixpath.join(pkg_dir, entry)) or self._file_for(posixpath.join(pkg_dir, "src", entry))
+                    hit = self._file_for(posixpath.join(pkg_dir, entry)) or self._file_for(
+                        posixpath.join(pkg_dir, "src", entry)
+                    )
                     if hit:
                         return hit
         if spec.startswith("/"):
@@ -1100,8 +1162,16 @@ class _Analyzer:
     # ------------------------------------------------------------------ nodes
 
     def _edge(
-        self, edge_type: EdgeType, src: str, tgt: str, *, rel: str | None, line: int | None = None,
-        confidence: float = 0.85, extractor: str = EXTRACTOR, **props: Any,
+        self,
+        edge_type: EdgeType,
+        src: str,
+        tgt: str,
+        *,
+        rel: str | None,
+        line: int | None = None,
+        confidence: float = 0.85,
+        extractor: str = EXTRACTOR,
+        **props: Any,
     ) -> None:
         if src == tgt or src not in self.nodes or tgt not in self.nodes:
             return
@@ -1111,8 +1181,15 @@ class _Analyzer:
             existing.properties["count"] = existing.properties.get("count", 1) + 1
             return
         self.edges[eid] = EdgeRecord(
-            id=eid, project_id=self.pid, edge_type=edge_type, source_id=src, target_id=tgt,
-            source_path=rel, start_line=line, extractor=extractor, confidence=confidence,
+            id=eid,
+            project_id=self.pid,
+            edge_type=edge_type,
+            source_id=src,
+            target_id=tgt,
+            source_path=rel,
+            start_line=line,
+            extractor=extractor,
+            confidence=confidence,
             properties={"count": 1, **props},
         )
 
@@ -1132,8 +1209,12 @@ class _Analyzer:
 
     def _emit_structure(self) -> None:
         self.nodes[self.project_node_id] = NodeRecord(
-            id=self.project_node_id, project_id=self.pid, node_type=NodeType.PROJECT,
-            name=self.root.name, extractor=EXTRACTOR, properties={},
+            id=self.project_node_id,
+            project_id=self.pid,
+            node_type=NodeType.PROJECT,
+            name=self.root.name,
+            extractor=EXTRACTOR,
+            properties={},
         )
         multi = len(self.package_dirs) > 1
         pkg_nodes: dict[str, str] = {}
@@ -1145,8 +1226,14 @@ class _Analyzer:
             pkg_nodes[key] = nid
             data = self.package_dirs.get(key, {}) if is_root else {}
             self.nodes[nid] = NodeRecord(
-                id=nid, project_id=self.pid, node_type=NodeType.PACKAGE, name=name or self.root.name,
-                qualified_name=key or ".", source_path=key or None, extractor=EXTRACTOR, confidence=0.8,
+                id=nid,
+                project_id=self.pid,
+                node_type=NodeType.PACKAGE,
+                name=name or self.root.name,
+                qualified_name=key or ".",
+                source_path=key or None,
+                extractor=EXTRACTOR,
+                confidence=0.8,
                 properties={"language": "typescript", "npm_name": data.get("name") if is_root else None},
             )
             self._edge(EdgeType.CONTAINS, parent or self.project_node_id, nid, rel=None, confidence=1.0)
@@ -1154,19 +1241,32 @@ class _Analyzer:
 
         for mod in self.mods.values():
             pkg_dir, sub_key, sub_name = self._package_key(mod.rel)
-            root_name = str(self.package_dirs.get(pkg_dir, {}).get("name") or posixpath.basename(pkg_dir) or self.root.name)
-            root_id = package_node(pkg_dir, root_name.split("/")[-1], None, True)
+            root_name = str(
+                self.package_dirs.get(pkg_dir, {}).get("name") or posixpath.basename(pkg_dir) or self.root.name
+            )
+            root_id = package_node(pkg_dir, root_name.rsplit("/", maxsplit=1)[-1], None, True)
             if sub_key != pkg_dir:
-                display = f"{root_name.split('/')[-1]}/{sub_name}" if multi else sub_name
+                display = f"{root_name.rsplit('/', maxsplit=1)[-1]}/{sub_name}" if multi else sub_name
                 owner = package_node(sub_key, display, root_id, False)
             else:
                 owner = root_id
 
             self.nodes[mod.id] = NodeRecord(
-                id=mod.id, project_id=self.pid, node_type=NodeType.MODULE,
-                name=posixpath.splitext(mod.rel)[0], qualified_name=mod.rel, source_path=mod.rel,
-                start_line=1, end_line=mod.lines, extractor=EXTRACTOR,
-                properties={"role": mod.role, "layer": layer_for_role(mod.role), "line_count": mod.lines, "language": "typescript"},
+                id=mod.id,
+                project_id=self.pid,
+                node_type=NodeType.MODULE,
+                name=posixpath.splitext(mod.rel)[0],
+                qualified_name=mod.rel,
+                source_path=mod.rel,
+                start_line=1,
+                end_line=mod.lines,
+                extractor=EXTRACTOR,
+                properties={
+                    "role": mod.role,
+                    "layer": layer_for_role(mod.role),
+                    "line_count": mod.lines,
+                    "language": "typescript",
+                },
             )
             self._edge(EdgeType.CONTAINS, owner, mod.id, rel=mod.rel, confidence=1.0)
 
@@ -1190,7 +1290,11 @@ class _Analyzer:
             if "Controller" in deco_names:
                 role = "views"
             elif "Injectable" in deco_names:
-                role = "permissions" if sym.name.endswith("Guard") else ("middleware" if sym.name.endswith(("Interceptor", "Middleware")) else "services")
+                role = (
+                    "permissions"
+                    if sym.name.endswith("Guard")
+                    else ("middleware" if sym.name.endswith(("Interceptor", "Middleware")) else "services")
+                )
             elif "Entity" in deco_names or "Schema" in deco_names:
                 role = "models"
                 node_type = NodeType.MODEL
@@ -1229,10 +1333,17 @@ class _Analyzer:
         if sym.parent:
             props["parent_class"] = sym.parent
         self.nodes[sym.id] = NodeRecord(
-            id=sym.id, project_id=self.pid, node_type=node_type, name=sym.name,
-            qualified_name=f"{mod.rel}:{sym.name}", source_path=mod.rel,
-            start_line=sym.start, end_line=sym.end, extractor=EXTRACTOR,
-            confidence=0.9, properties=props,
+            id=sym.id,
+            project_id=self.pid,
+            node_type=node_type,
+            name=sym.name,
+            qualified_name=f"{mod.rel}:{sym.name}",
+            source_path=mod.rel,
+            start_line=sym.start,
+            end_line=sym.end,
+            extractor=EXTRACTOR,
+            confidence=0.9,
+            properties=props,
         )
         parent_id = mod.symbols[sym.parent].id if sym.parent and sym.parent in mod.symbols else mod.id
         self._edge(EdgeType.CONTAINS, parent_id, sym.id, rel=mod.rel, confidence=1.0)
@@ -1240,7 +1351,10 @@ class _Analyzer:
     def _fingerprint(self, mod: _Mod) -> str:
         if mod.has_error:
             return "syntax-error:" + hashlib.sha256(mod.source).hexdigest()[:12]
-        parts = [f"S|{s.kind}|{s.name}|{s.params}|{','.join(s.bases)}|{','.join(d[0] for d in s.decorators)}" for s in mod.symbols.values()]
+        parts = [
+            f"S|{s.kind}|{s.name}|{s.params}|{','.join(s.bases)}|{','.join(d[0] for d in s.decorators)}"
+            for s in mod.symbols.values()
+        ]
         parts += [f"I|{spec}" for spec, _ in mod.import_specs]
         parts += [f"E|{k}={v}" for k, v in mod.exports.items()] + [f"D|{mod.default_export}"]
         names = {s.id: s.name for s in mod.symbols.values()}
@@ -1257,8 +1371,12 @@ class _Analyzer:
         sid = stable_node_id(self.pid, "external", display)
         if sid not in self.nodes:
             self.nodes[sid] = NodeRecord(
-                id=sid, project_id=self.pid, node_type=NodeType.EXTERNAL_SERVICE, name=display,
-                extractor=EXTRACTOR, confidence=0.9,
+                id=sid,
+                project_id=self.pid,
+                node_type=NodeType.EXTERNAL_SERVICE,
+                name=display,
+                extractor=EXTRACTOR,
+                confidence=0.9,
                 properties={"kind": kind, "layer": "external", "role": "external", "external": True},
             )
         return sid
@@ -1277,8 +1395,13 @@ class _Analyzer:
                     if sdk and sdk[0] not in seen:
                         seen.add(sdk[0])
                         self._edge(
-                            EdgeType.DEPENDS_ON, mod.id, self._external(*sdk), rel=mod.rel, line=line,
-                            confidence=0.9, relation="uses",
+                            EdgeType.DEPENDS_ON,
+                            mod.id,
+                            self._external(*sdk),
+                            rel=mod.rel,
+                            line=line,
+                            confidence=0.9,
+                            relation="uses",
                         )
                     fw = framework_for(spec)
                     if fw:
@@ -1296,15 +1419,25 @@ class _Analyzer:
                     hit = self._lookup(mod, type_name)
                     if hit is not None:
                         self._edge(
-                            EdgeType.INJECTS, sym.id, hit[1].id, rel=mod.rel, line=sym.start,
-                            confidence=0.9, relation="constructor",
+                            EdgeType.INJECTS,
+                            sym.id,
+                            hit[1].id,
+                            rel=mod.rel,
+                            line=sym.start,
+                            confidence=0.9,
+                            relation="constructor",
                         )
                 for base in sym.bases:
                     hit = self._lookup(mod, base.split(".")[-1])
                     if hit is not None:
                         self._edge(
-                            EdgeType.DEPENDS_ON, sym.id, hit[1].id, rel=mod.rel, line=sym.start,
-                            confidence=0.95, relation="inherits",
+                            EdgeType.DEPENDS_ON,
+                            sym.id,
+                            hit[1].id,
+                            rel=mod.rel,
+                            line=sym.start,
+                            confidence=0.95,
+                            relation="inherits",
                         )
 
     def _link_jsx(self) -> None:
@@ -1313,7 +1446,7 @@ class _Analyzer:
                 target = self._resolve(mod, name)
                 if target is None or target.id == caller:
                     continue
-                if not (target.is_component or target.kind == "class" and target.is_component):
+                if not (target.is_component or (target.kind == "class" and target.is_component)):
                     continue
                 self._edge(EdgeType.RENDERS, caller, target.id, rel=mod.rel, line=line, confidence=0.9)
 
@@ -1335,13 +1468,22 @@ class _Analyzer:
                         if verb is None:
                             continue
                         path = next((a for a in args if not a.startswith("@")), "")
-                        guards = class_guards + [a[1:] for d in method.decorators if d[0] == "UseGuards" for a in d[1] if a.startswith("@")]
+                        guards = class_guards + [
+                            a[1:] for d in method.decorators if d[0] == "UseGuards" for a in d[1] if a.startswith("@")
+                        ]
                         self.routes.append(
                             _Route(
                                 id=stable_node_id(self.pid, "ts-endpoint", mod.rel, str(method.start), verb, path),
-                                module=mod, verb=verb, path=_join(global_prefix, prefix, path),
-                                line=method.start, end_line=method.end, handlers=[], framework="nestjs",
-                                handler_id=method.id, guards=guards, prefix_mode="absolute",
+                                module=mod,
+                                verb=verb,
+                                path=_join(global_prefix, prefix, path),
+                                line=method.start,
+                                end_line=method.end,
+                                handlers=[],
+                                framework="nestjs",
+                                handler_id=method.id,
+                                guards=guards,
+                                prefix_mode="absolute",
                             )
                         )
 
@@ -1357,29 +1499,48 @@ class _Analyzer:
                 handler = self._export(mod, "default")
                 self.routes.append(
                     _Route(
-                        id=stable_node_id(self.pid, "ts-endpoint", mod.rel, "next-api"), module=mod, verb="ANY",
-                        path="/" + "/".join(segs), line=handler[1].start if handler else 1,
-                        end_line=handler[1].end if handler else mod.lines, handlers=[], framework="nextjs",
-                        handler_id=handler[1].id if handler else None, prefix_mode="absolute",
+                        id=stable_node_id(self.pid, "ts-endpoint", mod.rel, "next-api"),
+                        module=mod,
+                        verb="ANY",
+                        path="/" + "/".join(segs),
+                        line=handler[1].start if handler else 1,
+                        end_line=handler[1].end if handler else mod.lines,
+                        handlers=[],
+                        framework="nextjs",
+                        handler_id=handler[1].id if handler else None,
+                        prefix_mode="absolute",
                     )
                 )
                 self.frameworks.add("nextjs")
             elif stem == "route" and "app" in parts:
                 idx = len(parts) - 1 - parts[::-1].index("app")
-                segs = [p for p in parts[idx + 1 : -1] if not (p.startswith("(") and p.endswith(")")) and not p.startswith("@")]
+                segs = [
+                    p
+                    for p in parts[idx + 1 : -1]
+                    if not (p.startswith("(") and p.endswith(")")) and not p.startswith("@")
+                ]
                 for verb in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"):
                     sym = mod.symbols.get(verb)
                     if sym is None:
                         continue
                     self.routes.append(
                         _Route(
-                            id=stable_node_id(self.pid, "ts-endpoint", mod.rel, verb), module=mod, verb=verb,
-                            path="/" + "/".join(segs), line=sym.start, end_line=sym.end, handlers=[],
-                            framework="nextjs", handler_id=sym.id, prefix_mode="absolute",
+                            id=stable_node_id(self.pid, "ts-endpoint", mod.rel, verb),
+                            module=mod,
+                            verb=verb,
+                            path="/" + "/".join(segs),
+                            line=sym.start,
+                            end_line=sym.end,
+                            handlers=[],
+                            framework="nextjs",
+                            handler_id=sym.id,
+                            prefix_mode="absolute",
                         )
                     )
                     self.frameworks.add("nextjs")
-            elif (stem == "page" and "app" in parts) or ("pages" in parts and mod.role == "pages" and "api" not in parts):
+            elif (stem == "page" and "app" in parts) or (
+                "pages" in parts and mod.role == "pages" and "api" not in parts
+            ):
                 default = self._export(mod, "default")
                 if default is None:
                     continue
@@ -1450,7 +1611,11 @@ class _Analyzer:
         mod_prefixes = self._module_prefixes()
         for route in self.routes:
             mod = route.module
-            paths = [route.path] if route.prefix_mode == "absolute" else [_join(p, route.path) for p in mod_prefixes.get(mod.rel, [""])]
+            paths = (
+                [route.path]
+                if route.prefix_mode == "absolute"
+                else [_join(p, route.path) for p in mod_prefixes.get(mod.rel, [""])]
+            )
             handler_ids: list[str] = []
             for h in route.handlers:
                 target = self._resolve(mod, _callee_text(h))
@@ -1472,10 +1637,17 @@ class _Analyzer:
                 if main_handler and main_handler in self.nodes:
                     props["handler"] = self.nodes[main_handler].name
                 self.nodes[eid] = NodeRecord(
-                    id=eid, project_id=self.pid, node_type=NodeType.ENDPOINT, name=path,
-                    qualified_name=f"{mod.rel}:{route.verb} {path}", source_path=mod.rel,
-                    start_line=route.line, end_line=route.end_line, extractor=f"{route.framework}.routes",
-                    confidence=0.9 if main_handler or route.handlers == [] else 0.7, properties=props,
+                    id=eid,
+                    project_id=self.pid,
+                    node_type=NodeType.ENDPOINT,
+                    name=path,
+                    qualified_name=f"{mod.rel}:{route.verb} {path}",
+                    source_path=mod.rel,
+                    start_line=route.line,
+                    end_line=route.end_line,
+                    extractor=f"{route.framework}.routes",
+                    confidence=0.9 if main_handler or route.handlers == [] else 0.7,
+                    properties=props,
                 )
                 self._edge(EdgeType.CONTAINS, mod.id, eid, rel=mod.rel, confidence=1.0)
                 if main_handler:
@@ -1486,13 +1658,29 @@ class _Analyzer:
                         handler.properties["role"] = "views"
                         handler.properties["layer"] = "api"
                 for mw in middleware:
-                    self._edge(EdgeType.DEPENDS_ON, eid, mw, rel=mod.rel, line=route.line, confidence=0.85, relation="middleware")
+                    self._edge(
+                        EdgeType.DEPENDS_ON,
+                        eid,
+                        mw,
+                        rel=mod.rel,
+                        line=route.line,
+                        confidence=0.85,
+                        relation="middleware",
+                    )
                     if mw in self.nodes:
                         self.nodes[mw].properties.update({"role": "middleware", "layer": "middleware"})
                 for guard in route.guards:
                     hit = self._lookup(mod, guard)
                     if hit is not None:
-                        self._edge(EdgeType.DEPENDS_ON, eid, hit[1].id, rel=mod.rel, line=route.line, confidence=0.85, relation="guard")
+                        self._edge(
+                            EdgeType.DEPENDS_ON,
+                            eid,
+                            hit[1].id,
+                            rel=mod.rel,
+                            line=route.line,
+                            confidence=0.85,
+                            relation="guard",
+                        )
 
     # ----------------------------------------------------------------- enrich
 
@@ -1500,7 +1688,9 @@ class _Analyzer:
         index = GraphIndex.build(self.nodes.values(), self.edges.values())
         out_names: dict[str, dict[str, list[str]]] = {}
         for e in index.edges:
-            out_names.setdefault(e.source_id, {}).setdefault(e.edge_type.value, []).append(index.nodes[e.target_id].name)
+            out_names.setdefault(e.source_id, {}).setdefault(e.edge_type.value, []).append(
+                index.nodes[e.target_id].name
+            )
         http_by_source: dict[str, list[HttpCall]] = {}
         for call in self.result.http_calls:
             http_by_source.setdefault(call.source_id, []).append(call)
@@ -1517,9 +1707,17 @@ class _Analyzer:
         for node in self.nodes.values():
             props = node.properties
             role = props.get("role")
-            if node.node_type in (NodeType.FUNCTION, NodeType.CLASS, NodeType.COMPONENT, NodeType.MODULE, NodeType.MODEL):
-                lines = props.get("line_count", 0) if node.node_type == NodeType.MODULE else (
-                    (node.end_line - node.start_line + 1) if node.start_line and node.end_line else 0
+            if node.node_type in (
+                NodeType.FUNCTION,
+                NodeType.CLASS,
+                NodeType.COMPONENT,
+                NodeType.MODULE,
+                NodeType.MODEL,
+            ):
+                lines = (
+                    props.get("line_count", 0)
+                    if node.node_type == NodeType.MODULE
+                    else ((node.end_line - node.start_line + 1) if node.start_line and node.end_line else 0)
                 )
                 props["lines"] = lines
                 props["complexity"] = classify_complexity(lines, index.fan_out(node.id))
@@ -1550,7 +1748,11 @@ class _Analyzer:
                 comps = sum(1 for k in kids if k.node_type == NodeType.COMPONENT)
                 funcs = sum(1 for k in kids if k.node_type == NodeType.FUNCTION)
                 classes = sum(1 for k in kids if k.node_type in (NodeType.CLASS, NodeType.MODEL))
-                bits = [f"{n} {label}" for n, label in ((comps, "component(s)"), (classes, "class(es)"), (funcs, "function(s)")) if n]
+                bits = [
+                    f"{n} {label}"
+                    for n, label in ((comps, "component(s)"), (classes, "class(es)"), (funcs, "function(s)"))
+                    if n
+                ]
                 summary = ROLE_LABEL.get(role or "", "Module") + (f" with {', '.join(bits)}" if bits else "") + "."
             elif node.node_type == NodeType.PACKAGE:
                 mods = sum(1 for k in children.get(node.id, []) if k.node_type == NodeType.MODULE)
@@ -1577,13 +1779,22 @@ class _Analyzer:
                     parts.append(f"injects {uniq(outs['INJECTS'])}")
                 if outs.get("CALLS"):
                     parts.append(f"calls {uniq(outs['CALLS'])}")
-                label = {"hooks": "React hook", "views": "Request handler", "services": "Service", "middleware": "Middleware",
-                         "permissions": "Guard", "api-client": "API client", "stores": "State store", "models": "Data model"}.get(
-                    role or "", "Class" if node.node_type == NodeType.CLASS else "Function")
+                label = {
+                    "hooks": "React hook",
+                    "views": "Request handler",
+                    "services": "Service",
+                    "middleware": "Middleware",
+                    "permissions": "Guard",
+                    "api-client": "API client",
+                    "stores": "State store",
+                    "models": "Data model",
+                }.get(role or "", "Class" if node.node_type == NodeType.CLASS else "Function")
                 summary = label + (": " + "; ".join(parts[:2]) if parts else "") + "."
             elif node.node_type == NodeType.EXTERNAL_SERVICE:
                 users = [index.nodes[e.source_id].name for e in index.incoming.get(node.id, [])]
-                summary = f"{str(props.get('kind', 'external')).title()} dependency used by {uniq(users) or 'the project'}."
+                summary = (
+                    f"{str(props.get('kind', 'external')).title()} dependency used by {uniq(users) or 'the project'}."
+                )
             if summary:
                 props["summary"] = summary
             props["tags"] = list(dict.fromkeys(t for t in tags if t))
@@ -1597,7 +1808,13 @@ def _join(*parts: str) -> str:
 
 
 # NestJS @nestjs/schedule and Bull/BullMQ queue processors.
-_TS_JOB_DECORATORS = {"Cron": "scheduled", "Interval": "scheduled", "Timeout": "scheduled", "Process": "task", "OnQueueActive": "task"}
+_TS_JOB_DECORATORS = {
+    "Cron": "scheduled",
+    "Interval": "scheduled",
+    "Timeout": "scheduled",
+    "Process": "task",
+    "OnQueueActive": "task",
+}
 
 
 def _ts_job(decorators: list[tuple[str, list[str], Node]]) -> dict[str, Any] | None:
@@ -1605,5 +1822,9 @@ def _ts_job(decorators: list[tuple[str, list[str], Node]]) -> dict[str, Any] | N
         if name in _TS_JOB_DECORATORS:
             framework = "nestjs-schedule" if _TS_JOB_DECORATORS[name] == "scheduled" else "bull"
             schedule = " ".join(a for a in args if not a.startswith("@")) or (args[0] if args else "")
-            return {"kind": _TS_JOB_DECORATORS[name], "framework": framework, **({"schedule": schedule} if schedule else {})}
+            return {
+                "kind": _TS_JOB_DECORATORS[name],
+                "framework": framework,
+                **({"schedule": schedule} if schedule else {}),
+            }
     return None

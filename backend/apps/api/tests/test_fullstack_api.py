@@ -47,7 +47,9 @@ def test_fullstack_endpoints_list_callers(fs_client):
 def test_explore_underlying_edges_capped_only_when_truncated(fs_client):
     pid = fs_client.project_id
     top = fs_client.get(f"/projects/{pid}/graph/explore").json()
-    arcs = [e for e in top["edges"] if e["edge_type"] != "CONTAINS" and (e.get("properties") or {}).get("weight", 1) >= 1]
+    arcs = [
+        e for e in top["edges"] if e["edge_type"] != "CONTAINS" and (e.get("properties") or {}).get("weight", 1) >= 1
+    ]
     assert arcs, "top-level explore should aggregate cross-package dependencies"
     arc = max(arcs, key=lambda e: (e.get("properties") or {}).get("weight", 1))
     params = {"source": arc["source"], "target": arc["target"]}

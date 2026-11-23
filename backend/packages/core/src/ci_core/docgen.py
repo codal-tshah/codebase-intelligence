@@ -19,13 +19,25 @@ from ci_core.views.jobs import job_data_access, job_nodes
 MAX_FLOW_NODES = 40
 MAX_FLOWS = 40
 _EDGE_LABEL = {
-    "CALLS": "calls", "ROUTES_TO": "routes to", "READS_MODEL": "reads", "WRITES_MODEL": "writes",
-    "QUERIES": "queries", "HTTP_CALLS": "HTTP", "INJECTS": "injects", "DEPENDS_ON": "uses",
-    "RENDERS": "renders", "IMPORTS": "imports", "MIDDLEWARE": "middleware", "FK_TO": "FK",
+    "CALLS": "calls",
+    "ROUTES_TO": "routes to",
+    "READS_MODEL": "reads",
+    "WRITES_MODEL": "writes",
+    "QUERIES": "queries",
+    "HTTP_CALLS": "HTTP",
+    "INJECTS": "injects",
+    "DEPENDS_ON": "uses",
+    "RENDERS": "renders",
+    "IMPORTS": "imports",
+    "MIDDLEWARE": "middleware",
+    "FK_TO": "FK",
 }
 _SHAPE = {
-    "Endpoint": ('(["', '"])'), "Model": ('[("', '")]'), "Table": ('[("', '")]'),
-    "ExternalService": ('{{"', '"}}'), "Component": ('("', '")'),
+    "Endpoint": ('(["', '"])'),
+    "Model": ('[("', '")]'),
+    "Table": ('[("', '")]'),
+    "ExternalService": ('{{"', '"}}'),
+    "Component": ('("', '")'),
 }
 
 
@@ -42,7 +54,11 @@ def _label(n: GraphNodeView, *, helper: bool) -> str:
 
 
 def mermaid_flowchart(
-    nodes: list[GraphNodeView], edges: list[GraphEdgeView], *, direction: str = "LR", helper: bool = True,
+    nodes: list[GraphNodeView],
+    edges: list[GraphEdgeView],
+    *,
+    direction: str = "LR",
+    helper: bool = True,
     max_nodes: int = MAX_FLOW_NODES,
 ) -> str:
     keep = nodes[:max_nodes]
@@ -59,9 +75,11 @@ def mermaid_flowchart(
                 continue
             seen.add(key)
             arrow = "-.->" if (e.confidence if e.confidence is not None else 1.0) < 0.7 else "-->"
-            lines.append(f"  {ids[e.source]} {arrow}|{_EDGE_LABEL.get(e.edge_type, e.edge_type.lower())}| {ids[e.target]}")
+            lines.append(
+                f"  {ids[e.source]} {arrow}|{_EDGE_LABEL.get(e.edge_type, e.edge_type.lower())}| {ids[e.target]}"
+            )
     if len(nodes) > max_nodes:
-        lines.append(f"  more[\"… {len(nodes) - max_nodes} more nodes (open the dashboard)\"]")
+        lines.append(f'  more["… {len(nodes) - max_nodes} more nodes (open the dashboard)"]')
     return "```mermaid\n" + "\n".join(lines) + "\n```"
 
 
@@ -99,12 +117,17 @@ def _architecture(index: GraphIndex) -> str:
 
 
 def _api_flows(index: GraphIndex) -> str | None:
-    endpoints = sorted((n for n in index.nodes.values() if n.node_type == NodeType.ENDPOINT),
-                       key=lambda n: (n.name, n.source_path or ""))
+    endpoints = sorted(
+        (n for n in index.nodes.values() if n.node_type == NodeType.ENDPOINT),
+        key=lambda n: (n.name, n.source_path or ""),
+    )
     if not endpoints:
         return None
-    parts = ["# API flows\n", "Each flow starts at the route and follows handler → services → models, "
-             "with the UI code that calls it. Dashed arrows are inferred (confidence < 0.7).\n"]
+    parts = [
+        "# API flows\n",
+        "Each flow starts at the route and follows handler → services → models, "
+        "with the UI code that calls it. Dashed arrows are inferred (confidence < 0.7).\n",
+    ]
     for ep in endpoints[:MAX_FLOWS]:
         methods = "/".join(ep.properties.get("methods") or []) or "ANY"
         where = f"`{ep.source_path}:{ep.start_line}`" if ep.source_path else ""
@@ -118,13 +141,19 @@ def _jobs(index: GraphIndex) -> str | None:
     jobs = job_nodes(index)
     if not jobs:
         return None
-    parts = ["# Background and scheduled jobs\n", "Work that runs outside a request and what it reads or writes.\n",
-             "| Job | Kind | Framework | Schedule | Writes | Source |", "|---|---|---|---|---|---|"]
+    parts = [
+        "# Background and scheduled jobs\n",
+        "Work that runs outside a request and what it reads or writes.\n",
+        "| Job | Kind | Framework | Schedule | Writes | Source |",
+        "|---|---|---|---|---|---|",
+    ]
     for j in jobs:
         info = j.properties["job"]
         _, writes = job_data_access(index, j.id)
-        parts.append(f"| {_job_title(j)} | {info.get('kind')} | {info.get('framework')} | `{info.get('schedule') or info.get('command') or '-'}` "
-                     f"| {', '.join(writes) or '-'} | `{j.source_path}:{j.start_line}` |")
+        parts.append(
+            f"| {_job_title(j)} | {info.get('kind')} | {info.get('framework')} | `{info.get('schedule') or info.get('command') or '-'}` "
+            f"| {', '.join(writes) or '-'} | `{j.source_path}:{j.start_line}` |"
+        )
     parts.append("")
     for j in jobs[:MAX_FLOWS]:
         info = j.properties["job"]
@@ -158,22 +187,27 @@ def _data_model(index: GraphIndex) -> str | None:
         lines.append("  }")
     for e in index.edges:
         if e.edge_type == EdgeType.FK_TO and e.source_id in ids and e.target_id in ids:
-            lines.append(f"  {ids[e.target_id]} ||--o{{ {ids[e.source_id]} : \"{_esc(e.properties.get('field') or 'fk')}\"")
+            lines.append(
+                f'  {ids[e.target_id]} ||--o{{ {ids[e.source_id]} : "{_esc(e.properties.get("field") or "fk")}"'
+            )
     rows = ["| Model | Table | Read by | Written by |", "|---|---|---|---|"]
     for m in models:
         inc = index.incoming.get(m.id, [])
         reads = {index.nodes[e.source_id].name for e in inc if e.edge_type == EdgeType.READS_MODEL}
         writes = {index.nodes[e.source_id].name for e in inc if e.edge_type == EdgeType.WRITES_MODEL}
-        rows.append(f"| {m.name} | {m.properties.get('table') or m.properties.get('table_guess') or '-'} "
-                    f"| {', '.join(sorted(reads)[:6]) or '-'} | {', '.join(sorted(writes)[:6]) or '-'} |")
-    return ("# Data model\n\n```mermaid\n" + "\n".join(lines) + "\n```\n\n## Access\n\n" + "\n".join(rows) + "\n")
+        rows.append(
+            f"| {m.name} | {m.properties.get('table') or m.properties.get('table_guess') or '-'} "
+            f"| {', '.join(sorted(reads)[:6]) or '-'} | {', '.join(sorted(writes)[:6]) or '-'} |"
+        )
+    return "# Data model\n\n```mermaid\n" + "\n".join(lines) + "\n```\n\n## Access\n\n" + "\n".join(rows) + "\n"
 
 
 def _suggestions(index: GraphIndex) -> str:
     items = suggest(index)
-    parts = ["# Optimization and reuse suggestions\n",
-             "Generated from the dependency graph. Treat them as review leads: static analysis can miss "
-             "dynamic calls.\n"]
+    parts = [
+        "# Optimization and reuse suggestions\n",
+        "Generated from the dependency graph. Treat them as review leads: static analysis can miss dynamic calls.\n",
+    ]
     if not items:
         parts.append("No suggestions: no hubs, large functions, duplicates, cycles or scattered writes found.\n")
     for s in items:
@@ -202,7 +236,9 @@ def render_docs(index: GraphIndex, project_name: str) -> dict[str, str]:
     return files
 
 
-def write_docs(index: GraphIndex, project_name: str, root: Path, out_dir: str | Path = "docs/codebase-map") -> list[Path]:
+def write_docs(
+    index: GraphIndex, project_name: str, root: Path, out_dir: str | Path = "docs/codebase-map"
+) -> list[Path]:
     """Write the generated docs under ``root`` (refuses paths that escape the repository)."""
     root = root.resolve()
     target = (root / out_dir).resolve()

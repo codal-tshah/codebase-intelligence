@@ -7,10 +7,14 @@ export type Token = { text: string; kind?: "kw" | "str" | "com" | "num" | "fn" |
 
 const KW: Record<string, Set<string>> = {
   python: new Set(
-    "def class return if elif else for while in not and or is import from as with try except finally raise yield async await lambda pass break continue global nonlocal None True False self cls".split(" "),
+    "def class return if elif else for while in not and or is import from as with try except finally raise yield async await lambda pass break continue global nonlocal None True False self cls".split(
+      " ",
+    ),
   ),
   ts: new Set(
-    "const let var function return if else for while do switch case break continue new class extends implements interface type enum import from export default as async await try catch finally throw typeof instanceof in of this super null undefined true false void public private protected readonly static".split(" "),
+    "const let var function return if else for while do switch case break continue new class extends implements interface type enum import from export default as async await try catch finally throw typeof instanceof in of this super null undefined true false void public private protected readonly static".split(
+      " ",
+    ),
   ),
 };
 
@@ -21,7 +25,8 @@ export function languageOf(path?: string | null): "python" | "ts" | null {
   return null;
 }
 
-const TOKEN = /("""|'''|\/\*|\*\/|\/\/.*|#.*|`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|@[A-Za-z_][\w.]*|\b\d[\d_.]*\b|[A-Za-z_$][\w$]*|\s+|.)/g;
+const TOKEN =
+  /("""|'''|\/\*|\*\/|\/\/.*|#.*|`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|@[A-Za-z_][\w.]*|\b\d[\d_.]*\b|[A-Za-z_$][\w$]*|\s+|.)/g;
 
 export function highlightLines(lines: string[], lang: "python" | "ts" | null): Token[][] {
   if (!lang) return lines.map((l) => [{ text: l }]);

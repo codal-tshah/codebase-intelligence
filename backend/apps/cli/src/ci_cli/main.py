@@ -15,8 +15,8 @@ from typing import Any
 import typer
 import uvicorn
 
-from ci_parsers import GitCloneError
 from ci_indexer import create_project_from_git, create_project_from_path, run_index_job
+from ci_parsers import GitCloneError
 
 app = typer.Typer(add_completion=False, help="Codebase Intelligence CLI", no_args_is_help=True)
 
@@ -101,7 +101,7 @@ def projects_remove(
     A local source folder is never modified."""
     from ci_core import audit
     from ci_core.db import GraphStore
-    from ci_core.project_admin import remove_project, removal_plan
+    from ci_core.project_admin import removal_plan, remove_project
     from ci_indexer import index_in_progress
 
     project = _require(ref)
@@ -117,13 +117,20 @@ def projects_remove(
     if not yes and not typer.confirm("Continue?", default=False):
         raise typer.Exit(1)
     remove_project(project)
-    audit.record("project.delete", project_id=project.id, project_name=project.name, actor="cli",
-                 detail={"deleted": plan["delete"], "source_untouched": plan["source_untouched"]})
+    audit.record(
+        "project.delete",
+        project_id=project.id,
+        project_name=project.name,
+        actor="cli",
+        detail={"deleted": plan["delete"], "source_untouched": plan["source_untouched"]},
+    )
     typer.echo("removed")
 
 
 @projects_app.command("rename")
-def projects_rename(ref: str = typer.Argument(..., help="Project id, name or path"), name: str = typer.Argument(...)) -> None:
+def projects_rename(
+    ref: str = typer.Argument(..., help="Project id, name or path"), name: str = typer.Argument(...)
+) -> None:
     """Rename a project (names must be unique; they work as references everywhere)."""
     from ci_core import audit
     from ci_core.project_admin import rename_project
@@ -135,8 +142,13 @@ def projects_rename(ref: str = typer.Argument(..., help="Project id, name or pat
         typer.echo(f"another project is already named {clean!r}", err=True)
         raise typer.Exit(1)
     updated = rename_project(project, clean)
-    audit.record("project.rename", project_id=project.id, project_name=updated.name, actor="cli",
-                 detail={"from": project.name, "to": updated.name})
+    audit.record(
+        "project.rename",
+        project_id=project.id,
+        project_name=updated.name,
+        actor="cli",
+        detail={"from": project.name, "to": updated.name},
+    )
     typer.echo(f"{project.name} -> {updated.name}")
 
 
@@ -153,7 +165,9 @@ def analyzers(as_json: bool = JsonOpt) -> None:
 
 
 @app.command()
-def status(project: str | None = typer.Argument(None, help="Project id, name or path"), as_json: bool = JsonOpt) -> None:
+def status(
+    project: str | None = typer.Argument(None, help="Project id, name or path"), as_json: bool = JsonOpt
+) -> None:
     """Show index size and whether the index matches the working tree."""
     from ci_core.db import GraphStore
     from ci_indexer import compute_freshness
@@ -175,7 +189,12 @@ def status(project: str | None = typer.Argument(None, help="Project id, name or 
 
 
 @app.command()
-def search(query: str, project: str | None = ProjectArg, types: str | None = typer.Option(None, help="Comma-separated node types"), as_json: bool = JsonOpt) -> None:
+def search(
+    query: str,
+    project: str | None = ProjectArg,
+    types: str | None = typer.Option(None, help="Comma-separated node types"),
+    as_json: bool = JsonOpt,
+) -> None:
     """Fuzzy-search nodes (functions, components, endpoints, models...)."""
     hits = _tools(project).find_symbol(query, limit=20, types={t.strip() for t in types.split(",")} if types else None)
     if as_json:
@@ -186,7 +205,9 @@ def search(query: str, project: str | None = ProjectArg, types: str | None = typ
 
 
 @app.command()
-def endpoints(project: str | None = ProjectArg, query: str | None = typer.Option(None, "--filter", "-f"), as_json: bool = JsonOpt) -> None:
+def endpoints(
+    project: str | None = ProjectArg, query: str | None = typer.Option(None, "--filter", "-f"), as_json: bool = JsonOpt
+) -> None:
     """API explorer: routes with handler, frontend callers and models touched."""
     items = _tools(project).endpoints(query, limit=1000)
     if as_json:
@@ -195,11 +216,18 @@ def endpoints(project: str | None = ProjectArg, query: str | None = typer.Option
         handler = (ep.get("handler") or {}).get("name", "(inline)")
         models = ",".join(m["name"] for m in ep["models"]) or "-"
         callers = len(ep["callers"])
-        typer.echo(f"{' '.join(ep['methods']) or 'ANY':<12} {ep['route']:<44} → {handler:<28} models={models} ui_callers={callers}")
+        typer.echo(
+            f"{' '.join(ep['methods']) or 'ANY':<12} {ep['route']:<44} → {handler:<28} models={models} ui_callers={callers}"
+        )
 
 
 @app.command()
-def trace(route: str, method: str | None = typer.Option(None, "--method", "-X"), project: str | None = ProjectArg, as_json: bool = JsonOpt) -> None:
+def trace(
+    route: str,
+    method: str | None = typer.Option(None, "--method", "-X"),
+    project: str | None = ProjectArg,
+    as_json: bool = JsonOpt,
+) -> None:
     """What happens when an endpoint is called (handler → services → models, plus UI callers)."""
     details = _tools(project).endpoint_details(route, method)
     if as_json:
@@ -207,14 +235,18 @@ def trace(route: str, method: str | None = typer.Option(None, "--method", "-X"),
     if details.get("error"):
         typer.echo(details["error"], err=True)
         raise typer.Exit(code=1)
-    typer.echo(f"{' '.join(details.get('methods') or [])} {details.get('route')}  ({details.get('source_path')}:{details.get('line')})")
+    typer.echo(
+        f"{' '.join(details.get('methods') or [])} {details.get('route')}  ({details.get('source_path')}:{details.get('line')})"
+    )
     if details.get("handler"):
         h = details["handler"]
         typer.echo(f"  handler   {h['name']}  ({h['source_path']}:{h['line']})")
     for g in details.get("guards", []) + details.get("dependencies", []):
         typer.echo(f"  guard/dep {g['name']}")
     for step in details.get("chain", [])[1:]:
-        typer.echo(f"  {step.get('relation', ''):<13} {step['type']:<14} {step['name']}  ({step.get('path')}:{step.get('line')})")
+        typer.echo(
+            f"  {step.get('relation', ''):<13} {step['type']:<14} {step['name']}  ({step.get('path')}:{step.get('line')})"
+        )
     for m in details.get("models", []):
         typer.echo(f"  data      {m['name']} ({'/'.join(m['access'])})")
     for c in details.get("callers", []):
@@ -229,7 +261,9 @@ def models(project: str | None = ProjectArg, as_json: bool = JsonOpt) -> None:
         return _emit(items)
     for m in items:
         rel = ", ".join(r["to"] for r in m["relations"]) or "-"
-        typer.echo(f"{m['name']:<24} table={m.get('table') or '-':<20} → {rel:<24} read_by={len(m['read_by'])} written_by={len(m['written_by'])}")
+        typer.echo(
+            f"{m['name']:<24} table={m.get('table') or '-':<20} → {rel:<24} read_by={len(m['read_by'])} written_by={len(m['written_by'])}"
+        )
 
 
 _HOOK_BEGIN = "# >>> codebase-intelligence >>>"
@@ -244,13 +278,13 @@ def _strip_block(text: str) -> tuple[str, bool]:
     start, end = text.find(_HOOK_BEGIN), text.find(_HOOK_END)
     if start == -1 or end <= start:
         return text, False
-    return text[:start] + text[end + len(_HOOK_END):].lstrip("\n"), True
+    return text[:start] + text[end + len(_HOOK_END) :].lstrip("\n"), True
 
 
 @app.command()
 def hook(
     action: str = typer.Argument("install", help="install | uninstall | status"),
-    path: Path = typer.Option(Path("."), "--path", help="Repository (default: current directory)"),
+    path: Path = typer.Option(Path(), "--path", help="Repository (default: current directory)"),
 ) -> None:
     """Keep the index fresh after `git commit`, `git pull`/merge, branch checkout and rebase:
     git hooks that re-index incrementally in the background (only changed files are re-analysed)."""
@@ -270,7 +304,11 @@ def hook(
     installed = {n: _strip_block(t)[1] for n, t in current.items()}
     if action == "status":
         done = [n for n, ok in installed.items() if ok]
-        typer.echo("installed" if len(done) == len(HOOK_NAMES) else ("not installed" if not done else f"partial: {', '.join(done)}"))
+        typer.echo(
+            "installed"
+            if len(done) == len(HOOK_NAMES)
+            else ("not installed" if not done else f"partial: {', '.join(done)}")
+        )
         return
     if action == "uninstall":
         if not any(installed.values()):
@@ -294,7 +332,9 @@ def hook(
         rest, _ = _strip_block(text)  # re-install refreshes the interpreter path
         shebang, _, body = rest.partition("\n") if rest.startswith("#!") else ("#!/bin/sh", "\n", rest)
         if not re.search(r"\b(ba|da|k|z)?sh\b", shebang):
-            typer.echo(f"{hooks_dir / n} is not a shell script ({shebang}); call this from it instead:\n  {cmd}", err=True)
+            typer.echo(
+                f"{hooks_dir / n} is not a shell script ({shebang}); call this from it instead:\n  {cmd}", err=True
+            )
             raise typer.Exit(1)
         plans[n] = (shebang, body)
     hooks_dir.mkdir(parents=True, exist_ok=True)
@@ -324,7 +364,10 @@ def _git_hook_paths(root: Path) -> tuple[Path, Path] | None:
     try:
         res = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "--git-dir", "--git-path", "hooks"],
-            capture_output=True, text=True, env=env, check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
         )
         lines = res.stdout.splitlines() if res.returncode == 0 else []
     except OSError:
@@ -347,7 +390,9 @@ def jobs(project: str | None = ProjectArg, as_json: bool = JsonOpt) -> None:
     for j in items:
         when = j.get("schedule") or j.get("command") or j.get("kind")
         writes = ", ".join(j["writes"]) or "-"
-        typer.echo(f"{j['name']:<32} {j.get('framework', ''):<16} {when:<24} writes={writes}  ({j['path']}:{j['line']})")
+        typer.echo(
+            f"{j['name']:<32} {j.get('framework', ''):<16} {when:<24} writes={writes}  ({j['path']}:{j['line']})"
+        )
 
 
 @app.command()
@@ -409,8 +454,12 @@ def impact(
     files: list[str] = typer.Argument(None, help="Changed files (default: working-tree changes)"),
     project: str | None = ProjectArg,
     depth: int = typer.Option(3, help="Dependency hops to follow"),
-    base: str | None = typer.Option(None, "--base", help="Git ref to diff against (e.g. origin/main): impact of everything changed since it"),
-    fail_on: str | None = typer.Option(None, help="Exit 2 if risk is at least this level (low|medium|high) — for CI gates"),
+    base: str | None = typer.Option(
+        None, "--base", help="Git ref to diff against (e.g. origin/main): impact of everything changed since it"
+    ),
+    fail_on: str | None = typer.Option(
+        None, help="Exit 2 if risk is at least this level (low|medium|high) — for CI gates"
+    ),
     as_json: bool = JsonOpt,
 ) -> None:
     """Estimate the blast radius of changing files."""
@@ -500,7 +549,9 @@ def ask(question: str, project: str | None = ProjectArg, as_json: bool = JsonOpt
 
 
 @app.command()
-def export(project: str | None = ProjectArg, output: Path = typer.Option(None, "-o", help="File (default: stdout)")) -> None:
+def export(
+    project: str | None = ProjectArg, output: Path = typer.Option(None, "-o", help="File (default: stdout)")
+) -> None:
     """Export the full knowledge graph as JSON."""
     from ci_core.db import GraphStore
     from ci_core.layers import layer_catalog

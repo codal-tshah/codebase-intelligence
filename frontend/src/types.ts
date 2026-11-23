@@ -160,7 +160,14 @@ export type NodeDetail = {
     confidence?: number;
     properties: Record<string, unknown>;
   };
-  edges: { id: string; edge_type: string; source_id: string; target_id: string; confidence?: number; properties?: Record<string, unknown> }[];
+  edges: {
+    id: string;
+    edge_type: string;
+    source_id: string;
+    target_id: string;
+    confidence?: number;
+    properties?: Record<string, unknown>;
+  }[];
   neighbors: Record<string, NeighborInfo>;
 };
 
@@ -291,4 +298,11 @@ export type SourceSnippet = {
   content: string;
 };
 
-export type HttpCallInfo = { method?: string | null; url: string; line: number; endpoint_id?: string; endpoint?: string; external_host?: string };
+export type HttpCallInfo = {
+  method?: string | null;
+  url: string;
+  line: number;
+  endpoint_id?: string;
+  endpoint?: string;
+  external_host?: string;
+};

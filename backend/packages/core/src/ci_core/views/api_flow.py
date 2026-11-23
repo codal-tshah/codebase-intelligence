@@ -93,7 +93,7 @@ def focused_chain(index: GraphIndex, endpoint_id: str) -> tuple[dict[str, tuple[
     chain_edges: set[tuple[str, str, str]] = set()
 
     # upstream: frontend callers (HTTP_CALLS) and the components/hooks above them
-    frontier = deque()
+    frontier: deque[tuple[str, int]] = deque()
     for e in index.incoming.get(endpoint_id, []):
         if e.edge_type == EdgeType.HTTP_CALLS and e.source_id in index.nodes:
             placed.setdefault(e.source_id, ("client", 1))
@@ -119,7 +119,10 @@ def focused_chain(index: GraphIndex, endpoint_id: str) -> tuple[dict[str, tuple[
             placed.setdefault(tgt.id, ("handler", 0))
             handlers.append(tgt.id)
             chain_edges.add((endpoint_id, tgt.id, e.edge_type.value))
-        elif e.edge_type in (EdgeType.MIDDLEWARE, EdgeType.INJECTS, EdgeType.DEPENDS_ON) and tgt.node_type != NodeType.MODULE:
+        elif (
+            e.edge_type in (EdgeType.MIDDLEWARE, EdgeType.INJECTS, EdgeType.DEPENDS_ON)
+            and tgt.node_type != NodeType.MODULE
+        ):
             placed.setdefault(tgt.id, ("guard", 0))
             chain_edges.add((endpoint_id, tgt.id, e.edge_type.value))
 
@@ -135,10 +138,7 @@ def focused_chain(index: GraphIndex, endpoint_id: str) -> tuple[dict[str, tuple[
             tgt = index.nodes.get(e.target_id)
             if tgt is None or not _keep_downstream(index, e.edge_type, tgt):
                 continue
-            if e.edge_type == EdgeType.INJECTS:
-                col = "guard"
-            else:
-                col = _column(tgt)
+            col = "guard" if e.edge_type == EdgeType.INJECTS else _column(tgt)
             chain_edges.add((cur, tgt.id, e.edge_type.value))
             if tgt.id in placed:
                 continue
@@ -154,9 +154,11 @@ def build(
     endpoints = [n for n in index.nodes.values() if n.node_type == NodeType.ENDPOINT]
     endpoints.sort(key=lambda n: (n.source_path or "", n.start_line or 0, n.name))
     focus_node = index.nodes.get(focus) if focus else None
-    meta: dict[str, Any] = {"endpoint_count": len(endpoints), "focused": bool(focus_node), "columns": [
-        {"id": c, "label": COLUMN_LABELS[c]} for c in COLUMNS
-    ]}
+    meta: dict[str, Any] = {
+        "endpoint_count": len(endpoints),
+        "focused": bool(focus_node),
+        "columns": [{"id": c, "label": COLUMN_LABELS[c]} for c in COLUMNS],
+    }
 
     if focus_node is not None and focus_node.node_type == NodeType.ENDPOINT:
         placed, chain = focused_chain(index, focus_node.id)
@@ -167,13 +169,16 @@ def build(
             v.properties["column_rank"] = rank
             nodes.append(v)
         edges = [
-            e for e in edges_between(index, set(placed), FORWARD | UPSTREAM | {EdgeType.MIDDLEWARE})
+            e
+            for e in edges_between(index, set(placed), FORWARD | UPSTREAM | {EdgeType.MIDDLEWARE})
             if (e.source, e.target, e.edge_type) in chain
         ]
         meta["layout"] = "columns"
         meta["truncated"] = len(placed) >= MAX_CHAIN_NODES
         if meta["truncated"]:
-            meta["truncation_reason"] = f"Chain capped at {MAX_CHAIN_NODES} nodes; open a service in the call graph to go deeper."
+            meta["truncation_reason"] = (
+                f"Chain capped at {MAX_CHAIN_NODES} nodes; open a service in the call graph to go deeper."
+            )
         return nodes, edges, meta
 
     if focus_node is not None:

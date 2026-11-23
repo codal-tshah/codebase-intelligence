@@ -13,7 +13,9 @@ const browser = await chromium.launch({ channel: "chrome" });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 await page.addInitScript(() => {
   window.__long = [];
-  new PerformanceObserver((l) => l.getEntries().forEach((e) => window.__long.push(e.duration))).observe({ entryTypes: ["longtask"] });
+  new PerformanceObserver((l) => l.getEntries().forEach((e) => window.__long.push(e.duration))).observe({
+    entryTypes: ["longtask"],
+  });
 });
 
 async function timeView(view) {

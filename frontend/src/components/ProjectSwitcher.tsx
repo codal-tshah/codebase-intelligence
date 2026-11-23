@@ -28,7 +28,9 @@ export function ProjectSwitcher({ projects, overview, projectId, onPick, onManag
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return projects.filter((p) => !needle || p.name.toLowerCase().includes(needle) || p.root_path.toLowerCase().includes(needle));
+    return projects.filter(
+      (p) => !needle || p.name.toLowerCase().includes(needle) || p.root_path.toLowerCase().includes(needle),
+    );
   }, [projects, q]);
 
   const close = useCallback((opts?: { returnFocus?: boolean }) => {
@@ -40,7 +42,12 @@ export function ProjectSwitcher({ projects, overview, projectId, onPick, onManag
   useEffect(() => {
     if (!open) return;
     onOpen?.();
-    setActive(Math.max(0, shown.findIndex((p) => p.id === projectId)));
+    setActive(
+      Math.max(
+        0,
+        shown.findIndex((p) => p.id === projectId),
+      ),
+    );
     const t = setTimeout(() => input.current?.focus(), 0);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per open
@@ -66,7 +73,14 @@ export function ProjectSwitcher({ projects, overview, projectId, onPick, onManag
         {currentInfo?.stale ? <span className="stale-dot" title="New commits since the last index" /> : null}
         <ChevronDown size={14} strokeWidth={1.5} aria-hidden />
       </button>
-      <Popover open={open} onClose={close} anchorRef={trigger} role="dialog" label="Switch project" className="project-pop">
+      <Popover
+        open={open}
+        onClose={close}
+        anchorRef={trigger}
+        role="dialog"
+        label="Switch project"
+        className="project-pop"
+      >
         <label className="project-pop-search">
           <Search size={14} strokeWidth={1.5} aria-hidden />
           <input

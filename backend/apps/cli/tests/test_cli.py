@@ -31,7 +31,9 @@ def test_cli_impact_gate_exits_nonzero_on_high_risk(data_dir, fullstack_copy):
     res = runner.invoke(app, ["impact", str(db), "-p", str(fullstack_copy), "--fail-on", "high"])
     assert res.exit_code == 2, res.output
     assert "Risk: high" in res.output
-    res = runner.invoke(app, ["impact", "web/src/components/ItemCard.tsx", "-p", str(fullstack_copy), "--fail-on", "high"])
+    res = runner.invoke(
+        app, ["impact", "web/src/components/ItemCard.tsx", "-p", str(fullstack_copy), "--fail-on", "high"]
+    )
     assert res.exit_code == 0, res.output
 
 
@@ -44,7 +46,11 @@ def test_cli_impact_base_ref_diffs_git_history(data_dir, fullstack_copy):
     import subprocess
 
     def git(*args):
-        subprocess.run(["git", "-C", str(fullstack_copy), "-c", "user.name=t", "-c", "user.email=t@t", *args], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(fullstack_copy), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+            check=True,
+            capture_output=True,
+        )
 
     git("init", "-q")
     git("add", "-A")

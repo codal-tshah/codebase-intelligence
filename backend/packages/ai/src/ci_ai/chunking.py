@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 # Language-aware separators inspired by LangChain RecursiveCharacterTextSplitter.fromLanguage()
 _LANGUAGE_SPLITS: dict[str, list[str]] = {
     ".py": ["\nclass ", "\ndef ", "\nasync def ", "\n\n", "\n", " "],

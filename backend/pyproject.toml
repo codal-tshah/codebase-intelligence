@@ -9,7 +9,9 @@ dependencies = []
 [dependency-groups]
 dev = [
     "pytest>=8.0",
-    "ruff>=0.6",
+    "ruff>=0.17,<0.18",
+    "mypy>=2.4,<2.5",
+    "types-networkx>=3.4",
     "pyyaml>=6.0",
     "networkx>=3.4",
     "httpx>=0.27",
@@ -52,12 +54,75 @@ ci-mcp = { workspace = true }
 testpaths = ["packages", "apps"]
 addopts = "-q"
 
+# --- Ruff: lint + format (replaces isort; line length owned by the formatter) ---
 [tool.ruff]
-line-length = 140
+line-length = 120
 target-version = "py312"
 extend-exclude = ["benchmarks/fixtures"]
 
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+
 [tool.ruff.lint]
-# Correctness-first: pyflakes + pycodestyle errors + import sorting off for now (large existing diff).
-select = ["E4", "E7", "E9", "F", "B006", "B008", "UP"]
-ignore = ["UP037", "B008"]  # B008: typer/FastAPI declare options as defaults by design
+select = [
+    "E", "W", "F", "I", "B", "UP", "SIM", "C4", "PIE", "RUF", "PERF",
+    "PL", "S", "T20", "TID", "PTH", "ASYNC", "FAST", "N",
+]
+ignore = [
+    "E501",    # formatter owns line length
+    "PLR0913", # graph builders legitimately take many parameters
+    "PLR0912", # branchy domain logic (adapters, views)
+    "PLR0915", # long functions in monolithic analyzers
+    "PLR0911", # early-return validation in routers and tools
+    "PLR2004", # magic numbers in tests and heuristics
+    "B008",    # FastAPI/Typer declare options as defaults by design
+    "PLC0415", # lazy imports: optional backends, CLI wiring, circular-import avoidance
+    "FAST002", # Depends() defaults match existing FastAPI style; tighten in a follow-up
+    "PLR0917", # FastAPI routes and graph builders use many positional params by design
+    "PLW0603", # plugin/view registries use module-level init guards
+    "PERF401", # list append loops kept readable in hot graph builders
+    "S104",    # dev server binds 0.0.0.0 when explicitly requested for Docker/LAN
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101", "PLR2004", "ARG", "S603", "S607", "S105", "S106", "S108"]
+"**/test_*.py" = ["S101", "PLR2004", "ARG", "S603", "S607", "S105", "S106", "S108"]
+"scripts/**" = ["T20", "S311"]
+"benchmarks/**" = ["T201"]
+"packages/parsers/src/ci_parsers/files.py" = ["S603", "S607"]
+"apps/cli/src/ci_cli/main.py" = ["S603", "S607"]
+"packages/ai/src/ci_ai/tools.py" = ["S603", "S607"]
+"packages/core/src/ci_core/project_admin.py" = ["S603", "S607", "S110"]
+"packages/indexer/src/ci_indexer/pipeline.py" = ["S603", "S607"]
+"packages/indexer/src/ci_indexer/analyzers.py" = ["N811"]  # ANALYZER constants re-exported with short names
+"packages/core/src/ci_core/views/explore.py" = ["S110"]  # malformed layout params ignored by design
+"apps/api/src/ci_api/routers/system.py" = ["S110"]  # status page skips broken registry rows
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "ci_core", "ci_parsers", "ci_adapters_django", "ci_adapters_typescript",
+    "ci_indexer", "ci_ai", "ci_security", "ci_cli", "ci_api", "ci_mcp",
+]
+
+# --- Mypy: strict ratchet on core + parsers first ---
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+plugins = ["pydantic.mypy"]
+files = [
+    "packages/core/src/ci_core",
+    "packages/parsers/src/ci_parsers",
+]
+exclude = ["^packages/core/src/ci_core/db\\.py$"]  # SQLAlchemy row mapping: follow-up with sqlalchemy plugin
+
+[[tool.mypy.overrides]]
+module = ["ci_core.*", "ci_parsers.*"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = "ci_core.project_admin"
+disable_error_code = ["import-untyped"]  # summarize loaded lazily to avoid ci_ai import cycle

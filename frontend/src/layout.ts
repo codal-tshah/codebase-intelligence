@@ -20,7 +20,7 @@ export function layoutNodes(
   dagre.layout(g);
   const out = new Map<string, { x: number; y: number }>();
   for (const n of nodes) {
-    const p = g.node(n.id);
+    const p = g.node(n.id) as { x: number; y: number };
     out.set(n.id, { x: p.x - n.width / 2, y: p.y - n.height / 2 });
   }
   return direction === "LR" ? wrapWideRanks(nodes, out) : out;
@@ -82,7 +82,10 @@ export const LANE_HEADER = 40;
 export function layoutByLayer(
   nodes: (LayoutInput & { layer?: string | null; rank: number })[],
   { rowsPerColumn = 12, gapX = 28, gapY = 16, laneGap = 72, order: laneOrder = LAYER_ORDER } = {},
-): { positions: Map<string, { x: number; y: number }>; lanes: { id: string; x: number; width: number; count: number }[] } {
+): {
+  positions: Map<string, { x: number; y: number }>;
+  lanes: { id: string; x: number; width: number; count: number }[];
+} {
   const byLayer = new Map<string, typeof nodes>();
   for (const n of nodes) {
     const key = n.layer && laneOrder.includes(n.layer) ? n.layer : "other";

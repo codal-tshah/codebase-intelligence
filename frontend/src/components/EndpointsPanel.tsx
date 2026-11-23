@@ -76,13 +76,23 @@ export function EndpointsPanel({ projectId, reloadKey, selectedId, onTrace, onPi
         <p className="muted">
           {items.length} route{items.length === 1 ? "" : "s"} · {linked} called from client code
         </p>
-        <input className="endpoints-filter" placeholder="Filter by route, handler, model…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <input
+          className="endpoints-filter"
+          placeholder="Filter by route, handler, model…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
         <div className="chip-row">
           <button type="button" className={`chip ${method === "" ? "active" : ""}`} onClick={() => setMethod("")}>
             all
           </button>
           {methods.map((m) => (
-            <button key={m} type="button" className={`chip ${method === m ? "active" : ""}`} onClick={() => setMethod(m === method ? "" : m)}>
+            <button
+              key={m}
+              type="button"
+              className={`chip ${method === m ? "active" : ""}`}
+              onClick={() => setMethod(m === method ? "" : m)}
+            >
               {m}
             </button>
           ))}
@@ -104,13 +114,27 @@ export function EndpointsPanel({ projectId, reloadKey, selectedId, onTrace, onPi
                 <span className="endpoint-route" title={e.route}>
                   {e.route}
                 </span>
-                {e.callers.length ? <span className="endpoint-callers" title="Called from client code">{e.callers.length} caller{e.callers.length > 1 ? "s" : ""}</span> : null}
+                {e.callers.length ? (
+                  <span className="endpoint-callers" title="Called from client code">
+                    {e.callers.length} caller{e.callers.length > 1 ? "s" : ""}
+                  </span>
+                ) : null}
               </button>
               {open ? (
                 <div className="endpoint-detail">
-                  <Row label="Handler" items={e.handler ? [e.handler] : []} empty="inline / unresolved" onPick={onPickNode} />
+                  <Row
+                    label="Handler"
+                    items={e.handler ? [e.handler] : []}
+                    empty="inline / unresolved"
+                    onPick={onPickNode}
+                  />
                   <Row label="Guards" items={[...e.guards, ...e.dependencies]} onPick={onPickNode} />
-                  <Row label="Data" items={e.models} suffix={(m) => ` (${(m as EndpointInfo["models"][number]).access.join("/")})`} onPick={onPickNode} />
+                  <Row
+                    label="Data"
+                    items={e.models}
+                    suffix={(m) => ` (${(m as EndpointInfo["models"][number]).access.join("/")})`}
+                    onPick={onPickNode}
+                  />
                   <Row label="External" items={e.external} onPick={onPickNode} />
                   <Row label="Called by" items={e.callers} onPick={onPickNode} />
                   <div className="endpoint-actions">
@@ -149,14 +173,16 @@ function Row({
     <div className="endpoint-row-detail">
       <span className="endpoint-label">{label}</span>
       <span className="endpoint-values">
-        {items.length
-          ? items.map((n) => (
-              <button key={n.id} type="button" className="link-btn" onClick={() => onPick(n.id)}>
-                {n.name}
-                {suffix ? suffix(n) : ""}
-              </button>
-            ))
-          : <span className="muted">{empty}</span>}
+        {items.length ? (
+          items.map((n) => (
+            <button key={n.id} type="button" className="link-btn" onClick={() => onPick(n.id)}>
+              {n.name}
+              {suffix ? suffix(n) : ""}
+            </button>
+          ))
+        ) : (
+          <span className="muted">{empty}</span>
+        )}
       </span>
     </div>
   );

@@ -73,15 +73,11 @@ def embed_project_chunks(project_id: str, root: Path, only_paths: set[str] | Non
         if not lines:
             continue
 
-        symbol_nodes = sorted(
-            (n for (path, _), n in by_start.items() if path == rel), key=lambda n: n.start_line or 0
-        )
+        symbol_nodes = sorted((n for (path, _), n in by_start.items() if path == rel), key=lambda n: n.start_line or 0)
         mod_node = module_nodes.get(rel)
         head_end = min(len(lines), MODULE_HEAD_LINES)
         chunks.append(
-            _chunk(
-                mod_node, rel, 1, head_end, "\n".join(lines[:head_end]), {"kind": "module-head", "path": rel}
-            )
+            _chunk(mod_node, rel, 1, head_end, "\n".join(lines[:head_end]), {"kind": "module-head", "path": rel})
         )
         for node in symbol_nodes:
             start, end = node.start_line or 1, node.end_line or node.start_line or 1
@@ -104,9 +100,7 @@ def embed_project_chunks(project_id: str, root: Path, only_paths: set[str] | Non
                 cursor = max(idx, cursor)
                 start = source.count("\n", 0, idx) + 1
                 end = start + piece.count("\n")
-                chunks.append(
-                    _chunk(mod_node, rel, start, end, piece, {"chunk_index": i, "split": "language-aware"})
-                )
+                chunks.append(_chunk(mod_node, rel, start, end, piece, {"chunk_index": i, "split": "language-aware"}))
     if chunks:
         store.upsert_chunks(chunks)
     return len(chunks)

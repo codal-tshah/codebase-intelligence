@@ -10,7 +10,8 @@ type Props = {
 };
 
 /** Allow the assistant's in-app link schemes; everything else goes through the safe default. */
-const urlTransform = (url: string) => (url.startsWith("node:") || url.startsWith("source:") ? url : defaultUrlTransform(url));
+const urlTransform = (url: string) =>
+  url.startsWith("node:") || url.startsWith("source:") ? url : defaultUrlTransform(url);
 
 export function MarkdownContent({ content, className = "", onNodeLink, onSourceLink }: Props) {
   return (
@@ -27,7 +28,12 @@ export function MarkdownContent({ content, className = "", onNodeLink, onSourceL
             if (href.startsWith("node:")) {
               const id = href.slice(5);
               return (
-                <button type="button" className="md-link md-link--node" onClick={() => onNodeLink?.(id)} title="Show in graph">
+                <button
+                  type="button"
+                  className="md-link md-link--node"
+                  onClick={() => onNodeLink?.(id)}
+                  title="Show in graph"
+                >
                   {children}
                 </button>
               );
@@ -36,7 +42,12 @@ export function MarkdownContent({ content, className = "", onNodeLink, onSourceL
               const [path, frag = ""] = href.slice(7).split("#");
               const line = Number(frag.replace(/^L/, "")) || 1;
               return (
-                <button type="button" className="md-link md-link--source" onClick={() => onSourceLink?.(path, line)} title="Open source">
+                <button
+                  type="button"
+                  className="md-link md-link--source"
+                  onClick={() => onSourceLink?.(path, line)}
+                  title="Open source"
+                >
                   {children}
                 </button>
               );

@@ -13,7 +13,10 @@ export function encodeExpandedIds(ids: string[]): string {
 }
 
 export function decodeExpandedIds(raw: string | undefined | null): string[] {
-  if (!raw || !raw.trim()) return [];
-  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+  if (!raw?.trim()) return [];
+  const parts = raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
   return [...new Set(parts)];
 }
