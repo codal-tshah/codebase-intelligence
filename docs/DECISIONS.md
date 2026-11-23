@@ -2,6 +2,10 @@
 
 Short records of choices that are expensive to undo or that add dependencies. Newest first. Each entry gives the decision, why, and what was rejected.
 
+## 2026-11-20: Django adapter version 6 (view + index semantics)
+
+Bump `ADAPTER_VERSION` to `"6"` so indexed projects pick up namespace `Package` nodes (folders without `__init__.py`), normalized SQLAlchemy field types, and FastAPI `Annotated[..., Depends(...)]` alias **INJECTS** edges. Test hiding and ER field caps are **view** / UI changes and do not require a bump; namespace packages and field properties do.
+
 ## 2026-11-19: code quality baseline
 
 ### Dependencies added (dev only unless noted)

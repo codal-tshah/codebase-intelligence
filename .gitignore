@@ -18,7 +18,9 @@ frontend/dist/
 playwright-*.png
 playwright-*.log
 playwright-*.yml
-.cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 frontend/test-results/
 frontend/playwright-report/
 

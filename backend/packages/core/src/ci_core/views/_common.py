@@ -3,12 +3,47 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from typing import Any
 
 from ci_core.insights import GraphIndex
 from ci_core.models import EdgeRecord, EdgeType, GraphEdgeView, GraphNodeView, NodeRecord, NodeType
 
 MAX_NODES = 220
+
+_TEST_ROOT_SEGMENTS = frozenset({"tests", "test", "__tests__", "spec"})
+
+
+def include_tests(params: dict[str, Any] | None) -> bool:
+    """True when the client asked to keep test-scoped nodes (query `include_tests=1` or bool)."""
+    if not params:
+        return False
+    raw = params.get("include_tests")
+    if raw is True:
+        return True
+    if isinstance(raw, str):
+        return raw.strip().lower() in {"1", "true", "yes"}
+    return bool(raw)
+
+
+def is_test_record(node: NodeRecord) -> bool:
+    """Union of view/suggestion heuristics for test-scoped nodes."""
+    path = (node.source_path or node.qualified_name or node.name or "").replace("\\", "/").lower()
+    test_segment = any(seg.startswith("test_") for seg in path.split("/"))
+    first_seg = path.split("/")[0] if path else ""
+    return (
+        node.properties.get("layer") == "test"
+        or "/tests/" in f"/{path}"
+        or test_segment
+        or ".test." in path
+        or ".spec." in path
+        or first_seg in _TEST_ROOT_SEGMENTS
+    )
+
+
+def is_test_node(index: GraphIndex, node_id: str) -> bool:
+    node = index.nodes.get(node_id)
+    return is_test_record(node) if node is not None else False
 
 
 def node_view(node: NodeRecord, index: GraphIndex) -> GraphNodeView:
@@ -69,9 +104,10 @@ def expand(
     backward: set[EdgeType] | None = None,
     depth: int = 2,
     limit: int = MAX_NODES,
+    skip: Callable[[str], bool] | None = None,
 ) -> set[str]:
     """BFS from `seeds` along outgoing `forward` and incoming `backward` edge types."""
-    collected: set[str] = {s for s in seeds if s in index.nodes}
+    collected: set[str] = {s for s in seeds if s in index.nodes and (skip is None or not skip(s))}
     frontier: deque[tuple[str, int]] = deque((s, 0) for s in collected)
     while frontier and len(collected) < limit:
         cur, d = frontier.popleft()
@@ -79,12 +115,14 @@ def expand(
             continue
         if forward:
             for e in index.outgoing.get(cur, []):
-                if e.edge_type in forward and e.target_id not in collected:
-                    collected.add(e.target_id)
-                    frontier.append((e.target_id, d + 1))
+                tid = e.target_id
+                if e.edge_type in forward and tid not in collected and (skip is None or not skip(tid)):
+                    collected.add(tid)
+                    frontier.append((tid, d + 1))
         if backward:
             for e in index.incoming.get(cur, []):
-                if e.edge_type in backward and e.source_id not in collected:
-                    collected.add(e.source_id)
-                    frontier.append((e.source_id, d + 1))
+                sid = e.source_id
+                if e.edge_type in backward and sid not in collected and (skip is None or not skip(sid)):
+                    collected.add(sid)
+                    frontier.append((sid, d + 1))
     return collected

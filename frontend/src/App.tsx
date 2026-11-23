@@ -147,7 +147,9 @@ const FALLBACK_BEST: Record<string, string> = {
 
 // ------------------------------------------------------------------ deep links
 
-type HashState = { p?: string; v?: string; n?: string; f?: string; e?: string };
+type HashState = { p?: string; v?: string; n?: string; f?: string; e?: string; t?: string };
+
+const VIEWS_WITH_TEST_FILTER = new Set(["integrations", "call-graph", "architecture", "explore"]);
 
 function readHash(): HashState {
   const raw = window.location.hash.replace(/^#\/?/, "");
@@ -158,6 +160,7 @@ function readHash(): HashState {
     n: params.get("n") ?? undefined,
     f: params.get("f") ?? undefined,
     e: params.get("e") ?? undefined,
+    t: params.get("t") ?? undefined,
   };
 }
 
@@ -219,6 +222,7 @@ function Dashboard() {
   const [graphLoading, setGraphLoading] = useState(false);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [showTests, setShowTests] = useState(initialHash.current.t === "1");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [exploreState, exploreDispatch] = useReducer(
@@ -408,11 +412,12 @@ function Dashboard() {
         if (off > 0) params.append("extra_child_offsets", `${nid}=${off}`);
       }
     }
+    if (showTests && VIEWS_WITH_TEST_FILTER.has(view)) params.set("include_tests", "true");
     // reloadKey is bumped by re-index / reload, so cached payloads from before it are never reused.
     const cacheKey =
       view === "explore"
-        ? `${projectId}|${reloadKey}|${exploreCacheKey(exploreExpanded, exploreChildOffsets)}`
-        : `${view}|${focusNodeId ?? ""}`;
+        ? `${projectId}|${reloadKey}|${showTests ? "t" : ""}|${exploreCacheKey(exploreExpanded, exploreChildOffsets)}`
+        : `${view}|${focusNodeId ?? ""}|${showTests ? "t" : ""}`;
     if (view === "explore") {
       const cached = exploreGraphCache.current.get(cacheKey);
       if (cached) {
@@ -446,7 +451,7 @@ function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, view, focusNodeId, exploreExpanded, exploreChildOffsets, reloadKey]);
+  }, [projectId, view, focusNodeId, exploreExpanded, exploreChildOffsets, reloadKey, showTests]);
 
   // ---- overlays (impact > path > tour/chat) --------------------------------------------------
   const special = useMemo(() => {
@@ -853,8 +858,15 @@ function Dashboard() {
   useEffect(() => {
     if (!projectId) return;
     const e = view === "explore" && exploreExpanded.length ? encodeExpandedIds(exploreExpanded) : undefined;
-    writeHash({ p: projectId, v: view, f: focusNodeId, n: selectedId ?? undefined, e });
-  }, [projectId, view, focusNodeId, selectedId, exploreExpanded]);
+    writeHash({
+      p: projectId,
+      v: view,
+      f: focusNodeId,
+      n: selectedId ?? undefined,
+      e,
+      t: showTests ? "1" : undefined,
+    });
+  }, [projectId, view, focusNodeId, selectedId, exploreExpanded, showTests]);
 
   // A link pasted into an open tab (or back/forward) changes only the hash: apply it.
   // writeHash uses replaceState, which doesn't fire hashchange, so this only sees external edits.
@@ -867,6 +879,7 @@ function Dashboard() {
         setView(h.v);
       }
       setFocusNodeId(h.f);
+      setShowTests(h.t === "1");
       exploreDispatch({ type: "set", expanded: h.e ? decodeExpandedIds(h.e) : [] });
       if (h.n) void selectNode(h.n);
     };
@@ -1223,6 +1236,7 @@ function Dashboard() {
                   n: selectedId ?? undefined,
                   f: focusNodeId,
                   e: view === "explore" && exploreExpanded.length ? encodeExpandedIds(exploreExpanded) : undefined,
+                  t: showTests ? "1" : undefined,
                 })}
               />
               <button
@@ -1395,6 +1409,17 @@ function Dashboard() {
                   onCollapseToLevel={collapseToLevel}
                   onExpandSelection={expandExploreChildrenOfSelection}
                 />
+              ) : null}
+              {VIEWS_WITH_TEST_FILTER.has(view) && !special ? (
+                <button
+                  type="button"
+                  className="chip-btn"
+                  aria-pressed={showTests}
+                  title={showTests ? "Hide test modules" : "Show test modules"}
+                  onClick={() => setShowTests((t) => !t)}
+                >
+                  {showTests ? "Tests shown" : "Tests hidden"}
+                </button>
               ) : null}
               {focusNodeId && !special ? (
                 <button type="button" className="chip-btn" onClick={() => setFocusNodeId(undefined)}>

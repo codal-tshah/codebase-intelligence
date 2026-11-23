@@ -107,16 +107,9 @@ def _runtime_import_index(index: GraphIndex) -> GraphIndex:
 
 
 def _is_test(n: NodeRecord) -> bool:
-    path = (n.source_path or "").lower()
-    # `test_` must start a path segment: a plain substring match also hid latest_*.py, contest_*.py, ...
-    test_segment = any(seg.startswith("test_") for seg in path.split("/"))
-    return (
-        n.properties.get("layer") == "test"
-        or "/tests/" in f"/{path}"
-        or test_segment
-        or ".test." in path
-        or ".spec." in path
-    )
+    from ci_core.views._common import is_test_record
+
+    return is_test_record(n)
 
 
 def suggest(index: GraphIndex, *, limit: int = 40) -> list[dict[str, Any]]:

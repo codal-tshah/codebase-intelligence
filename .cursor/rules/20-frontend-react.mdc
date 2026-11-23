@@ -1,0 +1,25 @@
+---
+description: React state, hash, React Flow, trace, lint rules
+globs: frontend/src/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Frontend React
+
+## API
+
+`frontend/src/api.ts`: `API = "/api"`; use `getJson` helpers. Vite proxies `/api` → backend (`vite.config.ts`, default `127.0.0.1:8000`).
+
+## State and hash
+
+`App.tsx` owns project, view, selection, explore expansion. URL hash encodes deep links (`explore/hash.ts`); `hashchange` syncs pasted links.
+
+## Graph UI
+
+React Flow in `flow.ts`; layouts: ELK (`explore/layoutExplore.ts`), dagre (`layout.ts`). Trace highlighting in `trace.ts`.
+
+## Quality
+
+ESLint type-aware on `src/**`; Prettier 120 cols. Fix `@typescript-eslint/no-floating-promises` with `await` or `void`. Vitest in `src/**/*.test.ts`.
+
+Details: `docs/ai/frontend-guide.md`.

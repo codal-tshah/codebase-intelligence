@@ -10,6 +10,22 @@ from ci_core.views import ViewModule, register_view
 from ci_core.views._common import edges_between, node_view
 
 ACCESS = {EdgeType.READS_MODEL, EdgeType.WRITES_MODEL, EdgeType.QUERIES}
+FIELD_CAP_PER_MODEL = 12
+
+
+def _fields_for_model(index: GraphIndex, model_id: str) -> list[str]:
+    fields = [
+        e.target_id
+        for e in index.outgoing.get(model_id, [])
+        if e.edge_type == EdgeType.CONTAINS and index.nodes[e.target_id].node_type == NodeType.FIELD
+    ]
+    fields.sort(
+        key=lambda fid: (
+            index.nodes[fid].properties.get("order", 0),
+            index.nodes[fid].name,
+        )
+    )
+    return fields
 
 
 def build(
@@ -17,23 +33,30 @@ def build(
 ) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
     models = [n for n in index.nodes.values() if n.node_type == NodeType.MODEL]
     model_ids = {m.id for m in models}
-    fields = [
-        n
-        for n in index.nodes.values()
-        if n.node_type == NodeType.FIELD and any(e.source_id in model_ids for e in index.incoming.get(n.id, []))
-    ][:1000]
-    chosen = [*models, *fields]
+    field_ids: list[str] = []
+    for model in models:
+        fids = _fields_for_model(index, model.id)
+        field_ids.extend(fids[:FIELD_CAP_PER_MODEL])
+    chosen_models = list(models)
+    chosen_fields = [index.nodes[fid] for fid in field_ids if fid in index.nodes]
+    chosen = [*chosen_models, *chosen_fields]
     allowed = {n.id for n in chosen}
     types = {EdgeType.FK_TO, EdgeType.CONTAINS}
     meta: dict[str, Any] = {}
     if focus and focus in model_ids:
-        # show which handlers/services read or write the focused model
         users = {e.source_id for e in index.incoming.get(focus, []) if e.edge_type in ACCESS}
         allowed |= users
-        chosen += [index.nodes[u] for u in users]
+        chosen += [index.nodes[u] for u in users if u in index.nodes]
         types |= ACCESS
         meta["focused"] = True
-    return [node_view(n, index) for n in chosen], edges_between(index, allowed, types), meta
+    nodes: list[GraphNodeView] = []
+    for model in chosen_models:
+        view = node_view(model, index)
+        total = len(_fields_for_model(index, model.id))
+        view.properties["field_count"] = total
+        nodes.append(view)
+    nodes.extend(node_view(f, index) for f in chosen_fields)
+    return nodes, edges_between(index, allowed, types), meta
 
 
 register_view(

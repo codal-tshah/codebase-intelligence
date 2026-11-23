@@ -1,0 +1,27 @@
+---
+description: Nodes, edges, import_kind, indexing, fixtures
+globs: backend/packages/{core,adapters,parsers,indexer}/**
+alwaysApply: false
+---
+
+# Graph and indexing
+
+## Node / edge types
+
+Defined in `ci_core.models` (`NodeType`, `EdgeType`). `DEPENDENCY_EDGES` in `insights.py` drives impact, path, neighborhood (excludes `CONTAINS` for some algorithms).
+
+## Import edges
+
+Python parser sets `import_kind` (`type_only`, `lazy`) on `IMPORTS`; Django adapter merges with `has_runtime_import` on `ADAPTER_VERSION` bumps (currently `"5"` in `adapter.py`). Cycle suggestions use runtime import index.
+
+## Pipeline
+
+`analyze_project` → `merge_results` / `link_http_calls` (`ci_core.analysis`) → SQLite rewrite → optional embeddings. Incremental levels: `SKIP`, `PARTIAL`, `ARCHITECTURE`, `FULL` (`ci_indexer.changes`); version change forces `FULL`.
+
+## Locks
+
+Per-project `index.lock` + in-process lock; refuse delete while indexing.
+
+## Fixtures
+
+Regression repos under `backend/benchmarks/fixtures/` (do not edit fixtures in agent doc tasks). `synthetic_django`, `fullstack_app`, `layered_fastapi`.

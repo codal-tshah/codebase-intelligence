@@ -27,6 +27,12 @@ repos:
         language: system
         files: ^frontend/
         pass_filenames: false
+      - id: check-ai-docs
+        name: check ai agent docs
+        entry: python3 scripts/check_ai_docs.py
+        language: system
+        pass_filenames: false
+        files: ^(CLAUDE\.md|AGENTS\.md|docs/ai/|\.cursor/rules/|scripts/check_ai_docs\.py)
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

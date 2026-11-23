@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layoutByLayer, layoutNodes } from "./layout";
+import { layoutByLayer, layoutColumnsByRank, layoutNodes } from "./layout";
 
 describe("layout", () => {
   it("wraps a hub's 60 spokes into several columns instead of one tall column", () => {
@@ -23,6 +23,22 @@ describe("layout", () => {
     expect(lanes.map((l) => l.id)).toEqual(["api", "data", "test"]);
     expect(positions.get("a2")!.y).toBeLessThan(positions.get("a")!.y); // higher rank first
     expect(positions.get("a")!.x).toBeLessThan(positions.get("d")!.x);
+  });
+});
+
+describe("layoutColumnsByRank", () => {
+  it("places each column_rank in its own sub-column", () => {
+    const nodes = [
+      { id: "a", width: 200, height: 70, layer: "service", rank: 0 },
+      { id: "b", width: 200, height: 70, layer: "service", rank: 1 },
+      { id: "c", width: 200, height: 70, layer: "service", rank: 1 },
+      { id: "d", width: 200, height: 70, layer: "service", rank: 2 },
+    ];
+    const { positions, lanes } = layoutColumnsByRank(nodes, { order: ["service"] });
+    expect(lanes[0].count).toBe(4);
+    expect(positions.get("a")!.x).toBeLessThan(positions.get("b")!.x);
+    expect(positions.get("b")!.x).toBe(positions.get("c")!.x);
+    expect(positions.get("d")!.x).toBeGreaterThan(positions.get("b")!.x);
   });
 });
 

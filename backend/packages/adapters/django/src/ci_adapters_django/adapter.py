@@ -46,7 +46,7 @@ from ci_parsers import (
     structural_fingerprint,
 )
 
-ADAPTER_VERSION = "5"
+ADAPTER_VERSION = "6"
 
 RELATION_FIELDS = {"ForeignKey", "OneToOneField", "ManyToManyField"}
 FIELD_KWARGS = ("max_length", "null", "blank", "unique", "primary_key", "db_index", "related_name", "on_delete")
@@ -67,6 +67,42 @@ ROUTE_DECORATORS = {"get", "post", "put", "patch", "delete", "head", "options", 
 ROUTER_NAME_HINTS = ("app", "router", "api", "bp", "blueprint", "routes")
 MOUNT_METHODS = {"include_router", "register_blueprint", "add_router"}
 DI_FUNCTIONS = {"Depends", "Security"}
+
+_TYPE_WRAPPERS = ("Mapped", "Optional", "Union", "Annotated")
+
+
+def _compact_field_type(raw: str) -> tuple[str, bool | None]:
+    """Human-readable SQLAlchemy annotation (unwrap Mapped/Optional/union tails)."""
+    s = raw.strip()
+    nullable: bool | None = None
+    if "| None" in s or "None |" in s:
+        nullable = True
+    while True:
+        peeled = False
+        for wrap in _TYPE_WRAPPERS:
+            prefix = f"{wrap}["
+            if s.startswith(prefix) and s.endswith("]"):
+                inner = s[len(prefix) : -1].strip()
+                if wrap == "Annotated":
+                    inner = inner.split(",", 1)[0].strip()
+                elif wrap == "Union":
+                    parts = [p.strip() for p in inner.split(",") if p.strip() and p.strip() != "None"]
+                    inner = parts[0] if parts else inner
+                    nullable = nullable or "None" in inner or len(parts) < len(list(inner.split(",")))
+                s = inner
+                peeled = True
+                break
+        if not peeled:
+            break
+    s = s.split("|", 1)[0].strip()
+    s = s.rstrip("]").split("[", 1)[0].strip()
+    if s.endswith("]"):
+        s = s[:-1]
+    name = s.split(".")[-1].strip()
+    if "None" in raw and nullable is None:
+        nullable = True
+    return name, nullable
+
 
 # SQLAlchemy / SQLModel
 SQLA_COLUMN_FUNCS = {"Column", "mapped_column", "relationship", "Field"}
@@ -359,6 +395,29 @@ class _Analyzer:
     def _build_packages(self) -> None:
         known = self._known_dirs()
         local: dict[str, str] = {}  # package -> origin
+        ns_counts: dict[str, int] = {}
+        for mod in self.modules.values():
+            if "@" in mod.name:
+                continue
+            top: str | None = None
+            if "/" in mod.rel:
+                top = mod.rel.split("/")[0]
+            else:
+                parts = mod.name.split(".")
+                if len(parts) >= 2:
+                    top = parts[0]
+            if top:
+                ns_counts[top] = ns_counts.get(top, 0) + 1
+        for top, count in sorted(ns_counts.items()):
+            if count < 2:
+                continue
+            pkg_mod = self.modules.get(top)
+            if pkg_mod is not None and pkg_mod.is_package:
+                continue
+            init_key = f"{top}/__init__.py"
+            if any(m.rel == init_key for m in self.modules.values()):
+                continue
+            local[top] = "namespace"
         for app in self.result.installed_apps:
             pkg = self._app_package(app, known)
             if pkg:
@@ -418,6 +477,7 @@ class _Analyzer:
                     properties={
                         "installed": origin == "installed_apps",
                         **({"subpackage": True} if origin == "subpackage" else {}),
+                        **({"namespace": True} if origin == "namespace" else {}),
                     },
                 )
             )
@@ -1446,6 +1506,41 @@ class _Analyzer:
                 view_node.properties["role"] = "views"
                 view_node.properties["layer"] = "api"
 
+    def _module_dep_alias_values(self, mod: _Module) -> dict[str, ast.AST]:
+        """Module-level `FooDep = Annotated[..., Depends(...)]` bodies for parameter annotations."""
+        out: dict[str, ast.AST] = {}
+        tree = mod.pr.tree
+        if tree is None:
+            return out
+        for node in tree.body:
+            name: str | None = None
+            value: ast.AST | None = None
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                name, value = node.targets[0].id, node.value
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+                name, value = node.target.id, node.value
+            if (
+                name
+                and value is not None
+                and isinstance(value, ast.Subscript)
+                and (dotted_name(value.value) or "").split(".")[-1] == "Annotated"
+            ):
+                out[name] = value
+        return out
+
+    def _depends_calls(self, ann: ast.AST | None, mod: _Module) -> list[ast.Call]:
+        if ann is None:
+            return []
+        dep_aliases = self._module_dep_alias_values(mod)
+        root = dep_aliases[ann.id] if isinstance(ann, ast.Name) and ann.id in dep_aliases else ann
+        calls: list[ast.Call] = []
+        for sub in ast.walk(root):
+            if not isinstance(sub, ast.Call) or not sub.args:
+                continue
+            if (dotted_name(sub.func) or "").split(".")[-1] in DI_FUNCTIONS:
+                calls.append(sub)
+        return calls
+
     def _link_dependency_injection(self) -> None:
         """FastAPI `Depends(fn)` / `Security(fn)` parameters become INJECTS edges."""
         for qn, sym in self.sym_info.items():
@@ -1454,14 +1549,43 @@ class _Analyzer:
             mod = self.sym_module[qn]
             sid = self.symbols[qn]
             class_qn = sym.parent_class
+            args = sym.node.args
+            param_annotations = [
+                *(a.annotation for a in args.posonlyargs),
+                *(a.annotation for a in args.args),
+                *(a.annotation for a in args.kwonlyargs),
+            ]
+            seen_calls: set[int] = set()
+            for ann in param_annotations:
+                for sub in self._depends_calls(ann, mod):
+                    if id(sub) in seen_calls:
+                        continue
+                    seen_calls.add(id(sub))
+                    hit = self.resolve(mod.pr, dotted_name(sub.args[0]) or "", class_qn)
+                    if not hit or hit[1] or hit[0] not in self.symbols:
+                        continue
+                    self.frameworks.add("fastapi")
+                    self._edge(
+                        EdgeType.INJECTS,
+                        sid,
+                        self.symbols[hit[0]],
+                        rel=mod.rel,
+                        line=getattr(sub, "lineno", sym.start_line),
+                        extractor="fastapi.depends",
+                        confidence=0.9,
+                        relation="depends",
+                    )
             for sub in ast.walk(sym.node.args):
                 if not isinstance(sub, ast.Call) or not sub.args:
+                    continue
+                if id(sub) in seen_calls:
                     continue
                 if (dotted_name(sub.func) or "").split(".")[-1] not in DI_FUNCTIONS:
                     continue
                 hit = self.resolve(mod.pr, dotted_name(sub.args[0]) or "", class_qn)
                 if not hit or hit[1] or hit[0] not in self.symbols:
                     continue
+                seen_calls.add(id(sub))
                 self.frameworks.add("fastapi")
                 self._edge(
                     EdgeType.INJECTS,
@@ -1496,8 +1620,15 @@ class _Analyzer:
             if type_name:
                 break
         if type_name is None and isinstance(item, ast.AnnAssign):
-            type_name = ast.unparse(item.annotation)[:60]
-        props["field_type"] = (type_name or ftype).split(".")[-1]
+            type_name = ast.unparse(item.annotation)[:120]
+        raw_type = type_name or ftype
+        if "[" in raw_type or "|" in raw_type or raw_type.startswith(("Mapped", "Optional", "Union")):
+            compact, nullable_guess = _compact_field_type(raw_type)
+        else:
+            compact, nullable_guess = raw_type.split(".")[-1], None
+        props["field_type"] = compact
+        if nullable_guess is not None and "nullable" not in props:
+            props["nullable"] = nullable_guess
         for kw in value.keywords:
             if kw.arg in ("nullable", "primary_key", "unique", "index", "default") and isinstance(
                 kw.value, ast.Constant

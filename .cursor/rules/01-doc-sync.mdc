@@ -1,0 +1,31 @@
+---
+description: Documentation Maintenance Protocol and change-to-doc map
+alwaysApply: true
+---
+
+# Documentation Maintenance Protocol:
+
+- Docs are part of the change. A task that modifies behaviour is not done until the matching docs are updated in the same diff.
+- Before finishing any task, run the change-to-doc map below, open each mapped file, and update every statement that your change made false. If nothing needs updating, say so explicitly in your final message ("docs checked: <files>, no change needed").
+- Never document from memory. Re-read the code you changed and copy names, paths, signatures and commands from it.
+- Add a line to `CHANGELOG.md` for user-visible changes, and to `docs/DECISIONS.md` for new dependencies or architectural decisions (one line of justification).
+- If a doc and the code disagree, the code wins: fix the doc, and mention it.
+- Do not create new top-level docs when an existing file owns the topic.
+
+## Change-to-doc map
+
+Full table: [docs/ai/README.md](docs/ai/README.md#change-to-doc-map).
+
+| If you change... | Update... |
+| --- | --- |
+| HTTP routes, shapes, auth | `docs/ai/api-reference.md`, `docs/user-guide.md`, `.cursor/rules/11-api-routes.mdc` |
+| CLI / MCP | `docs/ai/api-reference.md`, `README.md`, `integrations/README.md` if listed |
+| Graph schema / properties | `docs/ai/data-model.md`, `docs/architecture.md`; bump adapter version |
+| Analyzers / parsers | `docs/ai/indexing-pipeline.md`, fixtures, `docs/GAPS.md` |
+| Views / algorithms | `docs/ai/architecture-map.md`, `docs/ai/frontend-guide.md`, `docs/graph-architecture-research.md` |
+| Frontend UX | `docs/ai/frontend-guide.md`, `docs/user-guide.md`, `docs/DESIGN.md` |
+| Env / data dir | `.env.example`, `docs/ai/runbook.md`, `docs/onboarding.md` |
+| Tooling / CI | `CONTRIBUTING.md`, `docs/ai/testing-and-quality.md`, `docs/DECISIONS.md` |
+| Security | `docs/SECURITY.md`, `docs/private-repos.md`, `.cursor/rules/40-security-privacy.mdc` |
+| Bug (non-obvious) | `CHANGELOG.md`; `AGENTS.md`/`CLAUDE.md` if agents could repeat it |
+| New user-visible feature | `CHANGELOG.md`, `docs/user-guide.md`, `docs/GAPS.md` |

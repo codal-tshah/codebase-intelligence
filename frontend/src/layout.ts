@@ -115,3 +115,57 @@ export function layoutByLayer(
   }
   return { positions, lanes };
 }
+
+/** API flow: within each pipeline column, split nodes into sub-columns by ``column_rank``. */
+export function layoutColumnsByRank(
+  nodes: (LayoutInput & { layer?: string | null; rank: number })[],
+  {
+    gapX = 28,
+    gapY = 16,
+    laneGap = 96,
+    order: laneOrder,
+  }: { gapX?: number; gapY?: number; laneGap?: number; order: string[] },
+): {
+  positions: Map<string, { x: number; y: number }>;
+  lanes: { id: string; x: number; width: number; count: number }[];
+} {
+  const byColumn = new Map<string, typeof nodes>();
+  for (const n of nodes) {
+    const key = n.layer && laneOrder.includes(n.layer) ? n.layer : "other";
+    const list = byColumn.get(key);
+    if (list) list.push(n);
+    else byColumn.set(key, [n]);
+  }
+  const order = laneOrder.filter((k) => byColumn.has(k));
+  if (byColumn.has("other")) order.push("other");
+  const positions = new Map<string, { x: number; y: number }>();
+  const lanes: { id: string; x: number; width: number; count: number }[] = [];
+  let x = 0;
+  for (const key of order) {
+    const items = byColumn.get(key)!;
+    const byRank = new Map<number, typeof nodes>();
+    for (const n of items) {
+      const r = n.rank;
+      const bucket = byRank.get(r);
+      if (bucket) bucket.push(n);
+      else byRank.set(r, [n]);
+    }
+    const ranks = [...byRank.keys()].sort((a, b) => a - b);
+    let laneWidth = 0;
+    let count = 0;
+    ranks.forEach((rank, colIdx) => {
+      const col = [...byRank.get(rank)!].sort((a, b) => a.id.localeCompare(b.id));
+      const colW = Math.max(...col.map((i) => i.width));
+      let y = LANE_HEADER;
+      col.forEach((n) => {
+        positions.set(n.id, { x: x + colIdx * (colW + gapX), y });
+        y += n.height + gapY;
+        count += 1;
+      });
+      laneWidth = Math.max(laneWidth, (colIdx + 1) * colW + colIdx * gapX);
+    });
+    lanes.push({ id: key, x, width: laneWidth, count });
+    x += laneWidth + laneGap;
+  }
+  return { positions, lanes };
+}

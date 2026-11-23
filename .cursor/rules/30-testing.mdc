@@ -1,0 +1,23 @@
+---
+description: Pytest, Vitest, Playwright fixtures and gates
+globs: "**/tests/**,frontend/e2e/**"
+alwaysApply: false
+---
+
+# Testing
+
+## Backend
+
+`uv run pytest -q` from `backend/` (packages + apps). Use `CI_DATA_DIR` temp dirs in API tests.
+
+## Frontend
+
+`npm test` (Vitest). `npm run test:e2e` — Chrome channel, indexes `benchmarks/fixtures/fullstack_app` in global setup; reuses running API+dev server when up.
+
+## Fixtures
+
+`synthetic_django`, `fullstack_app`, `layered_fastapi` under `backend/benchmarks/fixtures/`. `score_benchmark.py` scores synthetic Q&A. Do not modify fixture trees in routine tasks.
+
+## Before merge
+
+Same commands as [CONTRIBUTING.md](CONTRIBUTING.md) and `.github/workflows/ci.yml` (minus optional local-only steps).

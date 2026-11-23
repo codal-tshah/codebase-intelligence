@@ -1,6 +1,6 @@
 # Contributing
 
-Start with [docs/onboarding.md](docs/onboarding.md) (stack, data flow, views), then [docs/architecture.md](docs/architecture.md) (pipeline and extension points).
+Start with [docs/onboarding.md](docs/onboarding.md) (stack, data flow, views), then [docs/architecture.md](docs/architecture.md) (pipeline and extension points). **AI agents:** [AGENTS.md](AGENTS.md) and [docs/ai/README.md](docs/ai/README.md).
 
 ## Setup
 
@@ -20,6 +20,8 @@ cd frontend && npm run test:e2e        # browser flows + axe + offline check; re
 ```
 
 Optional (recommended): `pre-commit install` from the repo root after `pip install pre-commit` or `uv tool install pre-commit`.
+
+After editing agent instructions (`CLAUDE.md`, `AGENTS.md`, `docs/ai/`, `.cursor/rules/`), run `python scripts/check_ai_docs.py` from the repo root.
 
 The E2E suite uses your installed Google Chrome and indexes `backend/benchmarks/fixtures/fullstack_app` first. CI runs all of the above (`.github/workflows/ci.yml`).
 

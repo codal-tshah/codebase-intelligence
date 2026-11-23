@@ -18,7 +18,7 @@ Click **+** (top bar), then paste a GitHub URL or an absolute local path, then *
 |---|---|
 | Sidebar | Diagrams available for this project, with counts. The **Layers** list doubles as a filter (click to hide or show a layer). **Edges** explains line styles. |
 | Overview | Project name, key numbers, and where to start. *Details* expands the summary (compact automatically in Explore). |
-| Toolbar | View title, **Filter diagram**, Explore controls, **Focus mode** (fade unrelated nodes), reload, show or hide the details pane. |
+| Toolbar | View title, **Filter diagram**, Explore controls, **Tests hidden / Tests shown** (integrations, call graph, architecture, explore), **Focus mode** (fade unrelated nodes), reload, show or hide the details pane. |
 | Canvas | Two-finger scroll pans; pinch (or ⌘/Ctrl + wheel) zooms. Minimap and zoom controls bottom-left and bottom-right. |
 | Details pane | **Details** (selected node or edge), **Routes**, **Ask**, plus **Tour**, **Impact**, **Path** and **Improve**. Drag its edge to resize; ⌘\\ toggles it. |
 

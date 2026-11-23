@@ -206,6 +206,21 @@ describe("buildFlow focus mode and node flags", () => {
   });
 });
 
+describe("buildFlow ER layout", () => {
+  const base = { layers: [], hiddenLayers: new Set<string>(), filter: "", overlay: null };
+
+  it("uses wider cards in the data-model view", () => {
+    const payload: GraphPayload = {
+      view: "er",
+      nodes: [{ id: "m", label: "Model", node_type: "Model", properties: { field_count: 20 } }],
+      edges: [],
+    };
+    const flow = buildFlow(payload, { ...base, selectedId: null });
+    expect(flow.nodes[0]?.width).toBe(280);
+    expect(flow.nodes[0]?.data.fieldCount).toBe(20);
+  });
+});
+
 describe("zoomBucket", () => {
   it("maps zoom to semantic levels", async () => {
     const { zoomBucket } = await import("./graphTheme");

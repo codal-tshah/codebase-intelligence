@@ -9,7 +9,7 @@ import {
   JOB_COLOR,
   layerColor,
 } from "./graphTheme";
-import { LANE_HEADER, layoutByLayer, layoutNodes } from "./layout";
+import { LANE_HEADER, layoutByLayer, layoutColumnsByRank, layoutNodes } from "./layout";
 import {
   bundleLabel,
   bundleParallelEdges,
@@ -42,6 +42,8 @@ export type ArchNodeData = {
   fanOut: number;
   memberCount?: number;
   fields?: { name: string; type: string; relation?: string }[];
+  /** Total fields on the model when the ER view caps the list on the card. */
+  fieldCount?: number;
   state: NodeVisualState;
   ring?: string; // overlay ring colour (impact hop / path)
   badge?: string;
@@ -98,6 +100,7 @@ export type EdgeData = {
 };
 
 const WIDTH = 216;
+const ER_WIDTH = 280;
 const BASE_HEIGHT = 78; // padding + type line + name + path (see .arch-node in styles.css)
 const FIELD_HEIGHT = 18;
 const HELPER_HEIGHT = 32; // two clamped lines of .arch-node-helper
@@ -170,7 +173,8 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
       (n.properties?.job ? JOB_HEIGHT : 0) +
       (fields.length ? FIELDS_CHROME + (Math.min(fields.length, 12) + (fields.length > 12 ? 1 : 0)) * FIELD_HEIGHT : 0);
     const d = exploreDims?.get(n.id);
-    return { id: n.id, width: d?.width ?? WIDTH, height: d?.height ?? baseH };
+    const cardWidth = collapseFields ? ER_WIDTH : WIDTH;
+    return { id: n.id, width: d?.width ?? cardWidth, height: d?.height ?? baseH };
   });
   const layersMode = payload.view === "layers";
   // API flow focused on one endpoint: the server assigns each node a pipeline column.
@@ -183,13 +187,12 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
     degree.set(e.target, (degree.get(e.target) ?? 0) + 1);
   }
   const laneLayout = columnsMode
-    ? layoutByLayer(
+    ? layoutColumnsByRank(
         sized.map((s) => {
           const p = visibleById.get(s.id)!.properties ?? {};
-          // within a column: nearer the endpoint first (rank sorts descending)
-          return { ...s, layer: String(p.column ?? "service"), rank: -Number(p.column_rank ?? 0) };
+          return { ...s, layer: String(p.column ?? "service"), rank: Number(p.column_rank ?? 0) };
         }),
-        { rowsPerColumn: 8, order: columnOrder, laneGap: 96 },
+        { order: columnOrder, laneGap: 96 },
       )
     : layersMode
       ? layoutByLayer(
@@ -362,6 +365,7 @@ export function buildFlow(payload: GraphPayload, opts: FlowOptions): FlowBuildRe
         fanOut: Number(props.fan_out ?? 0),
         memberCount: props.member_count !== undefined ? Number(props.member_count) : undefined,
         fields: fieldsByModel.get(n.id),
+        fieldCount: props.field_count !== undefined ? Number(props.field_count) : undefined,
         state,
         ring,
         badge,
