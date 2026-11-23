@@ -89,6 +89,10 @@ def graph_explore_underlying_edges(
     extra_child_offsets: list[str] | None = Query(
         default=None, description="Same as explore view: node_id=offset for structural paging"
     ),
+    include_tests: bool = Query(
+        default=False,
+        description="Same as explore view: include test-scoped nodes when computing the visible lift set",
+    ),
     limit: int = Query(200, ge=1, le=500),
 ) -> dict:
     check_expanded(expanded, extra_child_offsets)
@@ -96,7 +100,9 @@ def graph_explore_underlying_edges(
     if source not in index.nodes or target not in index.nodes:
         raise HTTPException(status_code=404, detail="node not found")
     off: dict[str, int] = _parse_offsets_param({"extra_child_offsets": extra_child_offsets or []})
-    edges = underlying_between(index, source, target, expanded, cap=limit + 1, extra_offsets=off)
+    edges = underlying_between(
+        index, source, target, expanded, cap=limit + 1, extra_offsets=off, show_tests=include_tests
+    )
     capped = len(edges) > limit  # fetched one extra row: only true when something was cut off
     return {"source": source, "target": target, "edges": edges[:limit], "capped": capped}
 
@@ -119,7 +125,7 @@ def get_graph(
     ),
     include_tests: bool = Query(
         default=False,
-        description="Include test-layer nodes in integrations, call-graph, architecture, and explore ranking",
+        description="Include test-layer nodes in integrations, call-graph, architecture, and explore",
     ),
 ) -> dict:
     if get_view(view) is None:

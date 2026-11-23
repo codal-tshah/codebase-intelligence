@@ -6,6 +6,7 @@ from ci_core.insights import GraphIndex
 from ci_core.models import EdgeRecord, EdgeType, NodeRecord, NodeType
 from ci_core.views.architecture import build as architecture_build
 from ci_core.views.call_graph import build as call_graph_build
+from ci_core.views.explore import build as explore_build
 from ci_core.views.integrations import build as integrations_build
 
 
@@ -141,3 +142,30 @@ def test_architecture_omits_tests_package() -> None:
     assert "pkg_tests" not in {n.id for n in nodes_out}
     with_tests, _, _ = architecture_build(index, None, {"include_tests": True})
     assert "pkg_tests" in {n.id for n in with_tests}
+
+
+def test_explore_hides_tests_package_at_root() -> None:
+    pid = "p1"
+    proj = NodeRecord(
+        id="proj",
+        project_id=pid,
+        node_type=NodeType.PROJECT,
+        name="demo",
+        qualified_name="demo",
+        extractor="t",
+        confidence=1.0,
+        properties={},
+    )
+    app = _pkg(pid, "pkg_app", "app")
+    tests = _pkg(pid, "pkg_tests", "tests")
+    nodes = [proj, app, tests]
+    edges = [
+        _edge(pid, proj.id, app.id, EdgeType.CONTAINS),
+        _edge(pid, proj.id, tests.id, EdgeType.CONTAINS),
+    ]
+    index = GraphIndex.build(nodes, edges)
+    hidden, _, meta = explore_build(index, None, {})
+    assert meta.get("hidden_tests") is True
+    assert "pkg_tests" not in {n.id for n in hidden}
+    shown, _, _ = explore_build(index, None, {"include_tests": True})
+    assert "pkg_tests" in {n.id for n in shown}

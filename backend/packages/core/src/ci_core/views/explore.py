@@ -9,7 +9,7 @@ from typing import Any
 from ci_core.insights import DEPENDENCY_EDGES, GraphIndex
 from ci_core.models import EdgeType, GraphEdgeView, GraphNodeView, NodeType
 from ci_core.views import ViewModule, register_view
-from ci_core.views._common import is_test_node, node_view
+from ci_core.views._common import include_tests, is_test_node, node_view
 
 BUDGET = 250
 SHOW_MORE = 200
@@ -121,8 +121,15 @@ def _direct_structural_children(index: GraphIndex, nid: str) -> list[str]:
     return out
 
 
-def _top_level_roots(index: GraphIndex, proj: str) -> list[str]:
-    kids = _direct_structural_children(index, proj)
+def _structural_children(index: GraphIndex, nid: str, *, show_tests: bool) -> list[str]:
+    kids = _direct_structural_children(index, nid)
+    if show_tests:
+        return kids
+    return [c for c in kids if not is_test_node(index, c)]
+
+
+def _top_level_roots(index: GraphIndex, proj: str, *, show_tests: bool = True) -> list[str]:
+    kids = _structural_children(index, proj, show_tests=show_tests)
     if not kids:
         return []
     if any(index.nodes[i].node_type == NodeType.PACKAGE for i in kids):
@@ -130,11 +137,11 @@ def _top_level_roots(index: GraphIndex, proj: str) -> list[str]:
     return kids
 
 
-def _is_expandable(index: GraphIndex, nid: str) -> bool:
+def _is_expandable(index: GraphIndex, nid: str, *, show_tests: bool = True) -> bool:
     n = index.nodes.get(nid)
     if n is None or n.node_type not in _EXPAND_TYPES:
         return False
-    return bool(_direct_structural_children(index, nid))
+    return bool(_structural_children(index, nid, show_tests=show_tests))
 
 
 # Deepest level offered by "expand to level" (the UI also offers "All", sent as this value).
@@ -167,7 +174,12 @@ def structural_depths(index: GraphIndex) -> dict[str, int]:
 
 
 def expansion_for_level(
-    index: GraphIndex, level: int, budget: int = BUDGET, root: str | None = None
+    index: GraphIndex,
+    level: int,
+    budget: int = BUDGET,
+    root: str | None = None,
+    *,
+    show_tests: bool = True,
 ) -> tuple[set[str], int, bool]:
     """Expanded set that opens the tree down to absolute `level` (level 1 = top-level roots).
 
@@ -189,17 +201,19 @@ def expansion_for_level(
             cur = parent.get(cur)
         frontier = [root]
         start = depths[root]
-        visible = len(_top_level_roots(index, proj)) + sum(len(_direct_structural_children(index, a)) for a in expanded)
+        visible = len(_top_level_roots(index, proj, show_tests=show_tests)) + sum(
+            len(_structural_children(index, a, show_tests=show_tests)) for a in expanded
+        )
     else:
-        frontier = _top_level_roots(index, proj)
+        frontier = _top_level_roots(index, proj, show_tests=show_tests)
         start = 1
         visible = len(frontier)
     reached = start
     for lv in range(start, max(start, level)):
-        openable = [n for n in frontier if _is_expandable(index, n)]
+        openable = [n for n in frontier if _is_expandable(index, n, show_tests=show_tests)]
         if not openable:
             break
-        pages = {n: _direct_structural_children(index, n)[:STRUCT_CHILD_PAGE] for n in openable}
+        pages = {n: _structural_children(index, n, show_tests=show_tests)[:STRUCT_CHILD_PAGE] for n in openable}
         total = sum(len(k) for k in pages.values())
         if visible + total > budget:
             # partial level: busiest first, so the parts of the code that matter most open first
@@ -224,6 +238,8 @@ def _collect_visible(
     proj: str,
     expanded: set[str],
     extra_child_offsets: dict[str, int],
+    *,
+    show_tests: bool = True,
 ) -> tuple[set[str], dict[str, int], dict[str, int]]:
     """
     Visible nodes: roots + recursive children of every expanded node.
@@ -236,8 +252,10 @@ def _collect_visible(
     truncated_children: dict[str, int] = {}
 
     def visit(nid: str) -> None:
+        if not show_tests and is_test_node(index, nid):
+            return
         visible.add(nid)
-        all_ch = _direct_structural_children(index, nid)
+        all_ch = _structural_children(index, nid, show_tests=show_tests)
         child_count[nid] = len(all_ch)
         if nid not in expanded:
             return
@@ -249,7 +267,7 @@ def _collect_visible(
         for c in page:
             visit(c)
 
-    roots = _top_level_roots(index, proj)
+    roots = _top_level_roots(index, proj, show_tests=show_tests)
     for r in roots:
         visit(r)
     return visible, child_count, truncated_children
@@ -411,6 +429,8 @@ def _explore_visible_bundle(
     proj: str,
     expanded_set: set[str],
     extra_child_offsets: dict[str, int],
+    *,
+    show_tests: bool = True,
 ) -> tuple[
     set[str],
     dict[str, int],
@@ -424,7 +444,9 @@ def _explore_visible_bundle(
     Single pass: visible set, per-node total child counts, truncated_children (unshown struct kids),
     parent_id (nearest visible CONTAINS ancestor), depth from visible roots, global truncation.
     """
-    visible, child_count, trunc_page = _collect_visible(index, proj, expanded_set, extra_child_offsets)
+    visible, child_count, trunc_page = _collect_visible(
+        index, proj, expanded_set, extra_child_offsets, show_tests=show_tests
+    )
     parent_map = _contains_parent(index)
 
     parent_id = {nid: _nearest_visible_parent(nid, visible, parent_map) for nid in visible}
@@ -437,9 +459,12 @@ def _explore_visible_bundle(
     if len(visible) > BUDGET:
         truncated = True
         reason = f"visible node budget ({BUDGET}) exceeded"
-        ranked = sorted(visible, key=lambda i: (-index.degree(i), index.nodes[i].name))
+        ranked = sorted(
+            visible,
+            key=lambda i: (is_test_node(index, i) if not show_tests else False, -index.degree(i), index.nodes[i].name),
+        )
         keep = set(ranked[:SHOW_MORE])
-        root_ids = set(_top_level_roots(index, proj))
+        root_ids = set(_top_level_roots(index, proj, show_tests=show_tests))
         visible = keep | root_ids | expanded_set
         visible = {v for v in visible if v in index.nodes}
         if len(visible) > BUDGET:
@@ -468,6 +493,7 @@ def build(
         expanded_set = {str(s).strip() for s in expanded_raw if str(s).strip()}
 
     expanded_set = {e for e in expanded_set if e in index.nodes}
+    show_tests = include_tests(params)
 
     # "Expand to level N": open every node above level N (within the node budget), on top of
     # what is already expanded. Collapsing is done by the client from `expanded_depths`.
@@ -479,15 +505,20 @@ def build(
         except (TypeError, ValueError):
             level = 1
         root = params.get("level_root")
-        opened, reached, capped = expansion_for_level(index, level, root=str(root) if root else None)
+        opened, reached, capped = expansion_for_level(
+            index, level, root=str(root) if root else None, show_tests=show_tests
+        )
         expanded_set |= opened
         level_info = {"requested_level": level, "level_reached": reached, "level_capped": capped}
+
+    if not show_tests:
+        expanded_set = {e for e in expanded_set if not is_test_node(index, e)}
 
     expanded_set = _expand_closure(index, expanded_set)
 
     extra_offsets = _parse_offsets_param(params)
     visible, child_count, truncated_children, parent_id, depth, truncated, reason = _explore_visible_bundle(
-        index, proj, expanded_set, extra_offsets
+        index, proj, expanded_set, extra_offsets, show_tests=show_tests
     )
     parent = _contains_parent(index)
 
@@ -495,8 +526,8 @@ def build(
     for nid in sorted(visible, key=lambda i: (index.nodes[i].node_type.value, index.nodes[i].name)):
         n = index.nodes[nid]
         view = node_view(n, index)
-        cnt = child_count[nid] if nid in child_count else len(_direct_structural_children(index, nid))
-        exp = _is_expandable(index, nid)
+        cnt = child_count[nid] if nid in child_count else len(_structural_children(index, nid, show_tests=show_tests))
+        exp = _is_expandable(index, nid, show_tests=show_tests)
         view.properties["explore_expandable"] = exp
         view.properties["child_count"] = cnt
         view.properties["explore_expanded"] = nid in expanded_set
@@ -521,6 +552,8 @@ def build(
         "truncated": truncated,
         "truncation_reason": reason if truncated else None,
     }
+    if not show_tests:
+        meta["hidden_tests"] = True
     return nodes_out, edges_out, meta
 
 
@@ -532,6 +565,7 @@ def underlying_between(
     cap: int = 200,
     *,
     extra_offsets: dict[str, int] | None = None,
+    show_tests: bool = False,
 ) -> list[dict[str, Any]]:
     """Public helper for API: underlying edges between two visible explore nodes."""
     from ci_core.views.explore_edges import underlying_edges_between_visible
@@ -546,7 +580,9 @@ def underlying_between(
     expanded_set = {e for e in expanded_set if e in index.nodes}
     expanded_set = _expand_closure(index, expanded_set)
 
-    visible, _, _, _, _, _, _ = _explore_visible_bundle(index, proj, expanded_set, extra_offsets or {})
+    visible, _, _, _, _, _, _ = _explore_visible_bundle(
+        index, proj, expanded_set, extra_offsets or {}, show_tests=show_tests
+    )
     parent = _contains_parent(index)
     return underlying_edges_between_visible(index, source_id, target_id, visible, parent, cap=cap)
 

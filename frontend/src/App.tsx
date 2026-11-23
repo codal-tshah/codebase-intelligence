@@ -716,6 +716,7 @@ function Dashboard() {
       for (const [nid, off] of Object.entries(exploreChildOffsets)) {
         if (off > 0) params.append("extra_child_offsets", `${nid}=${off}`);
       }
+      if (showTests) params.set("include_tests", "true");
       try {
         const data = await getJson<UnderlyingEdgesPayload>(`/projects/${projectId}/graph/edges?${params}`);
         setExploreEdgeDetail({ edge, underlying: data, loading: false });
@@ -723,7 +724,7 @@ function Dashboard() {
         setExploreEdgeDetail({ edge, underlying: null, loading: false });
       }
     },
-    [projectId, exploreExpanded, exploreChildOffsets],
+    [projectId, exploreExpanded, exploreChildOffsets, showTests],
   );
 
   useEffect(() => {

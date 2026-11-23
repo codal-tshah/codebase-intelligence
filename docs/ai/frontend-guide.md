@@ -18,7 +18,7 @@ Tracks active project, sidebar view id, selected node, explore expansions, trace
 
 ## URL hash
 
-Hash encodes project/view/focus/expanded nodes (`App.tsx`: `p`, `v`, `f`, `n`, `e`, optional `t=1` for **show tests** on integrations / call-graph / architecture / explore ranking). `writeHash` uses `history.replaceState`; external `hashchange` applies pasted deep links. Saved views persist the same keys.
+Hash encodes project/view/focus/expanded nodes (`App.tsx`: `p`, `v`, `f`, `n`, `e`, optional `t=1` for **show tests** on integrations / call-graph / architecture / explore). `writeHash` uses `history.replaceState`; external `hashchange` applies pasted deep links. Saved views persist the same keys.
 
 ## Layout
 

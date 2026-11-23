@@ -52,8 +52,8 @@ Errors: `{"detail": <string|list>, "request_id": "<id>"}`; header `X-Request-ID`
 | GET | `/projects/{ref}/background-jobs` | Jobs view data |
 | GET | `/projects/{ref}/suggestions` | Improvement suggestions |
 | GET | `/projects/{ref}/graph/neighborhood` | Local subgraph |
-| GET | `/projects/{ref}/graph/edges` | Explore underlying edges |
-| GET | `/projects/{ref}/graph/{view}` | View payload (explore: `expanded`, `extra_child_offsets`, `expand_to_level`, `level_root`; tests: `include_tests=true` → keep test-layer nodes; default omits them on integrations / call-graph / architecture) |
+| GET | `/projects/{ref}/graph/edges` | Explore underlying edges (`expanded`, `extra_child_offsets`, `include_tests` — same as explore canvas) |
+| GET | `/projects/{ref}/graph/{view}` | View payload (explore: `expanded`, `extra_child_offsets`, `expand_to_level`, `level_root`; tests: `include_tests=true` → keep test-layer nodes; default omits them on integrations / call-graph / architecture / explore) |
 | GET | `/projects/{ref}/export` | Full graph JSON download |
 | GET | `/projects/{ref}/tour` | Guided tour steps |
 | GET | `/projects/{ref}/search` | Node search |
