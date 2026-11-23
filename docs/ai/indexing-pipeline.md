@@ -23,7 +23,7 @@ Combined analyzer version string bumps → `FULL` rebuild.
 
 ## Adapter versioning
 
-Django: `ADAPTER_VERSION = "5"` in `adapter.py` (import_kind merge). Bump when edge semantics change so existing projects re-index.
+Django: `ADAPTER_VERSION = "6"` in `adapter.py` (namespace packages, SQLAlchemy field types, FastAPI `Annotated` dependency aliases). Bump when edge semantics change so existing projects re-index.
 
 ## Concurrency
 

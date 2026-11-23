@@ -45,6 +45,8 @@ parsers, adapters ──► indexer ──► core (db, insights, views)
 
 Registered in `ci_core.views` (sidebar order): `explore`, `layers`, `architecture`, `api-flow`, `call-graph`, `components`, `er`, `integrations`, `jobs` — see `register_view` in each module under `ci_core/views/`. Plugins: entry point group `codebase_intelligence.views`.
 
+**Test filtering:** unless `include_tests=1` / hash `t=1`, integrations, call-graph, and architecture omit test-layer dependants; architecture drops the top-level `tests` package. ER shows ≤12 fields per model (`field_count` on the model when more exist in the index).
+
 ## Graph analytics
 
 `ci_core.graph_algo` (SCC/cycles) runs on `GraphIndex` only; optional `rustworkx` with `networkx` fallback — not used during extraction.

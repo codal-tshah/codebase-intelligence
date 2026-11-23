@@ -7,22 +7,28 @@ from typing import Any
 from ci_core.insights import DEPENDENCY_EDGES, GraphIndex
 from ci_core.models import GraphEdgeView, GraphNodeView, NodeType
 from ci_core.views import ViewModule, register_view
-from ci_core.views._common import MAX_NODES, edges_between, node_view
+from ci_core.views._common import MAX_NODES, edges_between, include_tests, is_test_node, node_view
 
 
 def build(
     index: GraphIndex, focus: str | None, params: dict[str, Any] | None = None
 ) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
+    show_tests = include_tests(params)
     services = [n for n in index.nodes.values() if n.node_type == NodeType.EXTERNAL_SERVICE]
     if focus and focus in index.nodes and index.nodes[focus].node_type == NodeType.EXTERNAL_SERVICE:
         services = [index.nodes[focus]]
     collected = {s.id for s in services}
     for s in services:
         for e in index.incoming.get(s.id, []):
+            if not show_tests and is_test_node(index, e.source_id):
+                continue
             collected.add(e.source_id)
     nodes = [node_view(index.nodes[i], index) for i in collected if i in index.nodes][:MAX_NODES]
     allowed = {n.id for n in nodes}
-    return nodes, edges_between(index, allowed, set(DEPENDENCY_EDGES)), {}
+    meta: dict[str, Any] = {}
+    if not show_tests:
+        meta["hidden_tests"] = True
+    return nodes, edges_between(index, allowed, set(DEPENDENCY_EDGES)), meta
 
 
 register_view(

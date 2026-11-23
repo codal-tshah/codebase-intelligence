@@ -117,22 +117,26 @@ def get_graph(
     level_root: str | None = Query(
         default=None, max_length=MAX_ID, description="Explore: apply expand_to_level only inside this node's subtree"
     ),
+    include_tests: bool = Query(
+        default=False,
+        description="Include test-layer nodes in integrations, call-graph, architecture, and explore ranking",
+    ),
 ) -> dict:
     if get_view(view) is None:
         raise HTTPException(status_code=404, detail=f"unknown view {view[:64]!r}")
     check_expanded(expanded, extra_child_offsets)
-    params: dict | None = None
-    if expanded or extra_child_offsets or expand_to_level:
-        params = {}
-        if expanded:
-            params["expanded"] = expanded
-        if extra_child_offsets:
-            params["extra_child_offsets"] = extra_child_offsets
-        if expand_to_level:
-            params["expand_to_level"] = expand_to_level
-            if level_root:
-                params["level_root"] = level_root
-    payload = GraphStore(pid(project_ref)).build_graph_view(view, focus_node_id=focus_node_id, params=params)
+    params: dict = {}
+    if expanded:
+        params["expanded"] = expanded
+    if extra_child_offsets:
+        params["extra_child_offsets"] = extra_child_offsets
+    if expand_to_level:
+        params["expand_to_level"] = expand_to_level
+        if level_root:
+            params["level_root"] = level_root
+    if include_tests:
+        params["include_tests"] = True
+    payload = GraphStore(pid(project_ref)).build_graph_view(view, focus_node_id=focus_node_id, params=params or None)
     return payload.model_dump(mode="json")
 
 

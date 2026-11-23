@@ -7,7 +7,7 @@ from typing import Any
 from ci_core.insights import DEPENDENCY_EDGES, GraphIndex
 from ci_core.models import GraphEdgeView, GraphNodeView, NodeRecord, NodeType
 from ci_core.views import ViewModule, register_view
-from ci_core.views._common import MAX_NODES, node_view
+from ci_core.views._common import MAX_NODES, include_tests, is_test_node, node_view
 
 
 def package_of(index: GraphIndex, allowed: set[str] | None = None) -> dict[str, str]:
@@ -46,10 +46,20 @@ def architecture_packages(index: GraphIndex) -> list[NodeRecord]:
     return out
 
 
+def _is_tests_package(pkg: NodeRecord) -> bool:
+    if pkg.properties.get("subpackage"):
+        return False
+    qn = (pkg.qualified_name or pkg.name or "").replace("\\", "/")
+    return qn.split("/")[0] == "tests" or pkg.name == "tests"
+
+
 def build(
     index: GraphIndex, focus: str | None, params: dict[str, Any] | None = None
 ) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
+    show_tests = include_tests(params)
     packages = architecture_packages(index)
+    if not show_tests:
+        packages = [p for p in packages if not _is_tests_package(p)]
     if not packages:
         packages = [n for n in index.nodes.values() if n.node_type == NodeType.MODULE][:MAX_NODES]
     pkg_ids = {p.id for p in packages}
@@ -64,6 +74,8 @@ def build(
     for e in index.edges:
         if e.edge_type not in DEPENDENCY_EDGES:
             continue
+        if not show_tests and (is_test_node(index, e.source_id) or is_test_node(index, e.target_id)):
+            continue
         a, b = owner.get(e.source_id), owner.get(e.target_id)
         if a is None and e.source_id in pkg_ids:
             a = e.source_id
@@ -77,7 +89,11 @@ def build(
     nodes: list[GraphNodeView] = []
     for p in packages:
         view = node_view(p, index)
-        view.properties["member_count"] = sum(1 for nid, pid in owner.items() if pid == p.id and nid != p.id)
+        view.properties["member_count"] = sum(
+            1
+            for nid, pid in owner.items()
+            if pid == p.id and nid != p.id and (show_tests or not is_test_node(index, nid))
+        )
         if p.id in parent_pkg:
             view.properties["parent_package"] = parent_pkg[p.id]
         nodes.append(view)
@@ -95,7 +111,10 @@ def build(
                 properties={"weight": total, "by_type": by_type},
             )
         )
-    return nodes, edges, {}
+    meta: dict[str, Any] = {}
+    if not show_tests:
+        meta["hidden_tests"] = True
+    return nodes, edges, meta
 
 
 register_view(

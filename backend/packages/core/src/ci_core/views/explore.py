@@ -9,7 +9,7 @@ from typing import Any
 from ci_core.insights import DEPENDENCY_EDGES, GraphIndex
 from ci_core.models import EdgeType, GraphEdgeView, GraphNodeView, NodeType
 from ci_core.views import ViewModule, register_view
-from ci_core.views._common import node_view
+from ci_core.views._common import is_test_node, node_view
 
 BUDGET = 250
 SHOW_MORE = 200
@@ -203,7 +203,10 @@ def expansion_for_level(
         total = sum(len(k) for k in pages.values())
         if visible + total > budget:
             # partial level: busiest first, so the parts of the code that matter most open first
-            for n in sorted(openable, key=lambda i: (_is_test_tree(index, i), -index.degree(i), index.nodes[i].name)):
+            for n in sorted(
+                openable,
+                key=lambda i: (is_test_node(index, i), -index.degree(i), index.nodes[i].name),
+            ):
                 if visible + len(pages[n]) > budget:
                     continue
                 expanded.add(n)
@@ -214,14 +217,6 @@ def expansion_for_level(
         frontier = [c for n in openable for c in pages[n]]
         reached = lv + 1
     return expanded, reached, False
-
-
-def _is_test_tree(index: GraphIndex, nid: str) -> bool:
-    """Tests sit last when a level must be filled partially (they import everything, so raw degree
-    would always pick them first, ahead of the application code people came to read)."""
-    n = index.nodes[nid]
-    path = (n.source_path or n.qualified_name or n.name or "").replace("\\", "/")
-    return n.properties.get("layer") == "test" or path.split("/")[0] in {"tests", "test", "__tests__", "spec"}
 
 
 def _collect_visible(

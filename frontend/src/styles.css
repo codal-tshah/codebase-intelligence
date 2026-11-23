@@ -1146,6 +1146,7 @@ input[type="checkbox"] {
   border: 1px solid color-mix(in srgb, var(--layer) var(--tint-border), var(--divider));
   border-radius: var(--r-md);
   background: color-mix(in srgb, var(--layer) var(--tint-fill), var(--surface));
+  overflow: hidden;
   transition:
     border-color var(--t-fast) var(--ease),
     opacity var(--t-med) var(--ease),
@@ -1215,13 +1216,21 @@ input[type="checkbox"] {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring, var(--accent)) 25%, transparent);
 }
 
-/* Focus mode: unrelated nodes fade to context (~0.2) and come back on hover so they can be read. */
-.arch-node--dim {
-  opacity: 0.22;
+/* Focus mode: fade inner content so the card shell stays readable on the canvas. */
+.arch-node--dim > :not(.arch-loading-dot) {
+  opacity: 0.35;
 }
 
-.react-flow__node:hover > .arch-node--dim {
-  opacity: 0.85;
+.arch-node--dim::before {
+  opacity: 0.35;
+}
+
+.react-flow__node:hover > .arch-node--dim > :not(.arch-loading-dot) {
+  opacity: 0.92;
+}
+
+.react-flow__node:hover > .arch-node--dim::before {
+  opacity: 0.92;
 }
 
 .arch-node-top {
@@ -1454,11 +1463,28 @@ input[type="checkbox"] {
   display: flex;
   justify-content: space-between;
   gap: var(--s2);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.arch-fields li > span,
+.arch-fields li > em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arch-fields li > span {
+  flex: 1 1 40%;
+  min-width: 0;
 }
 
 .arch-fields em {
   color: var(--text-3);
   font-style: normal;
+  flex: 0 1 55%;
+  min-width: 0;
+  text-align: right;
 }
 
 .arch-badge {

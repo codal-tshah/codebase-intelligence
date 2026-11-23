@@ -77,6 +77,14 @@ def _column(n: NodeRecord) -> str:
     return "service"
 
 
+def _fold_private_helper(handler_paths: set[str], target: NodeRecord) -> bool:
+    """Same-file ``_helpers`` are folded out of the focused pipeline (still in the index)."""
+    if target.node_type != NodeType.FUNCTION or not target.name.startswith("_"):
+        return False
+    path = target.source_path or ""
+    return path in handler_paths
+
+
 def _keep_downstream(index: GraphIndex, edge_type: EdgeType, target: NodeRecord) -> bool:
     if edge_type == EdgeType.DEPENDS_ON:
         return target.node_type == NodeType.EXTERNAL_SERVICE  # not "Model inherits BaseModel"
@@ -126,6 +134,9 @@ def focused_chain(index: GraphIndex, endpoint_id: str) -> tuple[dict[str, tuple[
             placed.setdefault(tgt.id, ("guard", 0))
             chain_edges.add((endpoint_id, tgt.id, e.edge_type.value))
 
+    handler_paths = {
+        (index.nodes[h].source_path or "") for h in handlers if h in index.nodes and index.nodes[h].source_path
+    }
     # downstream from the handlers
     frontier = deque((h, 0) for h in handlers)
     while frontier and len(placed) < MAX_CHAIN_NODES:
@@ -137,6 +148,8 @@ def focused_chain(index: GraphIndex, endpoint_id: str) -> tuple[dict[str, tuple[
                 continue
             tgt = index.nodes.get(e.target_id)
             if tgt is None or not _keep_downstream(index, e.edge_type, tgt):
+                continue
+            if _fold_private_helper(handler_paths, tgt):
                 continue
             col = "guard" if e.edge_type == EdgeType.INJECTS else _column(tgt)
             chain_edges.add((cur, tgt.id, e.edge_type.value))

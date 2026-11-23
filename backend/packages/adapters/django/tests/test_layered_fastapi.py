@@ -148,6 +148,34 @@ def test_suggest_reports_only_runtime_import_cycles(index):
     assert names == {"app/cycles/rt_a", "app/cycles/rt_b"}
 
 
+def test_namespace_scripts_package(index):
+    pkgs = {n.name: n for n in index.nodes.values() if n.node_type == NodeType.PACKAGE}
+    assert "scripts" in pkgs
+    assert pkgs["scripts"].properties.get("namespace") is True
+
+
+def test_injects_from_module_level_dep_alias(index):
+    handler = next(n for n in index.nodes.values() if n.qualified_name == "app.routers.v1.widgets.list_widgets")
+    injects = [e for e in index.outgoing.get(handler.id, []) if e.edge_type == EdgeType.INJECTS]
+    assert injects
+    dep = index.nodes[injects[0].target_id]
+    assert dep.qualified_name == "app.dependencies.services.get_widget_service"
+
+
+def test_api_flow_guard_column_for_dep_alias(index):
+    from ci_core.views.api_flow import build
+
+    ep = next(
+        n
+        for n in index.nodes.values()
+        if n.node_type == NodeType.ENDPOINT and n.name == "/v1/widgets" and n.properties["methods"] == ["GET"]
+    )
+    nodes, _, meta = build(index, ep.id)
+    assert meta.get("layout") == "columns"
+    guards = [n for n in nodes if n.properties.get("column") == "guard"]
+    assert guards
+
+
 def test_architecture_opens_a_dominant_app_into_its_layers(index):
     from ci_core.views.architecture import build
 

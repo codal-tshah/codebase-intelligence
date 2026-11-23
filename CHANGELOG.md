@@ -2,6 +2,18 @@
 
 All notable changes. Dates are when the work landed on a branch; versions are not tagged yet.
 
+## Unreleased: dashboard views (2026-11-20)
+
+### Added
+- **`include_tests` on graph views:** integrations, call-graph, and architecture hide test-scoped nodes by default (`GET .../graph/{view}?include_tests=true`). Response may include `metadata.hidden_tests`. Dashboard hash `t=1` and toolbar **Tests hidden / Tests shown** toggle.
+- **Namespace packages:** top-level folders without `__init__.py` (≥2 modules) become `Package` nodes with `properties.namespace` (e.g. `ETL/`, `scripts/`).
+- **FastAPI DI aliases:** module-level `FooDep = Annotated[..., Depends(fn)]` produces **INJECTS** edges (API flow guard column).
+- **ER view:** up to 12 fields per model in the diagram; `properties.field_count` on models for “+N more”. Wider ER cards (280px) with ellipsis on long type names.
+
+### Changed
+- **Django/FastAPI adapter version 6:** SQLAlchemy `Mapped[...]` field types normalized; per-model ER cap is view-only (full fields remain in the index).
+- **API flow layout:** focused pipeline columns use `column_rank` sub-columns; same-file private `_*` helpers folded out of focused chains.
+
 ## Unreleased: agent documentation (2026-11-20)
 
 ### Added

@@ -23,6 +23,8 @@
 | `import_kind` | On `IMPORTS`: `type_only` or `lazy` |
 | `has_runtime_import` | Merged edge still has a load-time import |
 | `subpackage` | Package node marker |
+| `namespace` | Package for a folder without `__init__.py` (≥2 indexed modules) |
+| `field_count` | On **Model** in the ER view: total fields in the index when the diagram shows ≤12 |
 | `summary`, `tags`, `complexity` | UI / search metadata |
 
 Verify per-extractor in adapter code before documenting new keys.

@@ -116,7 +116,7 @@ def build_view(
     module = get_view(view) or get_view("layers")
     if module is None:
         raise RuntimeError("layers view plugin is missing")
-    nodes, edges, meta = module.build(index, focus_node_id, params) if params else module.build(index, focus_node_id)
+    nodes, edges, meta = module.build(index, focus_node_id, params)
     present = {n.layer for n in nodes if n.layer}
     present_layers = []
     for entry in layer_catalog():

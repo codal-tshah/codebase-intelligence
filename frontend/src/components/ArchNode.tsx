@@ -122,11 +122,16 @@ function ArchNodeBase({ data, selected }: NodeProps<Node<ArchNodeData>>) {
         <ul className="arch-fields">
           {data.fields.slice(0, 12).map((f) => (
             <li key={f.name}>
-              <span>{f.name}</span>
-              <em>{f.relation ? `→ ${f.relation}` : f.type.replace("Field", "")}</em>
+              <span title={f.name}>{f.name}</span>
+              <em title={f.relation ? `→ ${f.relation}` : f.type}>
+                {f.relation ? `→ ${f.relation}` : f.type.replace("Field", "")}
+              </em>
             </li>
           ))}
-          {data.fields.length > 12 ? <li className="muted">+{data.fields.length - 12} more</li> : null}
+          {(() => {
+            const total = data.fieldCount ?? data.fields.length;
+            return total > 12 ? <li className="muted">+{total - 12} more</li> : null;
+          })()}
         </ul>
       ) : null}
       {Number(data.truncatedChildren ?? 0) > 0 ? (
