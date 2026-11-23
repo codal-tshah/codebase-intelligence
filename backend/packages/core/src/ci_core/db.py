@@ -355,6 +355,33 @@ class GraphStore:
                 updated_at=row.updated_at,
             )
 
+    def recent_jobs(self, limit: int = 20) -> list[IndexJobRecord]:
+        """Newest first (index history for the project list and status page)."""
+        with self.session() as session:
+            rows = session.scalars(
+                select(JobRow).where(JobRow.project_id == self.project_id).order_by(JobRow.created_at.desc()).limit(limit)
+            ).all()
+            return [
+                IndexJobRecord(
+                    id=r.id,
+                    project_id=r.project_id,
+                    status=JobStatus(r.status),
+                    progress=r.progress,
+                    message=r.message,
+                    error=r.error,
+                    created_at=r.created_at,
+                    updated_at=r.updated_at,
+                )
+                for r in rows
+            ]
+
+    def has_running_job(self) -> bool:
+        with self.session() as session:
+            row = session.scalars(
+                select(JobRow.id).where(JobRow.project_id == self.project_id, JobRow.status == JobStatus.RUNNING.value).limit(1)
+            ).first()
+            return row is not None
+
     def fail_orphaned_running_jobs(self) -> int:
         """Mark RUNNING jobs as failed (e.g. after API/worker restart)."""
         with self.session() as session:

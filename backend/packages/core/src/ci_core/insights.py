@@ -399,7 +399,7 @@ def build_tour(index: GraphIndex, *, max_nodes_per_step: int = 8) -> list[dict[s
         else "Follow the imports out of each entry point to see which packages make up each deployable.",
     )
 
-    apps = [n for n in index.nodes.values() if n.node_type == NodeType.PACKAGE and not n.properties.get("external")]
+    apps = [n for n in index.nodes.values() if n.node_type == NodeType.PACKAGE and not n.properties.get("external") and not n.properties.get("subpackage")]
     add(
         "Packages and services",
         f"The codebase is split into {len(apps)} package(s). Dependencies between them show the architecture and where the boundaries are.",

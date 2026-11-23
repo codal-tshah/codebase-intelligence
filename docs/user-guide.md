@@ -100,3 +100,30 @@ When files have changed since the last index, a banner offers **Re-index** (incr
 If your admin runs `CI_MODE=server`, the dashboard asks for the API key once per browser tab. It is kept for that tab only.
 
 ![API key prompt](ui-review/after/server-mode-api-key.png)
+
+## Selecting and tracing
+
+Click a node to select it: 2px accent border, accent fill and a ring. Direct dependants are marked **in** (amber) and dependencies **out** (blue). The **Trace** bar (top right) switches direction (In / Both / Out) and depth (1–10 hops or all hops); hop counts show on the badges. Unrelated nodes fade but come back on hover. Esc, or a click on the empty canvas, clears the selection. Edge labels appear on hover and on traced edges.
+
+## Explore levels
+
+**Open level…** opens the whole tree to a level. With a package selected, it opens levels inside that package instead. **Collapse…** folds everything below a level. On very large repos a whole level may not fit in one drawing; the busiest packages open first and a note says so.
+
+## API flow
+
+Pick a route in the list (filter by text or HTTP method). The canvas shows only that request, left to right: UI callers → endpoint → guards/dependencies → handler → services → data access → models/external services. Dashed, labelled links are inferred.
+
+## Managing projects
+
+Use the project name in the top bar → **Manage projects**. From there you can search, sort, **Re-index changed** (fast) or **Full re-index**, rename, edit ignore patterns, turn on auto-refresh, or remove a project. Removing deletes this tool's index (and a clone it made for a GitHub URL), never your source folder; the dialog lists exactly what goes. **Activity** is the audit log; **Status** shows mode, analyzers and running jobs. The bookmark icon saves the current view (diagram, selection, expansions).
+
+## Keeping the dashboard current after `git pull`
+
+The index is a snapshot, so new code needs a re-index. Any one of these keeps it current:
+
+1. **Git hooks (recommended):** run `ci hook install` in the repo. Pulls, merges, commits, branch switches and rebases then re-index changed files in the background. Remove them with `ci hook uninstall`.
+2. **Auto-refresh (server running):** Projects → settings → *Keep up to date automatically*. The server checks git HEAD every `CI_AUTO_REFRESH_SECONDS` (default 60).
+3. **Manually:** the banner shows *Index is out of date* after new commits; click *Re-index now*, or run `ci analyze <path> --incremental`.
+
+An open dashboard notices a new index within 30 seconds and reloads its diagrams.
+

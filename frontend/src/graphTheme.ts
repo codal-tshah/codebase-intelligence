@@ -75,9 +75,15 @@ export const NEUTRAL = "#8A867C";
 /** Queue / background-job tint (rose), applied to nodes the analyzers mark as jobs. */
 export const JOB_COLOR = "#9A5466";
 export const ACCENT = "#1F5C56";
-/** Explore: dependency edges toward selection vs away (muted, paper-safe). */
-export const EXPLORE_UPSTREAM = "#6F7A45";
-export const EXPLORE_DOWNSTREAM = "#3E7770";
+/**
+ * Trace direction relative to the selection, in every view. Amber vs blue is the colour-blind-safe
+ * pair (distinguishable with protan/deutan/tritan vision); both pass 4.5:1 for white badge text,
+ * and direction is also spelled out ("in"/"out" badges, arrowheads), never colour alone.
+ *   upstream   = depends on the selection (callers, importers, routes into it)
+ *   downstream = what the selection depends on
+ */
+export const EXPLORE_UPSTREAM = "#9A5B1E";
+export const EXPLORE_DOWNSTREAM = "#3A6591";
 
 export const EDGE_STYLE: Record<string, { color: string; dashed?: boolean; label: string }> = {
   ROUTES_TO: { color: "#55708F", label: "routes to" },

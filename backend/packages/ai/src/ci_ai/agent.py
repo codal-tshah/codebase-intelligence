@@ -268,6 +268,9 @@ async def _tools_only(tools: GraphTools, message: str, focus_node_id: str | None
         sections += [f"{s['order']}. **{s['title']}** — {s['description']}" for s in overview.get("tour", [])[:8]]
         sections.append("")
 
+    # A traced endpoint already answers "which models / what does it call": don't append a dump of
+    # every model or a keyword search for "POST" after it.
+    answered = False
     route = next((t for t in message.split() if "/" in t), None)
     if route or (_API_RX.search(message) and not _DATA_RX.search(message)):
         if route:
@@ -285,6 +288,7 @@ async def _tools_only(tools: GraphTools, message: str, focus_node_id: str | None
                 for c in details.get("callers", []):
                     sections.append(f"- Called from UI/client: {_link(c)}{_loc(c)}")
                 sections.append("")
+                answered = True
             elif isinstance(details, dict) and details.get("chain"):
                 sections.append(f"Endpoint trace for `{details.get('route')}`:")
                 sections += [f"- {s['type']}: {_link(s)}{_loc(s)}" for s in details["chain"]]
@@ -299,7 +303,7 @@ async def _tools_only(tools: GraphTools, message: str, focus_node_id: str | None
                 sections.append(f"- `{' '.join(ep.get('methods') or ['ANY'])}` {_link(ep)} → {_link(handler) if handler else '_unresolved_'}{callers}")
             sections.append("")
 
-    if _DATA_RX.search(message):
+    if _DATA_RX.search(message) and not answered:
         models = call("list_models")
         note("list_models", {}, models)
         sections.append(f"**{len(models)} data model(s)**:")
@@ -330,8 +334,11 @@ async def _tools_only(tools: GraphTools, message: str, focus_node_id: str | None
         if path.get("found"):
             sections += ["**Shortest dependency path:** " + " → ".join(_link(s) for s in path["steps"]), ""]
 
+    if answered:
+        keyword = ""
     symbols = call("search_nodes", query=keyword, limit=8) if keyword else []
-    note("search_nodes", {"query": keyword}, symbols)
+    if keyword:
+        note("search_nodes", {"query": keyword}, symbols)
     if symbols:
         sections.append("**Matching nodes:**")
         sections += [f"- {_link(s)} ({s.get('type')}) {s.get('summary') or ''}{_loc(s)}" for s in symbols[:8]]

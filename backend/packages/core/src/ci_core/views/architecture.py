@@ -5,24 +5,21 @@ from __future__ import annotations
 from typing import Any
 
 from ci_core.insights import DEPENDENCY_EDGES, GraphIndex
-from ci_core.models import EdgeType, GraphEdgeView, GraphNodeView, NodeType
+from ci_core.models import GraphEdgeView, GraphNodeView, NodeType
 from ci_core.views import ViewModule, register_view
 from ci_core.views._common import MAX_NODES, node_view
 
 
-def package_of(index: GraphIndex) -> dict[str, str]:
-    """Map every node to its nearest ancestor Package via CONTAINS edges."""
-    parent: dict[str, str] = {}
-    for e in index.edges:
-        if e.edge_type == EdgeType.CONTAINS:
-            parent[e.target_id] = e.source_id
+def package_of(index: GraphIndex, allowed: set[str] | None = None) -> dict[str, str]:
+    """Map every node to its nearest ancestor Package via CONTAINS edges (only `allowed` ids, if given)."""
+    parent = index.contains_parent
     result: dict[str, str] = {}
     for node_id in index.nodes:
         cur: str | None = node_id
         guard = 0
-        while cur is not None and guard < 16:
+        while cur is not None and guard < 32:
             node = index.nodes.get(cur)
-            if node and node.node_type == NodeType.PACKAGE:
+            if node and node.node_type == NodeType.PACKAGE and (allowed is None or cur in allowed):
                 result[node_id] = cur
                 break
             cur = parent.get(cur)
@@ -30,18 +27,38 @@ def package_of(index: GraphIndex) -> dict[str, str]:
     return result
 
 
+def architecture_packages(index: GraphIndex) -> list:
+    """App-level packages. Nested directory packages (``subpackage``) are skipped, except inside a
+    dominant app (3+ sub-packages holding 40%+ of the project's modules: the usual FastAPI/Flask
+    ``app/`` monolith), whose first level is shown too, otherwise the diagram is a single box."""
+    all_pkgs = [n for n in index.nodes.values() if n.node_type == NodeType.PACKAGE]
+    apps = [n for n in all_pkgs if not n.properties.get("subpackage")]
+    parent = index.contains_parent
+    owner = package_of(index, {a.id for a in apps})
+    modules = [n.id for n in index.nodes.values() if n.node_type == NodeType.MODULE]
+    total = max(1, len(modules))
+    out = list(apps)
+    for app in apps:
+        subs = [n for n in all_pkgs if n.properties.get("subpackage") and parent.get(n.id) == app.id]
+        share = sum(1 for m in modules if owner.get(m) == app.id) / total
+        if len(subs) >= 3 and share >= 0.4:
+            out.extend(subs)
+    return out
+
+
 def build(
     index: GraphIndex, focus: str | None, params: dict[str, Any] | None = None
 ) -> tuple[list[GraphNodeView], list[GraphEdgeView], dict[str, Any]]:
-    packages = [n for n in index.nodes.values() if n.node_type == NodeType.PACKAGE]
+    packages = architecture_packages(index)
     if not packages:
         packages = [n for n in index.nodes.values() if n.node_type == NodeType.MODULE][:MAX_NODES]
     pkg_ids = {p.id for p in packages}
-    owner = package_of(index)
+    owner = package_of(index, pkg_ids)
     parent_pkg: dict[str, str] = {}
-    for e in index.edges:
-        if e.edge_type == EdgeType.CONTAINS and e.source_id in pkg_ids and e.target_id in pkg_ids:
-            parent_pkg[e.target_id] = e.source_id
+    for pid in pkg_ids:
+        up = index.contains_parent.get(pid)
+        if up in pkg_ids:
+            parent_pkg[pid] = up
 
     weights: dict[tuple[str, str], dict[str, int]] = {}
     for e in index.edges:

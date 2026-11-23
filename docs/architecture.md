@@ -64,7 +64,7 @@ Each diagram is a `ViewModule` in its own file. It declares its id, label, icon 
 ## Jobs, suggestions and generated docs
 
 - **Jobs:** analyzers set `properties.job = {kind, framework, schedule?|command?}` and the `job` tag. Python: Celery `@shared_task/@app.task` (`run_every`), Dramatiq `@actor`, RQ `@job`, APScheduler `@scheduled_job`, fastapi-utils `@repeat_every`, Django `management/commands/*.py` `Command.handle`. TypeScript: NestJS `@Cron/@Interval/@Timeout`, Bull `@Process`. A view may set `ViewModule.count` to decide availability without a dedicated node type.
-- **Suggestions** (`ci_core.suggestions.suggest`): hubs (fan-in ≥ 10), large functions, same-named helpers in several files, models written from ≥ 4 files, mutual imports, possibly-unused functions. Deterministic and cheap; they are review leads.
+- **Suggestions** (`ci_core.suggestions.suggest`): hubs (fan-in ≥ 10), large functions, same-named helpers in several files, models written from ≥ 4 files, **import cycles** (SCC via `ci_core.graph_algo`; `__init__` barrels, `TYPE_CHECKING`, and function-local imports excluded—cycles via a package `__init__` alone may be missed), possibly-unused functions. Deterministic and cheap; they are review leads.
 - **Docs** (`ci_core.docgen`): `render_docs` → `{filename: markdown}` with Mermaid flowcharts (helper text = node summary) and an `erDiagram`; `write_docs` refuses output paths outside the repository.
 
 ## AI layer

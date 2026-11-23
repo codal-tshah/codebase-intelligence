@@ -82,7 +82,7 @@ def test_background_jobs_suggestions_and_docs_routes(fs_client):
 
 
 def test_git_check_route_validates_and_reports(fs_client, monkeypatch):
-    import ci_api.main as api
+    import ci_api.routers.system as api  # routes live in routers since the main.py split
 
     assert fs_client.get("/git/check?url=https://gitlab.com/o/r").status_code == 422
     import ci_parsers

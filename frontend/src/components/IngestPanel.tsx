@@ -6,6 +6,8 @@ type Props = {
   onAnalyze: (target: { git_url?: string; path?: string }) => Promise<void>;
   busy: boolean;
   error: string | null;
+  /** Live job status while indexing ("45% · Building graph…"). */
+  progress?: string | null;
 };
 
 const GITHUB = /^https?:\/\/(www\.)?github\.com\/[\w.-]+\/[\w.-]+\/?(\.git)?$/i;
@@ -36,7 +38,7 @@ function useGitAccess(url: string | null): Access | "checking" | null {
   return state;
 }
 
-export function IngestPanel({ onAnalyze, busy, error }: Props) {
+export function IngestPanel({ onAnalyze, busy, error, progress }: Props) {
   const [target, setTarget] = useState("");
   const value = target.trim();
   const isGit = GITHUB.test(value);
@@ -53,7 +55,8 @@ export function IngestPanel({ onAnalyze, busy, error }: Props) {
       <h2>Connect a repository</h2>
       <p className="muted">
         Paste a GitHub URL or an absolute local path. Private repositories need <code>CI_GITHUB_TOKEN</code> set
-        on the server (or clone locally and use the path). The analyzers detect Python (Django, FastAPI, Flask,
+        on the server (or clone locally and use the path). A local folder is read, never modified; the index lives
+        in this tool's data folder. In server mode only folders under <code>CI_PROJECT_ROOTS</code> can be added. The analyzers detect Python (Django, FastAPI, Flask,
         SQLAlchemy) and TypeScript/JavaScript (React, Next.js, Express, NestJS) automatically, link frontend calls to
         backend routes, and build an explorable graph. Nothing leaves your machine unless you enable an LLM.
       </p>
@@ -91,6 +94,11 @@ export function IngestPanel({ onAnalyze, busy, error }: Props) {
         {error ? (
           <p className="form-error" role="alert">
             {error}
+          </p>
+        ) : null}
+        {busy && progress ? (
+          <p className="muted ingest-access" role="status" aria-live="polite">
+            {progress}
           </p>
         ) : null}
         <button type="submit" className="btn primary wide" disabled={!valid || busy || blocked}>

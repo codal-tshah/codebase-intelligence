@@ -132,3 +132,39 @@ describe("Explore group title space", () => {
     }
   });
 });
+
+
+describe("buildElkGraph edge placement", () => {
+  it("declares each edge in the lowest common group, between that group's direct children", async () => {
+    const { buildElkGraph } = await import("./layoutExplore");
+    const nodes: GraphNode[] = [
+      { id: "app", label: "app", node_type: "Package", properties: { explore_expanded: true, parent_id: null } },
+      { id: "svc", label: "services", node_type: "Package", properties: { explore_expanded: true, parent_id: "app" } },
+      { id: "s1", label: "s1", node_type: "Module", properties: { parent_id: "svc" } },
+      { id: "repo", label: "repositories", node_type: "Package", properties: { parent_id: "app" } },
+      { id: "tests", label: "tests", node_type: "Package", properties: { parent_id: null } },
+    ];
+    const edges: GraphEdge[] = [
+      { id: "a", source: "s1", target: "repo", edge_type: "CALLS" }, // lifted: svc -> repo inside app
+      { id: "b", source: "tests", target: "s1", edge_type: "IMPORTS" }, // lifted: tests -> app at root
+      { id: "c", source: "app", target: "s1", edge_type: "CONTAINS" }, // ancestor: dropped
+    ];
+    const g = buildElkGraph({ graphNodes: nodes, graphEdges: edges });
+    const app = g.children!.find((c) => c.id === "app")!;
+    expect(app.edges!.map((e) => [e.sources[0], e.targets[0]])).toEqual([["svc", "repo"]]);
+    expect(g.edges!.map((e) => [e.sources[0], e.targets[0]])).toEqual([["tests", "app"]]);
+  });
+
+  it("returns orthogonal routes for sibling edges", async () => {
+    const { layoutExploreGraph, routeKey } = await import("./layoutExplore");
+    const nodes: GraphNode[] = ["a", "b"].map((id) => ({ id, label: id, node_type: "Module", properties: { parent_id: null } }));
+    const { routes } = await layoutExploreGraph({ graphNodes: nodes, graphEdges: [{ id: "e", source: "a", target: "b", edge_type: "CALLS" }] });
+    const pts = routes.get(routeKey("a", "b"))!;
+    expect(pts.length).toBeGreaterThanOrEqual(2);
+    for (let i = 1; i < pts.length; i++) {
+      const horizontal = Math.abs(pts[i]!.y - pts[i - 1]!.y) < 0.01;
+      const vertical = Math.abs(pts[i]!.x - pts[i - 1]!.x) < 0.01;
+      expect(horizontal || vertical).toBe(true);
+    }
+  });
+});

@@ -31,6 +31,16 @@ DEFAULT_SKIP_DIRS = frozenset(
         "staticfiles",
         ".idea",
         ".vscode",
+        # generated output (coverage reports, framework build caches): never source
+        "htmlcov",
+        "coverage",
+        ".nyc_output",
+        ".next",
+        ".nuxt",
+        ".svelte-kit",
+        ".turbo",
+        ".parcel-cache",
+        ".cache",
     }
 )
 
@@ -145,6 +155,13 @@ def _git_auth_env(token: str | None) -> dict[str, str]:
     or ``.git/config`` of the clone. GIT_TERMINAL_PROMPT=0 makes auth failures fail fast.
     """
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    # Drop only the per-process GIT_CONFIG_COUNT/KEY/VALUE tuple so anonymous git calls are not
+    # accidentally authenticated (and token fallback after rejection runs without the header).
+    # Keep GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM, etc. so proxy/CA settings still apply.
+    _drop_cfg = re.compile(r"^GIT_CONFIG_(COUNT|PARAMETERS|KEY_\d+|VALUE_\d+)$")
+    for key in list(env):
+        if _drop_cfg.match(key):
+            del env[key]
     if token:
         basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
         env.update(

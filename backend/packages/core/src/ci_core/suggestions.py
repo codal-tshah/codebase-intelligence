@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
+from ci_core.graph_algo import dependency_cycles
 from ci_core.insights import GraphIndex
 from ci_core.models import EdgeType, NodeRecord, NodeType
 
@@ -32,6 +33,36 @@ def _item(kind: str, severity: str, title: str, detail: str, nodes: list[NodeRec
     return {"kind": kind, "severity": severity, "title": title, "detail": detail, "nodes": [_ref(n) for n in nodes]}
 
 
+_NON_RUNTIME_IMPORT = frozenset({"type_only", "lazy"})
+
+
+def _runtime_import_index(index: GraphIndex) -> GraphIndex:
+    """Load-time import subgraph for cycle suggestions only (not for fan-in/out or other metrics).
+
+    Omits package ``__init__`` barrels and edges tagged ``import_kind`` ``type_only`` / ``lazy``.
+    """
+    skip = {
+        nid
+        for nid, n in index.nodes.items()
+        if n.node_type == NodeType.MODULE and (n.source_path or "").endswith("__init__.py")
+    }
+    edges = [
+        e
+        for e in index.edges
+        if e.edge_type == EdgeType.IMPORTS
+        and e.source_id not in skip
+        and e.target_id not in skip
+        and not (
+            e.properties.get("import_kind") in _NON_RUNTIME_IMPORT and not e.properties.get("has_runtime_import")
+        )
+    ]
+    all_imp = [e for e in index.edges if e.edge_type == EdgeType.IMPORTS]
+    if not skip and len(edges) == len(all_imp):
+        return index
+    nodes = [n for n in index.nodes.values() if n.id not in skip]
+    return GraphIndex.build(nodes, edges)
+
+
 def _is_test(n: NodeRecord) -> bool:
     path = (n.source_path or "").lower()
     # `test_` must start a path segment: a plain substring match also hid latest_*.py, contest_*.py, ...
@@ -41,7 +72,7 @@ def _is_test(n: NodeRecord) -> bool:
 
 def suggest(index: GraphIndex, *, limit: int = 40) -> list[dict[str, Any]]:
     """Ranked suggestions: high-risk hubs, large functions, duplicated helpers, scattered model
-    writes, mutual imports and possibly-unused code."""
+    writes, import cycles and possibly-unused code."""
     out: list[dict[str, Any]] = []
     nodes = [n for n in index.nodes.values() if not _is_test(n)]
 
@@ -86,16 +117,18 @@ def suggest(index: GraphIndex, *, limit: int = 40) -> list[dict[str, Any]]:
                              "Centralise writes in one service/repository so validation, transactions and "
                              "side effects live in one place.", [m, *writers[:8]]))
 
-    # 5. Mutual imports between modules -> cycle.
-    imports = {(e.source_id, e.target_id) for e in index.edges if e.edge_type == EdgeType.IMPORTS}
-    seen: set[frozenset[str]] = set()
-    for a, b in imports:
-        pair = frozenset((a, b))
-        if a != b and (b, a) in imports and pair not in seen and a in index.nodes and b in index.nodes:
-            seen.add(pair)
-            out.append(_item("cycle", "medium", f"{index.nodes[a].name} and {index.nodes[b].name} import each other",
-                             "Circular imports make load order fragile. Move the shared part into a third module.",
-                             [index.nodes[a], index.nodes[b]]))
+    # 5. Import cycles (strongly connected sets of modules) -> break the loop.
+    for cyc in dependency_cycles(_runtime_import_index(index), {EdgeType.IMPORTS}):
+        members = [index.nodes[i] for i in cyc["node_ids"]]
+        if len(members) == 2:
+            title = f"{members[0].name} and {members[1].name} import each other"
+        else:
+            path = [index.nodes[i].name for i in cyc["cycle"]]
+            shown = " -> ".join([*path[:6], "..."] if len(path) > 6 else path) + f" -> {path[0]}"
+            title = f"{len(members)} modules are tied in import cycles, e.g. {shown}"
+        out.append(_item("cycle", "high" if len(members) >= 5 else "medium", title,
+                         "Circular imports make load order fragile. Move the shared part into a "
+                         "separate module, or import lazily at the call site.", members[:10]))
 
     # 6. Possibly unused functions (no callers; not an entry point by role/type).
     unused = [

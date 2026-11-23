@@ -10,7 +10,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8000",
+        // Point the dev UI at another backend with CI_API_URL=http://127.0.0.1:8010 npm run dev
+        target: process.env.CI_API_URL ?? "http://127.0.0.1:8000",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },

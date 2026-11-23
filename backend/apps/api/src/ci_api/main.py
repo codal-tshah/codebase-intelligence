@@ -1,47 +1,31 @@
+"""FastAPI app: middleware (request id, API key, gzip, CORS), error shapes and router wiring.
+
+Routes live in ``ci_api.routers`` (system, projects, graph, chat); this module only assembles
+them. URLs are unchanged from earlier versions.
+"""
+
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
-import re
 import uuid
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from contextlib import asynccontextmanager
-
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, field_validator
-from sse_starlette.sse import EventSourceResponse
 
-from ci_ai import GraphTools, build_project_summary, chat_stream
+from ci_api import __version__
+from ci_api.autorefresh import run_forever as auto_refresh_loop
+from ci_api.routers import chat, graph, projects, system
 from ci_core.db import GraphStore
-from ci_core.insights import (
-    build_tour,
-    find_path,
-    impact_for_request,
-    list_endpoints,
-    neighborhood_subgraph,
-    search_nodes,
-)
-from ci_core.layers import layer_catalog
-from ci_core.views import get_view, view_catalog
 from ci_core.logging_setup import configure_logging, request_id
-from ci_core.models import ProjectRecord
-from ci_core.projects import resolve_project
 from ci_core.registry import load_registry
-from ci_core.serializers import node_summary
 from ci_core.settings import get_settings
-from ci_core.source import resolve_source_path
-from ci_core.views.explore import underlying_between
-from ci_parsers import GitCloneError, check_git_access
-from ci_indexer import (
-    analyzer_catalog,
-    compute_freshness,
-    create_project_from_git,
-    create_project_from_path,
-    run_index_job,
-)
 
 _settings = get_settings()  # fails fast on invalid configuration (e.g. CI_MODE=server without a key)
 configure_logging(_settings.log_level, _settings.log_json)
@@ -59,20 +43,30 @@ def _reconcile_orphaned_index_jobs() -> None:
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     _reconcile_orphaned_index_jobs()
-    yield
+    task = asyncio.create_task(auto_refresh_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
-app = FastAPI(title="Codebase Intelligence API", version="0.3.0", lifespan=_lifespan)
+app = FastAPI(title="Codebase Intelligence API", version=__version__, lifespan=_lifespan)
 
 # Local-first: only the dev UI origins by default. Extend with CI_CORS_ORIGINS="https://a,https://b".
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(_settings.cors_origins),
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "X-API-Key", "Authorization", "X-Request-ID"],
     expose_headers=["X-Request-ID"],
 )
+
+# Graph payloads repeat 64-char node ids in every edge; gzip cuts them ~8x. SSE (chat) is excluded
+# by Starlette's default, so streamed answers are not buffered.
+app.add_middleware(GZipMiddleware, minimum_size=2048)
 
 
 @app.middleware("http")
@@ -87,7 +81,7 @@ async def request_context(request, call_next):
         if settings.mode == "server" and request.method != "OPTIONS" and path not in ("/health", "/api/health"):
             supplied = request.headers.get("x-api-key") or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
             if not settings.api_key or not hmac.compare_digest(supplied, settings.api_key):
-                return JSONResponse({"detail": "invalid or missing API key"}, status_code=401, headers={"X-Request-ID": rid})
+                return JSONResponse({"detail": "invalid or missing API key", "request_id": rid}, status_code=401, headers={"X-Request-ID": rid})
         response = await call_next(request)
         response.headers["X-Request-ID"] = rid
         return response
@@ -98,481 +92,24 @@ async def request_context(request, call_next):
         request_id.reset(token)
 
 
-# Bounds for graph/source query params: node ids are short hashes or dotted names, and the
-# dashboard never expands more than a few hundred groups. Anything larger is a mistake or abuse.
-MAX_ID = 512
-MAX_EXPANDED = 500
-MAX_OFFSETS = 200
-
-
-def _check_expanded(expanded: str | None, offsets: list[str] | None) -> None:
-    if expanded and expanded.count(",") + 1 > MAX_EXPANDED:
-        raise HTTPException(status_code=422, detail=f"expanded: at most {MAX_EXPANDED} node ids")
-    if offsets and len(offsets) > MAX_OFFSETS:
-        raise HTTPException(status_code=422, detail=f"extra_child_offsets: at most {MAX_OFFSETS} entries")
-
-
-_GITHUB_URL = re.compile(r"^https?://(www\.)?github\.com/[\w.-]+/[\w.-]+/?(\.git)?$", re.I)
-
-
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-
-class CreateProjectBody(BaseModel):
-    path: str | None = None
-    git_url: str | None = Field(default=None, description="GitHub repository URL (private repos need CI_GITHUB_TOKEN)")
-
-    @field_validator("git_url")
-    @classmethod
-    def validate_git_url(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        v = v.strip()
-        if not _GITHUB_URL.match(v):
-            raise ValueError("Must be a valid GitHub repository URL (https://github.com/owner/repo)")
-        return v
-
-
-class ImpactBody(BaseModel):
-    """Blast radius of a change. With no files/nodes, the working tree's changed files are used."""
-
-    files: list[str] = Field(default_factory=list)
-    node_ids: list[str] = Field(default_factory=list)
-    base: str | None = Field(default=None, description="Git ref to diff against (e.g. origin/main); ignored if files set")
-    depth: int = Field(default=3, ge=1, le=6)
-
-
-def _register(body: "CreateProjectBody") -> ProjectRecord:
-    """Create a project from a path or GitHub URL (server mode confines paths to CI_PROJECT_ROOTS)."""
-    if body.path:
-        path = Path(body.path)
-        if not get_settings().path_allowed(path):
-            raise HTTPException(status_code=403, detail="path is outside the allowed project roots")
-        if not path.expanduser().is_dir():
-            raise HTTPException(status_code=400, detail=f"not a directory: {body.path}")
-        return create_project_from_path(path)
-    if body.git_url:
-        if get_settings().mode == "server":
-            raise HTTPException(
-                status_code=403,
-                detail="git_url ingest is disabled in server mode; clone under CI_PROJECT_ROOTS and use path",
-            )
-        try:
-            return create_project_from_git(body.git_url)
-        except GitCloneError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-    raise HTTPException(status_code=400, detail="path or git_url required")
-
-
-def _require_project(project_ref: str) -> ProjectRecord:
-    project = resolve_project(project_ref)
-    if project is None:
-        raise HTTPException(status_code=404, detail="project not found")
-    return project
-
-
-def _pid(ref: str) -> str:
-    return _require_project(ref).id
-
-
-class AnalyzeBody(CreateProjectBody):
-    """Create project and run a full index (ingest + graph + embeddings)."""
-
-
-class ChatBody(BaseModel):
-    message: str = Field(min_length=1, max_length=8000)
-    focus_node_id: str | None = None
-    conversation_history: list[ChatMessage] = Field(default_factory=list)
-
-
-@app.get("/health")
-def health() -> dict:
-    return {"status": "ok"}
-
-
-@app.get("/projects")
-def list_projects() -> list[dict]:
-    return [p.model_dump(mode="json") for p in load_registry()]
-
-
-@app.get("/projects/resolve")
-def resolve(ref: str = Query(..., min_length=1, max_length=1024)) -> dict:
-    """Resolve an id, name, or a path inside a repo to its registered project (same rules as the CLI and MCP)."""
-    record = resolve_project(ref)
-    if record is None:
-        raise HTTPException(status_code=404, detail="no matching project")
-    return record.model_dump(mode="json")
-
-
-@app.get("/git/check")
-def git_check(url: str = Query(..., min_length=1, max_length=512)) -> dict:
-    """Preflight for the ingest form: can this server read the GitHub repo (with CI_GITHUB_TOKEN if set)?"""
-    if not _GITHUB_URL.match(url.strip()):
-        raise HTTPException(status_code=422, detail="Must be a valid GitHub repository URL (https://github.com/owner/repo)")
-    if get_settings().mode == "server":
-        raise HTTPException(status_code=403, detail="git_url ingest is disabled in server mode")
-    settings = get_settings()
-    return {**check_git_access(url.strip(), token=settings.github_token), "token_configured": bool(settings.github_token)}
-
-
-@app.post("/projects")
-def create_project(body: CreateProjectBody) -> dict:
-    return _register(body).model_dump(mode="json")
-
-
-@app.post("/projects/analyze")
-def analyze_project(body: AnalyzeBody) -> dict:
-    """Ingest-style flow: register project, index synchronously, return summary."""
-    record = _register(body)
-    job = run_index_job(record.id)
-    if job.status.value == "failed":
-        raise HTTPException(status_code=500, detail=job.error or "Index failed")
-    summary = build_project_summary(record.id)
-    return {
-        "project": record.model_dump(mode="json"),
-        "job": job.model_dump(mode="json"),
-        "summary": summary,
-    }
-
-
-@app.get("/layers")
-def layers() -> list[dict]:
-    """The framework-neutral architectural layer taxonomy (id, name, description, colour)."""
-    return layer_catalog()
-
-
-@app.get("/analyzers")
-def analyzers() -> list[dict]:
-    """Installed language/framework analyzers (built-ins plus entry-point plugins)."""
-    return analyzer_catalog()
-
-
-@app.get("/views")
-def views() -> list[dict]:
-    """Registered diagram modules (without project-specific availability)."""
-    return view_catalog()
-
-
-@app.get("/projects/{project_ref:path}/views")
-def project_views(project_ref: str) -> list[dict]:
-    """Diagram modules with availability and counts for this project's graph."""
-    return view_catalog(GraphStore(_pid(project_ref)).load_index())
-
-
-@app.get("/projects/{project_ref:path}/endpoints")
-def endpoints(project_ref: str, q: str | None = Query(default=None, max_length=200)) -> dict:
-    """API explorer: every route with handler, guards, frontend callers and models touched."""
-    pid = _pid(project_ref)
-    items = list_endpoints(GraphStore(pid).load_index(), query=q)
-    return {"count": len(items), "endpoints": items}
-
-
-@app.get("/projects/{project_ref:path}/models")
-def models(project_ref: str) -> dict:
-    """Data models with tables, fields, relations, and the code that reads/writes them."""
-    pid = _pid(project_ref)
-    items = GraphTools(pid).models(limit=500)
-    return {"count": len(items), "models": items}
-
-
-@app.get("/projects/{project_ref:path}/background-jobs")
-def background_jobs(project_ref: str) -> dict:
-    """Background tasks, scheduled jobs and management commands with the models they read/write."""
-    items = GraphTools(_pid(project_ref)).jobs()
-    return {"count": len(items), "jobs": items}
-
-
-@app.get("/projects/{project_ref:path}/suggestions")
-def suggestions(project_ref: str, limit: int = Query(default=40, ge=1, le=200)) -> dict:
-    """Optimization and reuse leads derived from the graph."""
-    items = GraphTools(_pid(project_ref)).suggestions(limit=limit)
-    return {"count": len(items), "suggestions": items}
-
-
-@app.get("/projects/{project_ref:path}/docs")
-def generated_docs(project_ref: str) -> dict:
-    """Markdown + Mermaid docs (what `ci docs` writes), returned instead of written to disk."""
-    from ci_core.docgen import render_docs
-
-    project = _require_project(project_ref)
-    return {"files": render_docs(GraphStore(project.id).load_index(), project.name)}
-
-
-@app.get("/projects/{project_ref:path}/summary")
-def project_summary(project_ref: str) -> dict:
-    return build_project_summary(_pid(project_ref))
-
-
-@app.get("/projects/{project_ref:path}/freshness")
-def freshness(project_ref: str) -> dict:
-    """fresh | dirty | stale | unknown, with the files that differ from the index."""
-    project = _require_project(project_ref)
-    return compute_freshness(project.id, Path(project.root_path))
-
-
-@app.post("/projects/{project_ref:path}/index")
-def index_project(project_ref: str, background: BackgroundTasks, incremental: bool = False) -> dict:
-    """Start an index job. `incremental=true` skips unchanged work; default forces a rebuild."""
-    pid = _pid(project_ref)
-    store = GraphStore(pid)
-    job = store.create_job()
-
-    def _run() -> None:
-        run_index_job(pid, incremental=incremental, job_id=job.id)
-
-    background.add_task(_run)
-    return job.model_dump(mode="json")
-
-
-@app.get("/projects/{project_ref:path}/jobs/{job_id}")
-def get_job(project_ref: str, job_id: str) -> dict:
-    pid = _pid(project_ref)
-    job = GraphStore(pid).get_job(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job not found")
-    return job.model_dump(mode="json")
-
-
-@app.get("/projects/{project_ref:path}/graph/neighborhood")
-def graph_neighborhood(
-    project_ref: str,
-    node_id: str = Query(..., min_length=1, max_length=MAX_ID),
-    direction: str = Query("both", max_length=8),
-    depth: int = Query(1, ge=1, le=3),
-) -> dict:
-    d = direction.lower()
-    if d not in {"in", "out", "both"}:
-        raise HTTPException(status_code=422, detail="direction must be in, out, or both")
-    store = GraphStore(_pid(project_ref))
-    index = store.load_index()
-    if node_id not in index.nodes:
-        raise HTTPException(status_code=404, detail="node not found")
-    return neighborhood_subgraph(index, node_id, direction=d, depth=depth)
-
-
-@app.get("/projects/{project_ref:path}/graph/edges")
-def graph_explore_underlying_edges(
-    project_ref: str,
-    source: str = Query(..., min_length=1, max_length=MAX_ID, description="Visible explore node id (aggregated arc source)"),
-    target: str = Query(..., min_length=1, max_length=MAX_ID, description="Visible explore node id (aggregated arc target)"),
-    expanded: str | None = Query(
-        default=None,
-        description="Same expanded= list as /graph/explore so lifting matches the canvas",
-    ),
-    extra_child_offsets: list[str] | None = Query(
-        default=None,
-        description="Same as explore view: node_id=offset for structural paging",
-    ),
-    limit: int = Query(200, ge=1, le=500),
-) -> dict:
-    from ci_core.views.explore import _parse_offsets_param
-
-    _check_expanded(expanded, extra_child_offsets)
-    store = GraphStore(_pid(project_ref))
-    index = store.load_index()
-    if source not in index.nodes or target not in index.nodes:
-        raise HTTPException(status_code=404, detail="node not found")
-    off: dict[str, int] = _parse_offsets_param({"extra_child_offsets": extra_child_offsets or []})
-    edges = underlying_between(index, source, target, expanded, cap=limit + 1, extra_offsets=off)
-    capped = len(edges) > limit  # fetched one extra row: only true when something was cut off
-    return {"source": source, "target": target, "edges": edges[:limit], "capped": capped}
-
-
-@app.get("/projects/{project_ref:path}/graph/{view}")
-def get_graph(
-    project_ref: str,
-    view: str,
-    focus_node_id: str | None = Query(default=None, max_length=MAX_ID),
-    expanded: str | None = Query(default=None, description="Comma-separated node ids expanded in explore view"),
-    extra_child_offsets: list[str] | None = Query(
-        default=None,
-        description="Repeat param: node_id=offset for paging structural children under expanded nodes",
-    ),
-) -> dict:
-    if get_view(view) is None:
-        raise HTTPException(status_code=404, detail=f"unknown view {view[:64]!r}")
-    _check_expanded(expanded, extra_child_offsets)
-    params: dict | None = None
-    if expanded or extra_child_offsets:
-        params = {}
-        if expanded:
-            params["expanded"] = expanded
-        if extra_child_offsets:
-            params["extra_child_offsets"] = extra_child_offsets
-    payload = GraphStore(_pid(project_ref)).build_graph_view(view, focus_node_id=focus_node_id, params=params)
-    return payload.model_dump(mode="json")
-
-
-@app.get("/projects/{project_ref:path}/export")
-def export_graph(project_ref: str) -> Response:
-    """Download the complete knowledge graph (nodes + edges + layers) as JSON."""
-    project = _require_project(project_ref)
-    store = GraphStore(project.id)
-    index = store.load_index()
-    payload = {
-        "version": 1,
-        "project": project.model_dump(mode="json"),
-        "layers": layer_catalog(),
-        "nodes": [n.model_dump(mode="json", exclude={"project_id"}) for n in index.nodes.values()],
-        "edges": [e.model_dump(mode="json", exclude={"project_id"}) for e in index.edges],
-    }
-    import json
-
-    return Response(
-        content=json.dumps(payload),
-        media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="{project.name}-graph.json"'},
-    )
-
-
-@app.get("/projects/{project_ref:path}/tour")
-def tour(project_ref: str) -> dict:
-    """Guided walkthrough: where a newcomer should read first."""
-    index = GraphStore(_pid(project_ref)).load_index()
-    steps = build_tour(index)
-    for step in steps:
-        step["nodes"] = [node_summary(index.nodes[nid]) for nid in step["node_ids"] if nid in index.nodes]
-    return {"steps": steps}
-
-
-@app.get("/projects/{project_ref:path}/search")
-def search(
-    project_ref: str,
-    q: str = Query(..., min_length=1, max_length=200),
-    types: str | None = Query(default=None, description="Comma-separated node types"),
-    limit: int = Query(25, ge=1, le=100),
-) -> dict:
-    nodes = GraphStore(_pid(project_ref)).list_all_nodes()
-    wanted = {t.strip() for t in types.split(",") if t.strip()} if types else None
-    hits = search_nodes(nodes, q, types=wanted, limit=limit)
-    return {
-        "query": q,
-        "results": [node_summary(n, score=score) for n, score in hits],
-    }
-
-
-@app.get("/projects/{project_ref:path}/path")
-def shortest_path(
-    project_ref: str,
-    source: str = Query(..., max_length=MAX_ID, description="Source node id"),
-    target: str = Query(..., max_length=MAX_ID, description="Target node id"),
-    max_hops: int = Query(12, ge=1, le=30),
-) -> dict:
-    index = GraphStore(_pid(project_ref)).load_index()
-    result = find_path(index, source, target, max_hops=max_hops)
-    result["nodes"] = [
-        node_summary(index.nodes[nid])
-        for nid in result.get("node_ids", [])
-        if nid in index.nodes
-    ]
-    return result
-
-
-@app.post("/projects/{project_ref:path}/impact")
-def impact(project_ref: str, body: ImpactBody) -> dict:
-    project = _require_project(project_ref)
-    pid = project.id
-    index = GraphStore(pid).load_index()
-    files = [f.replace("\\", "/") for f in body.files]
-    source = "files" if files else "nodes"
-    if body.base and not files and not body.node_ids:
-        from ci_parsers import git_changed_between
-
-        diff = git_changed_between(Path(project.root_path), body.base)
-        if diff is None:
-            raise HTTPException(status_code=400, detail=f"could not diff against {body.base!r}")
-        files = diff
-        source = "git-ref"
-    elif not files and not body.node_ids:
-        fresh = compute_freshness(pid, Path(project.root_path))
-        files = list(fresh.get("changed_files", []))
-        source = "working-tree"
-    report = impact_for_request(index, files=files, node_ids=body.node_ids, depth=body.depth)
-    report["source"] = source
-    return report
-
-
-@app.get("/projects/{project_ref:path}/nodes/{node_id}")
-def get_node(project_ref: str, node_id: str) -> dict:
-    if len(node_id) > MAX_ID:
-        raise HTTPException(status_code=422, detail="node id too long")
-    index = GraphStore(_pid(project_ref)).load_index()
-    node = index.nodes.get(node_id)
-    if node is None:
-        raise HTTPException(status_code=404, detail="node not found")
-    edges = [*index.outgoing.get(node_id, []), *index.incoming.get(node_id, [])]
-    neighbours: dict[str, dict] = {}
-    for e in edges:
-        other_id = e.target_id if e.source_id == node_id else e.source_id
-        other = index.nodes.get(other_id)
-        if other:
-            neighbours[other_id] = {
-                "id": other.id,
-                "name": other.name,
-                "node_type": other.node_type.value,
-                "source_path": other.source_path,
-                "layer": other.properties.get("layer"),
-            }
-    return {
-        "node": node.model_dump(mode="json"),
-        "edges": [e.model_dump(mode="json") for e in edges],
-        "neighbors": neighbours,
-    }
-
-
-@app.get("/projects/{project_ref:path}/source")
-def get_source(
-    project_ref: str,
-    path: str = Query(..., min_length=1, max_length=1024),
-    start: int = Query(1, ge=1),
-    end: int | None = Query(default=None, ge=1),
-) -> dict:
-    project = _require_project(project_ref)
-    allowed = GraphStore(project.id).indexed_paths()
-    candidate = resolve_source_path(Path(project.root_path), path, allowed)
-    if candidate is None:
-        raise HTTPException(status_code=404, detail="not an indexed source file")
-    lines = candidate.read_text(encoding="utf-8", errors="replace").splitlines()
-    end_line = min(end or start + 80, len(lines), start + 400)
-    out = {
-        "path": path,
-        "start": start,
-        "end": end_line,
-        "total_lines": len(lines),
-        "language": _language_for(path),
-        "abs_path": str(candidate),
-        "content": "\n".join(lines[start - 1 : end_line]),
-    }
-    if get_settings().mode == "server":
-        out.pop("abs_path")  # don't reveal the server's filesystem layout to API clients
-    return out
-
-
-def _language_for(path: str) -> str:
-    ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
-    return {"py": "python", "ts": "typescript", "tsx": "tsx", "js": "javascript", "jsx": "jsx", "mjs": "javascript", "cjs": "javascript"}.get(ext, ext or "text")
-
-
-@app.post("/projects/{project_ref:path}/chat")
-async def chat(project_ref: str, body: ChatBody, response: Response) -> EventSourceResponse:
-    pid = _pid(project_ref)
-    response.headers["X-CI-Mode"] = "graph-tools-rag"
-
-    history = [{"role": m.role, "content": m.content} for m in body.conversation_history]
-
-    async def event_generator():
-        # events: message (markdown text), tool, citations, done, error — see ci_ai.agent
-        async for event in chat_stream(
-            pid,
-            body.message,
-            body.focus_node_id,
-            conversation_history=history,
-        ):
-            yield event
-
-    return EventSourceResponse(event_generator())
+# One error shape everywhere: {"detail": <string or validation list>, "request_id": "..."}.
+@app.exception_handler(HTTPException)
+async def _http_error(_request: Request, exc: HTTPException) -> JSONResponse:
+    return JSONResponse({"detail": exc.detail, "request_id": request_id.get()}, status_code=exc.status_code, headers=exc.headers)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
+    errors = [{k: v for k, v in e.items() if k in ("loc", "msg", "type")} for e in exc.errors()]
+    return JSONResponse({"detail": errors, "request_id": request_id.get()}, status_code=422)
+
+
+# Order matters: `{project_ref:path}` is greedy, so fixed paths (/projects/resolve, /projects/overview)
+# are registered before the per-project routes, and the graph routes after the project routes.
+app.include_router(system.router)
+app.include_router(projects.router)
+app.include_router(graph.router)
+app.include_router(chat.router)
 
 
 def create_app(ui_dir: Path | None = None) -> FastAPI:

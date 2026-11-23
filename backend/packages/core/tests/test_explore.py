@@ -308,3 +308,65 @@ def test_collapsing_parent_hides_expanded_descendants_and_restores_them():
     assert child.id not in ids and not (inner & ids)
     assert {n.id for n in collapsed.nodes} == {n.id for n in top.nodes}
     assert NodeType.PACKAGE  # keep import used
+
+
+def _deep_tree(pid: str = "p", depth: int = 6, fan: int = 2) -> GraphIndex:
+    """project → pkg0 → pkg1 → … (a chain `depth` packages deep) each with `fan` extra modules."""
+    nodes: list[NodeRecord] = []
+    edges: list[EdgeRecord] = []
+    n, e = _node(pid, "proj", NodeType.PROJECT, "proj")
+    nodes.append(n)
+    parent = "proj"
+    for d in range(depth):
+        n, e = _node(pid, f"pkg{d}", NodeType.PACKAGE, f"pkg{d}", parent)
+        nodes.append(n)
+        edges += e
+        for k in range(fan):
+            n, e = _node(pid, f"m{d}_{k}", NodeType.MODULE, f"m{d}_{k}", f"pkg{d}")
+            nodes.append(n)
+            edges += e
+        parent = f"pkg{d}"
+    return GraphIndex.build(nodes, edges)
+
+
+def test_levels_beyond_three_and_max_depth() -> None:
+    idx = _deep_tree(depth=6)
+    nodes, _, meta = explore_build(idx, None, {})
+    assert meta["explore"]["max_depth"] == 7  # pkg0 (1) … pkg5 (6) + its modules (7)
+    assert {n.id for n in nodes} == {"pkg0"}
+
+    nodes, _, meta = explore_build(idx, None, {"expand_to_level": 5})
+    ids = {n.id for n in nodes}
+    assert {"pkg4", "m3_0"} <= ids and "pkg5" not in ids
+    assert meta["explore"]["level_reached"] == 5 and not meta["explore"]["level_capped"]
+    assert meta["explore"]["expanded_depths"] == {"pkg0": 1, "pkg1": 2, "pkg2": 3, "pkg3": 4}
+
+    nodes, _, meta = explore_build(idx, None, {"expand_to_level": 64})  # "All"
+    assert "m5_1" in {n.id for n in nodes}
+    assert meta["explore"]["level_reached"] == 7
+
+
+def test_expand_to_level_respects_node_budget() -> None:
+    from ci_core.views.explore import expansion_for_level
+
+    idx = _deep_tree(depth=8, fan=3)
+    expanded, reached, capped = expansion_for_level(idx, 64, budget=10)
+    # each level adds 4 nodes (next package + 3 modules): 1 + 4 + 4 fits, a third level would not
+    assert capped and reached == 3 and expanded == {"pkg0", "pkg1"}
+
+
+def test_expand_to_level_inside_a_subtree() -> None:
+    from ci_core.views.explore import expansion_for_level
+
+    idx = _deep_tree(depth=8, fan=3)
+    # rooted at pkg4 (level 5): its ancestors open so it is visible, then levels 5..7 below it
+    expanded, reached, capped = expansion_for_level(idx, 7, root="pkg4")
+    assert {"pkg0", "pkg1", "pkg2", "pkg3", "pkg4", "pkg5"} == expanded
+    assert reached == 7 and not capped
+
+
+def test_expand_to_level_keeps_existing_expansions() -> None:
+    idx = _deep_tree(depth=4)
+    nodes, _, meta = explore_build(idx, None, {"expanded": "pkg0,pkg1,pkg2", "expand_to_level": 2})
+    assert {"pkg0", "pkg1", "pkg2"} <= set(meta["explore"]["expanded"])
+    assert "m2_0" in {n.id for n in nodes}

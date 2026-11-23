@@ -1,0 +1,1 @@
+"""Synthetic import-cycle regression patterns (not wired into the app)."""

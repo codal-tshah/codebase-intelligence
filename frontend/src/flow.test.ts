@@ -73,7 +73,7 @@ describe("buildFlow selection highlight", () => {
     expect(ab.label).toBeTruthy();
   });
 
-  it("other views: server neighbourhood ids highlight on-canvas nodes beyond one hop", () => {
+  it("other views: server neighbourhood ids keep on-canvas nodes beyond one hop undimmed", () => {
     const payload: GraphPayload = {
       view: "architecture",
       nodes: ["a", "b", "c"].map((id) => ({ id, label: id, node_type: "Module", properties: {} })),
@@ -81,7 +81,59 @@ describe("buildFlow selection highlight", () => {
     };
     const flow = buildFlow(payload, { ...base, selectedId: "a", exploreNeighborIds: new Set(["c"]) });
     const state = Object.fromEntries(flow.nodes.map((n) => [n.id, n.data.state]));
-    expect(state.c).toBe("overlay");
+    expect(state.c).toBe("default");
+  });
+
+  it("marks direction: upstream nodes/edges vs downstream, with hop counts and raised z-index", () => {
+    const payload: GraphPayload = {
+      view: "call-graph",
+      nodes: ["caller", "sel", "callee", "deep", "x"].map((id) => ({ id, label: id, node_type: "Function", properties: {} })),
+      edges: [
+        { id: "e1", source: "caller", target: "sel", edge_type: "CALLS" },
+        { id: "e2", source: "sel", target: "callee", edge_type: "CALLS" },
+        { id: "e3", source: "callee", target: "deep", edge_type: "CALLS" },
+        { id: "e4", source: "x", target: "deep", edge_type: "CALLS" },
+      ],
+    };
+    const one = buildFlow(payload, { ...base, selectedId: "sel" });
+    const d = Object.fromEntries(one.nodes.map((n) => [n.id, n.data]));
+    expect(d.caller.traceRole).toBe("up");
+    expect(d.callee.traceRole).toBe("down");
+    expect(d.deep.state).toBe("dim"); // 2 hops: outside the default 1-hop trace
+    const e1 = one.edges.find((e) => e.id === "e1")!;
+    expect(e1.data?.traceRole).toBe("up");
+    expect(e1.className).toBe("edge--hl");
+
+    const deep = buildFlow(payload, { ...base, selectedId: "sel", trace: { direction: "down", depth: Infinity } });
+    const dd = Object.fromEntries(deep.nodes.map((n) => [n.id, n.data]));
+    expect(dd.deep.traceRole).toBe("down");
+    expect(dd.deep.traceHop).toBe(2);
+    expect(dd.caller.state).toBe("dim"); // upstream excluded by direction
+    expect(Number(deep.edges.find((e) => e.id === "e4")!.style?.opacity)).toBeLessThan(0.2);
+  });
+
+  it("bundles parallel edges into one line with a type breakdown", () => {
+    const payload: GraphPayload = {
+      view: "layers",
+      nodes: ["a", "b"].map((id) => ({ id, label: id, node_type: "Module", properties: {} })),
+      edges: [
+        { id: "i", source: "a", target: "b", edge_type: "IMPORTS" },
+        { id: "c", source: "a", target: "b", edge_type: "CALLS" },
+        { id: "c2", source: "a", target: "b", edge_type: "CALLS" },
+      ],
+    };
+    const flow = buildFlow(payload, { ...base, selectedId: null });
+    expect(flow.edges).toHaveLength(1);
+    expect(flow.edges[0].data?.byType).toEqual({ IMPORTS: 1, CALLS: 2 });
+    expect(String(flow.edges[0].label)).toBe("calls ×2 · imports");
+    expect(flow.edges[0].style?.strokeDasharray).toBeUndefined(); // drawn as the solid CALLS style
+  });
+
+  it("large graphs draw unselected edges as faint context beneath nodes", () => {
+    const nodes = Array.from({ length: 200 }, (_, i) => ({ id: `n${i}`, label: `n${i}`, node_type: "Module", properties: {} }));
+    const edges = nodes.slice(1).map((n, i) => ({ id: `e${i}`, source: "n0", target: n.id, edge_type: "IMPORTS" }));
+    const flow = buildFlow({ view: "layers", nodes, edges }, { ...base, selectedId: null });
+    expect(flow.edges.every((e) => e.zIndex === 0 && !e.markerEnd && Number(e.style?.opacity) < 0.3)).toBe(true);
   });
 });
 

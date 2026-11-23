@@ -62,3 +62,7 @@ Nothing heavy was added to the shipped bundle besides the font files.
 ## Earlier
 
 Decisions from earlier passes are recorded inline in [architecture.md](architecture.md), [private-repos.md](private-repos.md) and [competitive-notes.md](competitive-notes.md).
+- **2026-11-16: No new dependencies for FR-3.** The popover is in-house (about 250 lines) rather than Floating UI/Radix, because we only need anchored placement, flip, shift and roving focus. Orthogonal routes reuse ELK, which is already bundled. Gzip is Starlette's built-in middleware, which skips SSE by default.
+- **2026-11-16: Per-project settings and saved views live in the data dir**, not in the repository, so indexing stays read-only for source folders.
+
+- **2026-11-19: Graph analytics dependencies (P0 of [graph-architecture-research.md](graph-architecture-research.md)).** `rustworkx` (Apache-2.0, Rust wheel) is a core dependency for SCC and cycle detection; `networkx` (BSD-3) is an optional `fallback` extra and a dev dependency so both backends are tested. They run on the loaded `GraphIndex` only (`ci_core/graph_algo.py`); the SQLite schema, parsers and BFS-based `find_path`/impact/neighborhood are unchanged. igraph and graph-tool (GPL) are excluded. Legal sign-off from §8 is still pending.

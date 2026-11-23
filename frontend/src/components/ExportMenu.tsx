@@ -1,7 +1,8 @@
 import type { Edge, Node } from "@xyflow/react";
 import { Download } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch, saveBlob } from "../api";
+import { Popover, usePopoverKeys } from "./Popover";
 import { safeFilename, svgToPng, toJson, toMarkdown, toMermaid, toSvg } from "../export/exportView";
 import type { ArchNodeData } from "../flow";
 import type { GraphPayload } from "../types";
@@ -19,19 +20,17 @@ type Props = {
 export function ExportMenu({ projectId, projectName, viewLabel, payload, nodes, edges }: Props) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const keys = usePopoverKeys();
+  const close = useCallback((opts?: { returnFocus?: boolean }) => {
+    setOpen(false);
+    if (opts?.returnFocus !== false) trigger.current?.focus();
+  }, []);
 
   useEffect(() => {
     if (!open) return;
-    const close = (e: MouseEvent | KeyboardEvent) => {
-      if (e instanceof KeyboardEvent ? e.key === "Escape" : !ref.current?.contains(e.target as globalThis.Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", close);
-    window.addEventListener("keydown", close);
-    return () => {
-      window.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", close);
-    };
+    const t = setTimeout(() => document.querySelector<HTMLElement>(".export-menu-list [data-pop-item]:not([disabled])")?.focus(), 0);
+    return () => clearTimeout(t);
   }, [open]);
 
   const base = safeFilename(projectName, viewLabel);
@@ -40,7 +39,7 @@ export function ExportMenu({ projectId, projectName, viewLabel, payload, nodes, 
     setError(null);
     try {
       await fn();
-      setOpen(false);
+      close();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Export failed");
     }
@@ -66,8 +65,9 @@ export function ExportMenu({ projectId, projectName, viewLabel, payload, nodes, 
   ];
 
   return (
-    <div className="export-menu" ref={ref}>
+    <div className="export-menu">
       <button
+        ref={trigger}
         type="button"
         className="icon-btn"
         aria-haspopup="menu"
@@ -78,23 +78,19 @@ export function ExportMenu({ projectId, projectName, viewLabel, payload, nodes, 
       >
         <Download size={16} strokeWidth={1.5} aria-hidden />
       </button>
-      {open ? (
-        <ul className="export-menu-list" role="menu" aria-label="Export formats">
-          {items.map((it) => (
-            <li key={it.label} role="none">
-              <button type="button" role="menuitem" disabled={it.disabled} onClick={() => void run(it.run)}>
-                <span>{it.label}</span>
-                <span className="muted mono">{it.hint}</span>
-              </button>
-            </li>
-          ))}
-          {error ? (
-            <li role="alert" className="form-error pad">
-              {error}
-            </li>
-          ) : null}
-        </ul>
-      ) : null}
+      <Popover open={open} onClose={close} anchorRef={trigger} placement="bottom-end" role="menu" label="Export formats" className="export-menu-list" onKeyDown={keys}>
+        {items.map((it) => (
+          <button key={it.label} type="button" role="menuitem" data-pop-item className="popover-item" disabled={it.disabled} onClick={() => void run(it.run)}>
+            <span>{it.label}</span>
+            <span className="muted mono popover-hint">{it.hint}</span>
+          </button>
+        ))}
+        {error ? (
+          <p role="alert" className="form-error pad">
+            {error}
+          </p>
+        ) : null}
+      </Popover>
     </div>
   );
 }

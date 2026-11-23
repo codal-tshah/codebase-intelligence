@@ -7,6 +7,58 @@ export type Project = {
   git_url?: string;
 };
 
+/** `/projects/overview`: a project with index stats and freshness, for the project list. */
+export type ProjectOverview = Project & {
+  indexed_at?: string | null;
+  indexed_commit?: string | null;
+  head_commit?: string | null;
+  /** git HEAD moved since the last index (e.g. after `git pull`). */
+  stale: boolean;
+  source_missing: boolean;
+  files?: number | null;
+  stats: { files?: number; nodes?: number; edges?: number; endpoints?: number; models?: number };
+  managed_clone: boolean;
+  indexing: boolean;
+  updated_at?: string;
+  created_at?: string;
+};
+
+export type RemovalPlan = {
+  project: { id: string; name: string; root_path: string };
+  delete: string[];
+  index_data: string;
+  managed_clone: string | null;
+  source_untouched: string | null;
+  indexing: boolean;
+};
+
+export type ProjectSettings = { ignore: string[]; auto_refresh: boolean; repo_ciignore: string | null };
+
+export type SavedView = { id: string; name: string; state: Record<string, string>; created_at: string };
+
+export type AuditEntry = {
+  ts: string;
+  action: string;
+  project_id: string | null;
+  project_name: string | null;
+  actor: string;
+  outcome: string;
+  detail: Record<string, unknown>;
+};
+
+export type ServerStatus = {
+  status: string;
+  version: string;
+  mode: "local" | "server";
+  auth_required: boolean;
+  llm_enabled: boolean;
+  github_token_configured: boolean;
+  project_count: number;
+  active_jobs: (Job & { project_id: string; project_name: string; progress?: number })[];
+  analyzers: { id: string; name: string; version: string; extensions: string[] }[];
+  data_dir?: string;
+};
+
 export type Layer = { id: string; name: string; description: string; color: string; count?: number };
 
 export type GraphNode = {
@@ -41,7 +93,23 @@ export type GraphPayload = {
     truncation_reason?: string | null;
     node_count?: number;
     edge_count?: number;
-    explore?: { expanded: string[]; project_id?: string };
+    /** API flow focused on an endpoint: lay nodes out in these pipeline columns. */
+    layout?: "columns";
+    columns?: { id: string; label: string }[];
+    endpoint_count?: number;
+    focused?: boolean;
+    explore?: {
+      expanded: string[];
+      project_id?: string;
+      /** Deepest level of the package/module/symbol tree (top-level packages are level 1). */
+      max_depth?: number;
+      /** Absolute level of each expanded node (for "collapse to level N"). */
+      expanded_depths?: Record<string, number>;
+      requested_level?: number;
+      level_reached?: number;
+      /** A whole level did not fit in the node budget; only the busiest nodes were opened. */
+      level_capped?: boolean;
+    };
   };
 };
 
@@ -158,7 +226,15 @@ export type Freshness = {
   indexed_at?: string;
 };
 
-export type Job = { id: string; status: "pending" | "running" | "completed" | "failed"; message: string; error?: string };
+export type Job = {
+  id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  message: string;
+  error?: string;
+  progress?: number;
+  created_at?: string;
+  updated_at?: string;
+};
 
 export type ViewInfo = {
   id: string;

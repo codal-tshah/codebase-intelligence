@@ -60,3 +60,23 @@ Effort: S < ½ day, M ≈ 1–2 days, L > 2 days. Status reflects this pass; how
 | 31 | Prettier enforced across the frontend | Formatting consistency | Prompt | S (deferred to avoid a repo-wide reformat diff; see DECISIONS) |
 | 32 | Virtualised Inspector lists for 1k+ children | Very large packages | Perf | S |
 | 33 | Real-LLM agent smoke test | Only the fake LiteLLM is tested | Audit | S (needs a provider key) |
+
+## FR-3 status (2026-11-16)
+
+Done in FR-3: selection trace (direction, multi-hop), shared popover, depth levels 1…N/All, API flow pipeline, project remove/rename/settings/saved views, audit log, status page, git-pull refresh (hooks plus auto-refresh), gzip, router split, analyzer fixes from real-repo validation (see CHANGELOG).
+
+Remaining backlog:
+- **P0:** none known.
+- **P1:**
+  - Honour `.gitignore` during discovery (today: built-in skip list, `.ciignore` and per-project patterns only).
+  - Cross-group edges in Explore are curves; only sibling edges get ELK orthogonal routes.
+  - FK resolution is about 91% on the reference repo (`ForeignKey(Model.id)` and non-literal targets are missed).
+  - External services are linked at module level (import), not per function.
+  - Per-user roles (admin vs read-only) in server mode.
+  - Audit log rotation.
+- **P2:**
+  - Watch mode without git (file-system events).
+  - Saved views are per instance, not per user.
+  - SSO/OIDC in front of server mode.
+  - Signed exports.
+

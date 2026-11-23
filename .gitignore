@@ -32,3 +32,5 @@ docs/ui-review/after/*
 !docs/ui-review/after/ingest.png
 !docs/ui-review/after/server-mode-api-key.png
 !docs/ui-review/after/tab-improve.png
+# FR-3 review shots of a private reference repo (pva-*): local review only, never committed
+docs/ui-review/fr3/**/pva-*

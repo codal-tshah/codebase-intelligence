@@ -1,8 +1,9 @@
 import { Search } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { getJson } from "../api";
 import { NodeIcon } from "../icons";
 import type { SearchHit } from "../types";
+import { Popover } from "./Popover";
 
 type Props = {
   projectId: string;
@@ -21,6 +22,9 @@ export function NodeSearch({ projectId, placeholder, onPick, types, clearOnPick 
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const box = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const listId = useId();
+  const close = useCallback(() => setOpen(false), []);
 
   useEffect(() => {
     const q = query.trim();
@@ -41,14 +45,6 @@ export function NodeSearch({ projectId, placeholder, onPick, types, clearOnPick 
     return () => clearTimeout(handle);
   }, [query, projectId, types]);
 
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as globalThis.Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, []);
-
   const pick = (hit: SearchHit) => {
     onPick(hit);
     setOpen(false);
@@ -59,7 +55,13 @@ export function NodeSearch({ projectId, placeholder, onPick, types, clearOnPick 
     <div className="node-search" ref={box}>
       <Search className="search-icon" size={14} strokeWidth={1.5} aria-hidden />
       <input
+        ref={input}
         id={inputId}
+        role="combobox"
+        aria-expanded={open && hits.length > 0}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={open && hits[active] ? `${listId}-${active}` : undefined}
         value={query}
         placeholder={placeholder ?? "Search symbols, routes, files…"}
         onChange={(e) => {
@@ -83,14 +85,18 @@ export function NodeSearch({ projectId, placeholder, onPick, types, clearOnPick 
           }
         }}
       />
-      {open && hits.length > 0 ? (
-        <ul className="search-results">
+      <Popover open={open && hits.length > 0} onClose={close} anchorRef={box} matchWidth role="listbox" id={listId} label="Search results" className="search-results">
           {hits.map((h, i) => (
-            <li key={h.id}>
               <button
+                key={h.id}
+                id={`${listId}-${i}`}
                 type="button"
-                className={i === active ? "active" : ""}
+                role="option"
+                tabIndex={-1}
+                aria-selected={i === active}
+                className={`popover-item ${i === active ? "active" : ""}`}
                 onMouseEnter={() => setActive(i)}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => pick(h)}
               >
                 <span className="search-hit-glyph"><NodeIcon type={h.node_type} /></span>
@@ -102,10 +108,8 @@ export function NodeSearch({ projectId, placeholder, onPick, types, clearOnPick 
                   </span>
                 </span>
               </button>
-            </li>
           ))}
-        </ul>
-      ) : null}
+      </Popover>
     </div>
   );
 }

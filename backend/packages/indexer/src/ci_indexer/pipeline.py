@@ -46,6 +46,20 @@ def _try_process_lock(project_id: str):
     return fh
 
 
+def index_in_progress(project_id: str) -> bool:
+    """True while any process (API, CLI, git hook) is indexing this project. Used to refuse
+    deleting a project mid-index."""
+    lock = _index_lock(project_id)
+    if lock.locked():
+        return True
+    fh = _try_process_lock(project_id)
+    if fh is False:
+        return True
+    if fh is not None:
+        fh.close()
+    return False
+
+
 class IndexPipeline:
     """Analyse -> classify changes -> rewrite graph -> refresh embeddings for touched files.
 
@@ -169,7 +183,7 @@ def create_project_from_path(
     previous = store.get_project()
     record = ProjectRecord(
         id=project_id,
-        name=path.name,
+        name=previous.name if previous and previous.name else path.name,  # keep a rename across re-index
         root_path=str(path),
         git_url=git_url or (previous.git_url if previous else None),
         commit_sha=previous.commit_sha if previous else None,
