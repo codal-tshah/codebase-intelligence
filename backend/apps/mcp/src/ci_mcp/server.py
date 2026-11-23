@@ -79,15 +79,25 @@ def build_server(default_project: str | None = None, *, auto_index: bool = True)
     def list_projects() -> dict:
         return {"projects": [p.model_dump(mode="json") for p in load_registry()]}
 
-    @server.tool(description="Index (or incrementally re-index) a local repository path. Returns the project id.")
+    @server.tool(
+        description="Index (or incrementally re-index) a local repository path or a https://github.com/owner/repo URL "
+        "(cloned; private repos need CI_GITHUB_TOKEN on this machine). Returns the project id."
+    )
     def index_project(path: str, full: bool = False) -> dict:
-        from ci_indexer import create_project_from_path, run_index_job
+        from ci_indexer import create_project_from_git, create_project_from_path, run_index_job
 
         from ci_core.settings import get_settings
+        from ci_parsers import parse_github_url
 
-        if not get_settings().path_allowed(Path(path)):
-            raise ValueError(f"{path} is outside CI_PROJECT_ROOTS")
-        record = create_project_from_path(Path(path).expanduser())
+        settings = get_settings()
+        if parse_github_url(path) is not None:
+            if settings.mode == "server":
+                raise ValueError("GitHub URL ingest is disabled in server mode; clone under CI_PROJECT_ROOTS and pass the path")
+            record = create_project_from_git(path)
+        else:
+            if not settings.path_allowed(Path(path)):
+                raise ValueError(f"{path} is outside CI_PROJECT_ROOTS")
+            record = create_project_from_path(Path(path).expanduser())
         job = run_index_job(record.id, incremental=not full)
         resolver._tools.pop(record.id, None)
         return {"project_id": record.id, "name": record.name, "status": job.status.value, "message": job.message, "error": job.error}

@@ -36,6 +36,11 @@ export const VIEW_META: Record<string, { label: string; description: string; ico
     description: "External services and who uses them",
     icon: "",
   },
+  jobs: {
+    label: "Jobs",
+    description: "Background tasks, schedules and commands, with the data they write",
+    icon: "",
+  },
   components: {
     label: "Components",
     description: "UI component tree and the API endpoints it calls",
@@ -67,6 +72,8 @@ export const DEFAULT_LAYERS: Layer[] = Object.entries(LAYER_COLORS).map(([id, co
 }));
 
 export const NEUTRAL = "#8A867C";
+/** Queue / background-job tint (rose), applied to nodes the analyzers mark as jobs. */
+export const JOB_COLOR = "#9A5466";
 export const ACCENT = "#1F5C56";
 /** Explore: dependency edges toward selection vs away (muted, paper-safe). */
 export const EXPLORE_UPSTREAM = "#6F7A45";
@@ -111,4 +118,9 @@ export function layerColor(layers: Layer[], id?: string | null): string {
 export function layerName(layers: Layer[], id?: string | null): string | null {
   if (!id) return null;
   return layers.find((l) => l.id === id)?.name ?? id;
+}
+
+/** Semantic zoom level. far: names only (legible when zoomed out) · mid: no helper text · near: full cards. */
+export function zoomBucket(zoom: number): "far" | "mid" | "near" {
+  return zoom < 0.5 ? "far" : zoom < 0.9 ? "mid" : "near";
 }

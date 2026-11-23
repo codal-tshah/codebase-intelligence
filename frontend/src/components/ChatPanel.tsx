@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { API } from "../api";
+import { apiFetch } from "../api";
 import { NodeIcon } from "../icons";
 import { createSseParser } from "../sse";
 import type { Citation, ToolStep } from "../types";
@@ -117,7 +117,7 @@ export function ChatPanel({ projectId, focusNodeId, focusNodeName, onHighlightNo
     });
 
     try {
-      const res = await fetch(`${API}/projects/${projectId}/chat`, {
+      const res = await apiFetch(`/projects/${projectId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

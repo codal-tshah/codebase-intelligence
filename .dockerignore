@@ -6,3 +6,7 @@
 frontend/dist
 .git
 .env
+
+**/test-results
+**/playwright-report
+docs/ui-review

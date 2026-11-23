@@ -5,6 +5,7 @@ import {
   Boxes,
   Braces,
   Cloud,
+  Compass,
   Component,
   Database,
   File,
@@ -20,6 +21,7 @@ import {
   Route,
   Settings2,
   Table2,
+  Timer,
   Waypoints,
   type LucideIcon,
   type LucideProps,
@@ -43,6 +45,8 @@ export const NODE_ICON: Record<string, LucideIcon> = {
 };
 
 export const VIEW_ICON: Record<string, LucideIcon> = {
+  explore: Compass,
+  jobs: Timer,
   layers: Layers,
   architecture: Network,
   "api-flow": Route,

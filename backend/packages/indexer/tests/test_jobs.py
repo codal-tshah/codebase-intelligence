@@ -121,3 +121,18 @@ def test_suggestions_flag_duplicates_hubs_and_unused():
     assert "core_helper" in kinds["hotspot"]["title"]
     assert "format_money" in kinds["duplication"]["title"]
     assert [n["name"] for n in kinds["unused"]["nodes"]] == ["orphan_util"]
+
+
+def test_suggestions_are_balanced_across_kinds():
+    from ci_core.suggestions import _balanced
+
+    hot = [{"kind": "hotspot", "severity": "high", "title": f"h{i}", "detail": "", "nodes": []} for i in range(50)]
+    other = [
+        {"kind": "duplication", "severity": "low", "title": "d", "detail": "", "nodes": []},
+        {"kind": "cycle", "severity": "medium", "title": "c", "detail": "", "nodes": []},
+    ]
+    out = _balanced(hot + other, 10)
+    kinds = [s["kind"] for s in out]
+    assert len(out) == 10 and "duplication" in kinds and "cycle" in kinds
+    assert kinds[0] == "hotspot" and kinds[-1] == "duplication"  # still ranked by severity
+    assert _balanced(hot, 5) == sorted(hot, key=lambda s: s["title"])[:5]

@@ -45,7 +45,7 @@ export function exploreReducer(state: ExploreState, action: ExploreAction): Expl
     case "toggle": {
       const has = state.expanded.includes(action.id);
       const nextExp = has ? state.expanded.filter((x) => x !== action.id) : [...state.expanded, action.id];
-      let childOffsets = { ...state.childOffsets };
+      const childOffsets = { ...state.childOffsets };
       if (has) {
         delete childOffsets[action.id];
       }

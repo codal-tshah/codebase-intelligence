@@ -1,5 +1,5 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Timer } from "lucide-react";
 import { type KeyboardEvent, memo, useRef } from "react";
 import type { ArchNodeData } from "../flow";
 import { NodeIcon } from "../icons";
@@ -29,7 +29,57 @@ function ArchNodeBase({ data, selected }: NodeProps<Node<ArchNodeData>>) {
     }
   };
 
-  const body = (
+  const chevron = expandable ? (
+    <button
+      ref={chevronRef}
+      type="button"
+      className="arch-chevron"
+      aria-label={`${expanded ? "Collapse" : "Expand"} ${data.label}`}
+      aria-expanded={expanded}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        data.onExploreChevronClick?.();
+      }}
+    >
+      {expanded ? <ChevronDown size={16} strokeWidth={1.5} aria-hidden /> : <ChevronRight size={16} strokeWidth={1.5} aria-hidden />}
+    </button>
+  ) : null;
+
+  // Expanded Explore group: one compact title row; its children are laid out below it.
+  const groupHeader = (
+    <div className="arch-group-head">
+      <NodeIcon type={data.nodeType} size={14} />
+      <span className="arch-group-name" title={data.path ?? data.label}>
+        {data.label}
+      </span>
+      <span className="arch-group-meta">
+        {data.nodeType}
+        {data.exploreChildCount !== undefined ? ` · ${data.exploreChildCount} ${data.exploreChildCount === 1 ? "child" : "children"}` : ""}
+      </span>
+      {chevron}
+    </div>
+  );
+
+  const body = exploreGroup ? (
+    <>
+      {groupHeader}
+      {Number(data.truncatedChildren ?? 0) > 0 ? (
+        <button
+          type="button"
+          className="arch-more-chip arch-more-chip--group"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            data.onExploreLoadMore?.();
+          }}
+        >
+          +{data.truncatedChildren} more
+        </button>
+      ) : null}
+      {data.exploreLoading ? <span className="arch-loading-dot" aria-busy title="Loading" /> : null}
+    </>
+  ) : (
     <>
       <div className="arch-node-top">
         <span className="arch-node-type">
@@ -43,22 +93,7 @@ function ArchNodeBase({ data, selected }: NodeProps<Node<ArchNodeData>>) {
               {data.fanIn} in
             </span>
           ) : null}
-          {expandable ? (
-            <button
-              ref={chevronRef}
-              type="button"
-              className="arch-chevron"
-              aria-label={expanded ? "Collapse" : "Expand"}
-              aria-expanded={expanded}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                data.onExploreChevronClick?.();
-              }}
-            >
-              {expanded ? <ChevronDown size={16} strokeWidth={1.5} aria-hidden /> : <ChevronRight size={16} strokeWidth={1.5} aria-hidden />}
-            </button>
-          ) : null}
+          {chevron}
         </span>
       </div>
       <div className="arch-node-name" title={data.label}>
@@ -66,18 +101,13 @@ function ArchNodeBase({ data, selected }: NodeProps<Node<ArchNodeData>>) {
       </div>
       {data.job ? (
         <div className="arch-node-job" title={data.job.framework}>
-          ⏱ {data.job.schedule || data.job.command || data.job.kind}
+          <Timer size={11} strokeWidth={1.5} aria-hidden /> {data.job.schedule || data.job.command || data.job.kind}
         </div>
       ) : null}
       {data.helper ? <div className="arch-node-helper">{data.helper.replace(/`/g, "")}</div> : null}
-      {exploreGroup && data.exploreChildCount !== undefined ? (
-        <div className="arch-node-explore-meta muted">
-          {data.exploreChildCount} {data.exploreChildCount === 1 ? "child" : "children"}
-        </div>
-      ) : null}
       {data.memberCount !== undefined ? (
         <div className="arch-node-path">{data.memberCount} members</div>
-      ) : data.path && !exploreGroup ? (
+      ) : data.path ? (
         <div className="arch-node-path" title={data.path}>
           {data.path}
         </div>
@@ -108,12 +138,13 @@ function ArchNodeBase({ data, selected }: NodeProps<Node<ArchNodeData>>) {
       ) : null}
       {data.exploreLoading ? <span className="arch-loading-dot" aria-busy title="Loading" /> : null}
       {data.badge && !expandable ? <span className="arch-badge">{data.badge}</span> : null}
+      {data.inferred ? <span className="arch-inferred">inferred</span> : null}
     </>
   );
 
   return (
     <div
-      className={`arch-node arch-node--${data.state}${exploreGroup ? " arch-node--explore-group" : ""}`}
+      className={`arch-node arch-node--${data.state}${exploreGroup ? " arch-node--explore-group" : ""}${data.inferred ? " arch-node--inferred" : ""}`}
       style={{ ["--layer" as string]: data.color, ...(ring ? { ["--ring" as string]: ring } : {}) }}
       title={data.summary ?? undefined}
       tabIndex={selected && expandable ? 0 : -1}

@@ -55,10 +55,10 @@ The nu demo's form wasn't submitted, so its post-ingest screens are known from t
 | References / context packing | ❌ | ❌ | ✅ | ✅ `find_references`, `build_context` | `ci_ai.tools`, MCP |
 | Keep index fresh | nightly wipe | ✅ hook | ✅ watcher | ✅ `ci hook install` + dashboard banner | CLI, `FreshnessBanner` |
 | Output viewable without a server | ❌ | ✅ JSON + viewer | ❌ | ⚠️ Mermaid via `ci docs`, JSON via `ci export` | `ci_core.docgen` |
-| Image export | ❌ | ✅ | ❌ | ❌ | – |
+| Image export | ❌ | ✅ | ❌ | ✅ SVG, PNG, Mermaid, Markdown per view (client-side) | `frontend/src/export` |
 | Language breadth | any text | 26+ file types | 9 languages | ⚠️ Python, TypeScript (plugin API) | `analyzers` entry points |
 | Optimization suggestions | ❌ | ❌ | ❌ | ✅ unique | `ci_core.suggestions` |
-| Shared-server auth | ❌ | ❌ | ❌ | ⚠️ API key; the dashboard doesn't send it | `ci_api` |
+| Shared-server auth | ❌ | ❌ | ❌ | ✅ API key, dashboard prompts per tab (SSO via proxy: roadmap) | `ci_api`, `ApiKeyPrompt.tsx` |
 
 ## Positioning
 
@@ -81,7 +81,7 @@ It's static and reproducible, and works without an LLM. The same graph is availa
 | Adopt | Committable graph + static viewer (UA) | Reviewers and clients can see it without a server | **Next sprint**: `ci export --html` |
 | Defer | Domain / business-flow view (UA) | Needs an LLM pass to be good | P2 |
 | Defer | Real embeddings / hybrid search (CIS, nu) | The schema is ready; pick a local model | P2 |
-| Defer | PNG/SVG export (UA) | Mermaid docs cover most sharing | P2 |
+| Adopt | PNG/SVG export (UA) | Sharing in decks and tickets | **Done 2026-11-14**: per-view export menu |
 | Defer | Go/Java analyzers (CIS) | Wait for a client project that needs them | P2 |
 | Skip | Token typed in the browser (nu) | A server-env token is safer for shared hosts | – |
 | Skip | Speculative edits, branches, merges (CIS) | Not our problem | – |
@@ -95,8 +95,8 @@ It's static and reproducible, and works without an LLM. The same graph is availa
 | P0 | Publish the plugin marketplace (repo access, versioning, author and icon) | Teams can't install without cloning by hand | `.claude-plugin/`, `integrations/` |
 | P0 | Validate on `codal/internal-bi-llm` and `codal/accis-be` | Not yet proven on real client code | needs `CI_GITHUB_TOKEN` |
 | P1 | `ci export --html`: single-file read-only viewer | Share a graph in a PR or client handover without a server | `ci_cli`, frontend build flag reading embedded JSON |
-| P1 | Suggestions panel in the dashboard | Leads exist in the API and CLI but not where reviewers look | `App.tsx`, `/suggestions` |
-| P1 | Dashboard auth in server mode | The shared server is unusable from the UI | `frontend/src/api.ts`, `ci_api` |
+| ~~P1~~ | Suggestions panel in the dashboard | **Done 2026-11-14**: *Improve* tab | `SuggestionsPanel.tsx` |
+| ~~P1~~ | Dashboard auth in server mode | **Done 2026-11-14**: API-key prompt | `api.ts`, `ApiKeyPrompt.tsx` |
 | P2 | Domain view via an LLM pass over endpoints and jobs | Business-level map for PMs and clients | new view + `ci_ai` |
 | P2 | Real embedding model, hybrid search | Better recall for vague questions | `ci_ai` chunks |
 | P2 | Go / Java analyzers | Client stacks beyond Python/TS | new analyzer packages |
