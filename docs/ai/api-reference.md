@@ -51,13 +51,13 @@ Errors: `{"detail": <string|list>, "request_id": "<id>"}`; header `X-Request-ID`
 | GET | `/projects/{ref}/models` | Model catalog |
 | GET | `/projects/{ref}/background-jobs` | Jobs view data |
 | GET | `/projects/{ref}/suggestions` | Improvement suggestions |
-| GET | `/projects/{ref}/graph/neighborhood` | Local subgraph |
+| GET | `/projects/{ref}/graph/neighborhood` | Local subgraph; lifted `edges[]` include `extractor` and `evidence` |
 | GET | `/projects/{ref}/graph/edges` | Explore underlying edges (`expanded`, `extra_child_offsets`, `include_tests` — same as explore canvas); each edge may include `evidence` |
 | GET | `/projects/{ref}/graph/{view}` | View payload (explore: `expanded`, `extra_child_offsets`, `expand_to_level`, `level_root`; tests: `include_tests=true` → keep test-layer nodes; default omits them on integrations / call-graph / architecture / explore) |
 | GET | `/projects/{ref}/export` | Full graph JSON download (edges include computed `evidence`) |
 | GET | `/projects/{ref}/tour` | Guided tour steps |
 | GET | `/projects/{ref}/search` | Node search |
-| GET | `/projects/{ref}/path` | Shortest path (`source`, `target`, `max_hops`) |
+| GET | `/projects/{ref}/path` | Shortest path (`source`, `target`, `max_hops`); `edges[]` include `confidence`, `extractor`, and `evidence` |
 | POST | `/projects/{ref}/impact` | Impact analysis (body: `ImpactBody`) |
 | GET | `/projects/{ref}/nodes/{node_id}` | Node detail + edges (each edge includes optional `evidence`; `node.evidence`; `properties.http_calls[]` entries may include `evidence`) |
 | GET | `/projects/{ref}/source` | Source snippet (`path`, `start`, `end`) |
@@ -97,7 +97,7 @@ Global: `--project` / `-p`, `--json`. Verify flags: `uv run ci <cmd> --help`.
 
 From `ci_mcp.server.build_server` (wrap `toolspec` unless noted):
 
-`list_projects`, `index_project`, `index_status`, `project_overview`, `search_nodes`, `get_node` (edges include `confidence`, `extractor`, source line, and `evidence`), `list_endpoints`, `trace_endpoint` (chain hops after the endpoint include `evidence` on traversed edges), `get_callers`, `get_callees`, `impact_analysis`, `impact_of_working_tree`, `find_path`, `list_models`, `build_context` (optional `token_budget`: caps source snippet **characters** ≈ `4 × token_budget` across primary + `related_source`; echoes `snippet_chars_used` / `snippet_char_budget`; `missing_evidence` lists truncation, omission, and absent source; nested `node` from `get_node`), `find_references` (each reference includes `evidence`), `list_jobs`, `suggest_optimizations`, `generate_docs`, `read_source`, `search_code`.
+`list_projects`, `index_project`, `index_status`, `project_overview`, `search_nodes`, `get_node` (edges include `confidence`, `extractor`, source line, and `evidence`), `list_endpoints`, `trace_endpoint` (chain hops after the endpoint include `evidence` on traversed edges), `get_callers`, `get_callees`, `impact_analysis`, `impact_of_working_tree`, `find_path`, `list_models`, `build_context` (optional `token_budget`: caps source snippet **characters** ≈ `4 × token_budget` across primary + `related_source`; echoes `snippet_chars_used` / `snippet_char_budget`; `missing_evidence` lists truncation, omission, and absent source; nested `node` from `get_node`; `callers` / `callees` / `models` include per-hop `evidence`), `find_references` (each reference includes `evidence`), `list_jobs`, `suggest_optimizations`, `generate_docs`, `read_source`, `search_code`.
 
 ## Verify
 

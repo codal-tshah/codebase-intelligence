@@ -142,7 +142,7 @@ export type NeighborhoodPayload = {
   depth: number;
   reachable_count: number;
   reachable_ids?: string[];
-  edges: GraphEdge[];
+  edges: (GraphEdge & { extractor?: string })[];
   neighbors_in: string[];
   neighbors_out: string[];
   center: { id: string; name: string; node_type: string; source_path?: string | null; layer?: string | null };
@@ -236,7 +236,17 @@ export type PathResult = {
   found: boolean;
   reason?: string;
   node_ids: string[];
-  edges: { id: string; source: string; target: string; edge_type: string }[];
+  edges: {
+    id: string;
+    source: string;
+    target: string;
+    edge_type: string;
+    confidence?: number;
+    extractor?: string;
+    source_path?: string | null;
+    start_line?: number | null;
+    evidence?: EvidenceInfo;
+  }[];
   nodes: NeighborInfo[];
 };
 

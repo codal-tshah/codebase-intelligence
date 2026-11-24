@@ -44,7 +44,9 @@ Verify per-extractor in adapter code before documenting new keys.
 
 Rules use `edge_type`, `extractor`, edge/node `properties` (`import_kind`, `match_variant`, `inferred`, …), and conservative confidence bands — never tier from a lone float. Indexes without `match_variant` still classify HTTP via legacy linker heuristics. Unresolved calls stay on the source node as `http_calls[]` with `match_variant: unresolved`; no synthetic `HTTP_CALLS` edge is created.
 
-API graph views, `GET .../nodes/{id}`, MCP `get_node` / `find_references` / `trace_endpoint` chain hops, and `ci export` attach `evidence` at serialization time (no new SQLite columns).
+API graph views, `GET .../nodes/{id}`, `GET .../graph/neighborhood`, `GET .../path`, MCP `get_node` / `find_references` / `trace_endpoint` chain hops / `build_context` callers·callees·models, and `ci export` attach `evidence` at serialization time (no new SQLite columns).
+
+**Limits:** Impact and suggestion payloads still omit per-edge evidence. Canvas dashed styling remains tied to the **0.7** `confidence` threshold, not evidence tier.
 
 ## Stable ids
 

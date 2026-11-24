@@ -73,3 +73,14 @@ def test_build_context_missing_evidence_list(indexed_fullstack):
 def test_build_context_unknown_symbol_returns_error(indexed_fullstack):
     tools = GraphTools(indexed_fullstack)
     assert "error" in tools.build_context("00000000000000000000000000000000")
+
+
+def test_build_context_callers_and_models_include_edge_evidence(indexed_fullstack):
+    tools = GraphTools(indexed_fullstack)
+    ctx = tools.build_context("get_item", max_snippets=0)
+    assert ctx["models"]
+    assert ctx["models"][0]["evidence"]["tier"]
+    assert ctx["models"][0]["extractor"]
+    http_callers = [c for c in ctx["callers"] if c.get("relation") == "HTTP_CALLS"]
+    if http_callers:
+        assert http_callers[0]["evidence"]["reason_code"]

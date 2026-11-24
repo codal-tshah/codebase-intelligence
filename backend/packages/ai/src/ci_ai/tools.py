@@ -17,7 +17,7 @@ from ci_core.insights import (
     list_endpoints,
     search_nodes,
 )
-from ci_core.models import EdgeType, NodeRecord, NodeType
+from ci_core.models import EdgeRecord, EdgeType, NodeRecord, NodeType
 from ci_core.serializers import tool_node_brief
 from ci_core.source import resolve_source_path
 from ci_security import sanitize_for_llm
@@ -160,22 +160,36 @@ class GraphTools:
 
         out_edges = [e for e in self.index.outgoing.get(node.id, []) if e.edge_type != EdgeType.CONTAINS]
         in_edges = [e for e in self.index.incoming.get(node.id, []) if e.edge_type != EdgeType.CONTAINS]
-        callees = [
-            self.index.nodes[e.target_id]
-            for e in out_edges
-            if e.edge_type in (EdgeType.CALLS, EdgeType.INJECTS, EdgeType.ROUTES_TO)
-        ]
-        callers = [
-            self.index.nodes[e.source_id]
-            for e in in_edges
-            if e.edge_type in (EdgeType.CALLS, EdgeType.HTTP_CALLS, EdgeType.RENDERS)
-        ]
+
+        def relation_hop(other: NodeRecord, edge: EdgeRecord) -> dict[str, Any]:
+            return {
+                **_brief(other),
+                "relation": edge.edge_type.value,
+                "confidence": edge.confidence,
+                "extractor": edge.extractor,
+                "line": edge.properties.get("line") or edge.start_line or other.start_line,
+                "evidence": classify_edge(edge),
+            }
+
+        caller_edges = [e for e in in_edges if e.edge_type in (EdgeType.CALLS, EdgeType.HTTP_CALLS, EdgeType.RENDERS)]
+        callee_edges = [e for e in out_edges if e.edge_type in (EdgeType.CALLS, EdgeType.INJECTS, EdgeType.ROUTES_TO)]
+        callers = [relation_hop(self.index.nodes[e.source_id], e) for e in caller_edges]
+        callees = [relation_hop(self.index.nodes[e.target_id], e) for e in callee_edges]
         models = [
-            {"name": self.index.nodes[e.target_id].name, "access": e.edge_type.value}
+            {
+                "name": self.index.nodes[e.target_id].name,
+                "access": e.edge_type.value,
+                "confidence": e.confidence,
+                "extractor": e.extractor,
+                "evidence": classify_edge(e),
+            }
             for e in out_edges
             if e.edge_type in (EdgeType.READS_MODEL, EdgeType.WRITES_MODEL, EdgeType.QUERIES)
         ]
-        related = [n for n in {n.id: n for n in [*callees, *callers]}.values() if n.id != node.id]
+        related_nodes = [self.index.nodes[e.source_id] for e in caller_edges] + [
+            self.index.nodes[e.target_id] for e in callee_edges
+        ]
+        related = [n for n in {n.id: n for n in related_nodes}.values() if n.id != node.id]
         snippets = [s for s in (snippet(n) for n in related) if s][: max(0, max_snippets - 1)]
         missing_evidence: list[str] = []
         if not node.source_path:
@@ -233,8 +247,8 @@ class GraphTools:
         context: dict = {
             "node": self.get_node(node.id),
             "source": src,
-            "callers": [_brief(n) for n in callers[:20]],
-            "callees": [_brief(n) for n in callees[:20]],
+            "callers": callers[:20],
+            "callees": callees[:20],
             "models": models[:20],
             "related_source": snippets,
             "missing_evidence": missing_evidence,

@@ -269,6 +269,8 @@ def test_neighborhood_depth() -> None:
     index = GraphIndex.build(nodes, edges)
     nh = neighborhood_subgraph(index, "a", direction="out", depth=2)
     assert "c" in nh["reachable_ids"]
+    assert nh["edges"][0]["evidence"]["reason_code"]
+    assert nh["edges"][0].get("extractor")
 
 
 def test_large_graph_truncation_flag() -> None:

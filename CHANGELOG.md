@@ -2,6 +2,13 @@
 
 All notable changes. Dates are when the work landed on a branch; versions are not tagged yet.
 
+## Unreleased: graph evidence parity (2026-11-24)
+
+### Added
+- **Neighborhood and path APIs:** dependency arcs and shortest-path hops expose `extractor` and `evidence` like other graph responses.
+- **MCP/API `build_context`:** `callers`, `callees`, and `models` entries include per-hop `relation`, `confidence`, `extractor`, and `evidence`.
+- **E2E:** Playwright acceptance test for `api.listItems` HTTP evidence and source in the Inspector.
+
 ## Unreleased: graph evidence (2026-11-24)
 
 ### Added

@@ -129,3 +129,28 @@ def test_node_detail_and_graph_edge_evidence(fs_client):
         f"/projects/{pid}/graph/edges", params={"source": arc["source"], "target": arc["target"]}
     ).json()
     assert under["edges"] and under["edges"][0].get("evidence")
+
+
+def test_neighborhood_and_path_responses_include_edge_evidence(fs_client):
+    pid = fs_client.project_id
+    models = fs_client.get(f"/projects/{pid}/models").json()["models"]
+    item = next(m for m in models if m["name"] == "Item")
+    list_fn = next(
+        n
+        for n in fs_client.get(f"/projects/{pid}/search", params={"q": "list_items"}).json()["results"]
+        if n["name"] == "list_items"
+    )
+    nh = fs_client.get(
+        f"/projects/{pid}/graph/neighborhood",
+        params={"node_id": item["id"], "direction": "in", "depth": 2},
+    ).json()
+    assert nh["edges"]
+    assert nh["edges"][0].get("evidence", {}).get("reason_code")
+    assert nh["edges"][0].get("extractor")
+    path = fs_client.get(
+        f"/projects/{pid}/path",
+        params={"source": list_fn["id"], "target": item["id"]},
+    ).json()
+    if path.get("found"):
+        assert path["edges"][0].get("evidence", {}).get("tier")
+        assert "confidence" in path["edges"][0]

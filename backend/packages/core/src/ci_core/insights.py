@@ -198,17 +198,25 @@ def find_path(index: GraphIndex, source: str, target: str, *, max_hops: int = 12
 
 
 def _rebuild_path(parent: dict[str, tuple[str, EdgeRecord]], source: str, target: str) -> dict[str, Any]:
+    from ci_core.evidence import edge_with_evidence
+
     node_ids = [target]
-    edges: list[dict[str, str]] = []
+    edges: list[dict[str, Any]] = []
     cur = target
     while cur != source:
         prev, edge = parent[cur]
+        ev = edge_with_evidence(edge)
         edges.append(
             {
-                "id": edge.id,
-                "source": edge.source_id,
-                "target": edge.target_id,
-                "edge_type": edge.edge_type.value,
+                "id": ev["id"],
+                "source": ev["source_id"],
+                "target": ev["target_id"],
+                "edge_type": ev["edge_type"],
+                "confidence": ev["confidence"],
+                "extractor": ev["extractor"],
+                "source_path": ev.get("source_path"),
+                "start_line": ev.get("start_line"),
+                "evidence": ev["evidence"],
             }
         )
         node_ids.append(prev)
@@ -721,6 +729,8 @@ def neighborhood_subgraph(
         if s0 != s or t0 != t:
             lift_mismatch[key] = True
 
+    from ci_core.evidence import classify_edge
+
     center = index.nodes[node_id]
     edge_payload: list[dict[str, Any]] = []
     for key, by_t in weights.items():
@@ -729,19 +739,32 @@ def neighborhood_subgraph(
         dom = max(by_t, key=lambda k: by_t[k])
         min_c = min(conf[key]) if conf[key] else 1.0
         uc = raw_counts[key]
+        agg_props = {
+            "weight": total,
+            "by_type": dict(by_t),
+            "underlying_edge_count": uc,
+            "aggregated": uc > 1 or lift_mismatch[key],
+        }
+        stub = EdgeRecord(
+            id=f"nh:{a}:{b}:{dom}",
+            project_id=center.project_id,
+            edge_type=EdgeType(dom),
+            source_id=a,
+            target_id=b,
+            extractor="neighborhood.view",
+            confidence=min_c,
+            properties=agg_props,
+        )
         edge_payload.append(
             {
-                "id": f"nh:{a}:{b}:{dom}",
+                "id": stub.id,
                 "source": a,
                 "target": b,
                 "edge_type": dom,
                 "confidence": min_c,
-                "properties": {
-                    "weight": total,
-                    "by_type": dict(by_t),
-                    "underlying_edge_count": uc,
-                    "aggregated": uc > 1 or lift_mismatch[key],
-                },
+                "extractor": stub.extractor,
+                "properties": agg_props,
+                "evidence": classify_edge(stub, aggregated=bool(agg_props["aggregated"])),
             }
         )
 
