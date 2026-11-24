@@ -74,6 +74,12 @@ export type GraphNode = {
   properties?: Record<string, unknown>;
 };
 
+export type EvidenceInfo = {
+  tier: string;
+  reason_code: string;
+  reason: string;
+};
+
 export type GraphEdge = {
   id: string;
   source: string;
@@ -81,6 +87,7 @@ export type GraphEdge = {
   edge_type: string;
   confidence?: number;
   properties?: Record<string, unknown>;
+  evidence?: EvidenceInfo;
 };
 
 export type GraphPayload = {
@@ -123,7 +130,9 @@ export type UnderlyingEdgesPayload = {
     source_id: string;
     target_id: string;
     confidence?: number;
+    extractor?: string;
     properties?: Record<string, unknown>;
+    evidence?: EvidenceInfo;
   }[];
 };
 
@@ -158,6 +167,8 @@ export type NodeDetail = {
     end_line?: number | null;
     qualified_name?: string | null;
     confidence?: number;
+    extractor?: string;
+    evidence?: EvidenceInfo;
     properties: Record<string, unknown>;
   };
   edges: {
@@ -166,7 +177,11 @@ export type NodeDetail = {
     source_id: string;
     target_id: string;
     confidence?: number;
+    extractor?: string;
+    source_path?: string | null;
+    start_line?: number | null;
     properties?: Record<string, unknown>;
+    evidence?: EvidenceInfo;
   }[];
   neighbors: Record<string, NeighborInfo>;
 };
@@ -305,4 +320,6 @@ export type HttpCallInfo = {
   endpoint_id?: string;
   endpoint?: string;
   external_host?: string;
+  match_variant?: string;
+  evidence?: EvidenceInfo;
 };

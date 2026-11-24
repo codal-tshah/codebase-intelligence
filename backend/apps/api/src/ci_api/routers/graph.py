@@ -151,12 +151,14 @@ def export_graph(project_ref: str) -> Response:
     """Download the complete knowledge graph (nodes + edges + layers) as JSON."""
     project = require_project(project_ref)
     index = GraphStore(project.id).load_index()
+    from ci_core.evidence import edge_with_evidence
+
     payload = {
         "version": 1,
         "project": project.model_dump(mode="json"),
         "layers": layer_catalog(),
         "nodes": [n.model_dump(mode="json", exclude={"project_id"}) for n in index.nodes.values()],
-        "edges": [e.model_dump(mode="json", exclude={"project_id"}) for e in index.edges],
+        "edges": [edge_with_evidence(e) for e in index.edges],
     }
     return Response(
         content=json.dumps(payload),
@@ -245,9 +247,20 @@ def get_node(project_ref: str, node_id: str) -> dict:
                 "source_path": other.source_path,
                 "layer": other.properties.get("layer"),
             }
+    from ci_core.evidence import classify_http_call_record, classify_node, edge_with_evidence
+
+    node_dump = node.model_dump(mode="json")
+    props = dict(node_dump.get("properties") or {})
+    raw_calls = props.get("http_calls") or []
+    if isinstance(raw_calls, list):
+        props["http_calls"] = [
+            {**c, "evidence": classify_http_call_record(c)} if isinstance(c, dict) else c for c in raw_calls
+        ]
+    node_dump["properties"] = props
+    node_dump["evidence"] = classify_node(node)
     return {
-        "node": node.model_dump(mode="json"),
-        "edges": [e.model_dump(mode="json") for e in edges],
+        "node": node_dump,
+        "edges": [edge_with_evidence(e) for e in edges],
         "neighbors": neighbours,
     }
 

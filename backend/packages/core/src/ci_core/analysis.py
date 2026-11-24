@@ -142,7 +142,7 @@ def _common_dirs(a: str | None, b: str | None) -> int:
 
 def match_endpoint(
     url: str, method: str | None, endpoints: Sequence[NodeRecord], *, near: str | None = None
-) -> tuple[NodeRecord, float] | None:
+) -> tuple[NodeRecord, float, str] | None:
     """Best Endpoint for a request path. A leading prefix segment (``/api`` behind a dev
     proxy) may be dropped from either side, at lower confidence. Ties prefer the endpoint
     sharing the most directories with `near` (the caller's file) — the same service in a monorepo."""
@@ -169,7 +169,8 @@ def match_endpoint(
                 best = cand
     if best is None:
         return None
-    return best[3], best[1]
+    variant = "proxy_prefix" if best[1] < 0.9 else "literal"
+    return best[3], best[1], variant
 
 
 # --------------------------------------------------------------------------- merging
@@ -227,15 +228,21 @@ def link_http_calls(project_id: str, result: AnalysisResult, node_id_fn: Callabl
         target_id: str | None = None
         edge_type = EdgeType.HTTP_CALLS
         confidence = call.confidence
+        match_variant: str | None = None
         if local_host:
             hit = match_endpoint(call.url, call.method, endpoints, near=call.source_path)
             if hit:
-                target_id = hit[0].id
-                confidence = min(call.confidence, hit[1])
+                ep, match_conf, variant = hit
+                target_id = ep.id
+                confidence = min(call.confidence, match_conf)
+                match_variant = variant
                 record["endpoint_id"] = target_id
-                record["endpoint"] = hit[0].name
+                record["endpoint"] = ep.name
+                record["match_variant"] = variant
                 stats["linked"] += 1
             else:
+                match_variant = "unresolved"
+                record["match_variant"] = "unresolved"
                 stats["unresolved"] += 1
         elif host:
             target_id = node_id_fn(project_id, "external", host)
@@ -258,6 +265,8 @@ def link_http_calls(project_id: str, result: AnalysisResult, node_id_fn: Callabl
                 nodes[target_id] = svc
                 result.nodes.append(svc)
             edge_type = EdgeType.DEPENDS_ON
+            match_variant = "external"
+            record["match_variant"] = "external"
             record["external_host"] = host
             stats["external"] += 1
 
@@ -279,7 +288,12 @@ def link_http_calls(project_id: str, result: AnalysisResult, node_id_fn: Callabl
                 start_line=call.line,
                 extractor="http.linker",
                 confidence=confidence,
-                properties={"method": call.method, "url": call.url, "relation": "http"},
+                properties={
+                    "method": call.method,
+                    "url": call.url,
+                    "relation": "http",
+                    **({"match_variant": match_variant} if match_variant else {}),
+                },
             )
         )
     return stats

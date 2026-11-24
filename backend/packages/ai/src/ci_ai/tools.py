@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ci_core.db import GraphStore
+from ci_core.evidence import classify_edge, classify_http_call_record, classify_node
 from ci_core.insights import (
     GraphIndex,
     build_tour,
@@ -79,21 +80,35 @@ class GraphTools:
             *self.index.outgoing.get(node_id, []),
             *self.index.incoming.get(node_id, []),
         ]
+        http_calls = []
+        for call in node.properties.get("http_calls", [])[:10]:
+            if isinstance(call, dict):
+                http_calls.append({**call, "evidence": classify_http_call_record(call)})
+            else:
+                http_calls.append(call)
         return {
             **_brief(node),
             "lines": [node.start_line, node.end_line],
             "complexity": node.properties.get("complexity"),
             "tags": node.properties.get("tags", []),
             "role": node.properties.get("role"),
-            "http_calls": node.properties.get("http_calls", [])[:10],
+            "http_calls": http_calls,
             "methods": node.properties.get("methods"),
             "route": node.properties.get("route"),
+            "confidence": node.confidence,
+            "extractor": node.extractor,
+            "evidence": classify_node(node),
             "edges": [
                 {
                     "type": e.edge_type.value,
                     "source": e.source_id,
                     "target": e.target_id,
                     "other": self.index.nodes[e.target_id if e.source_id == node_id else e.source_id].name,
+                    "confidence": e.confidence,
+                    "extractor": e.extractor,
+                    "source_path": e.source_path,
+                    "start_line": e.start_line,
+                    "evidence": classify_edge(e),
                 }
                 for e in edges
                 if e.edge_type != EdgeType.CONTAINS
@@ -115,7 +130,9 @@ class GraphTools:
                     **_brief(src),
                     "relation": e.edge_type.value,
                     "confidence": e.confidence,
-                    "line": e.properties.get("line") or src.start_line,
+                    "extractor": e.extractor,
+                    "line": e.properties.get("line") or e.start_line or src.start_line,
+                    "evidence": classify_edge(e),
                 }
             )
         refs.sort(key=lambda r: (r["relation"], r.get("path") or "", r.get("line") or 0))
@@ -285,6 +302,9 @@ class GraphTools:
                                 "name": node.name,
                                 "path": node.source_path,
                                 "line": node.start_line,
+                                "confidence": e.confidence,
+                                "extractor": e.extractor,
+                                "evidence": classify_edge(e),
                             }
                         )
                         nxt.append(node.id)
@@ -307,7 +327,7 @@ class GraphTools:
         node = self.index.nodes.get(route)
         if node is None or node.node_type != NodeType.ENDPOINT:
             hit = match_endpoint(route, method, eps)
-            node = hit[0] if hit else None
+            node = hit[0] if hit is not None else None
         if node is None:
             trace = self.trace_endpoint(route)
             return trace

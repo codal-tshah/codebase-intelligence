@@ -1,6 +1,6 @@
 # Data model
 
-*Last verified against code: `backend/packages/core/src/ci_core/models.py`, `db.py`, `insights.py`, `backend/packages/parsers/src/ci_parsers/python_parser.py`.*
+*Last verified against code: `backend/packages/core/src/ci_core/models.py`, `db.py`, `insights.py`, `backend/packages/core/src/ci_core/evidence.py`, `backend/packages/parsers/src/ci_parsers/python_parser.py`.*
 
 ## Node types (`NodeType`)
 
@@ -26,8 +26,25 @@
 | `namespace` | Package for a folder without `__init__.py` (≥2 indexed modules) |
 | `field_count` | On **Model** in the ER view: total fields in the index when the diagram shows ≤12 |
 | `summary`, `tags`, `complexity` | UI / search metadata |
+| `match_variant` | On `http_calls[]` entries and `HTTP_CALLS` / some `DEPENDS_ON` edges from `link_http_calls`: `literal`, `proxy_prefix`, `external`, or `unresolved` |
+| `http_calls[]` | On client nodes: static outbound HTTP metadata (`url`, `method`, `line`, optional `endpoint_id`, `match_variant`) |
+| `aggregated` | Explore roll-up edges (`weight`, `by_type`) |
 
 Verify per-extractor in adapter code before documenting new keys.
+
+## Evidence (read-time, not stored on edges)
+
+`ci_core.evidence.classify_node`, `classify_edge`, and `classify_http_call_record` produce a deterministic `evidence` object:
+
+| Field | Meaning |
+| --- | --- |
+| `tier` | `high`, `medium`, `low`, or `unknown` — qualitative reliability, not a rescaling of `confidence` |
+| `reason_code` | Stable id (e.g. `static_import`, `http_literal_route_match`, `http_proxy_prefix_match`, `unresolved_http`, `aggregated_relationship`) |
+| `reason` | Short human-readable line for UI and agents |
+
+Rules use `edge_type`, `extractor`, edge/node `properties` (`import_kind`, `match_variant`, `inferred`, …), and conservative confidence bands — never tier from a lone float. Indexes without `match_variant` still classify HTTP via legacy linker heuristics. Unresolved calls stay on the source node as `http_calls[]` with `match_variant: unresolved`; no synthetic `HTTP_CALLS` edge is created.
+
+API graph views, `GET .../nodes/{id}`, MCP `get_node` / `find_references` / `trace_endpoint` chain hops, and `ci export` attach `evidence` at serialization time (no new SQLite columns).
 
 ## Stable ids
 

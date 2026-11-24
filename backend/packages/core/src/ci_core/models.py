@@ -132,6 +132,7 @@ class GraphEdgeView(BaseModel):
     edge_type: str
     confidence: float = 1.0
     properties: dict[str, Any] = Field(default_factory=dict)
+    evidence: dict[str, Any] | None = None
 
 
 class GraphViewPayload(BaseModel):

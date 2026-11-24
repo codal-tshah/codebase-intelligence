@@ -3,7 +3,16 @@ import { useMemo, useState } from "react";
 import { EDGE_STYLE, layerColor } from "../graphTheme";
 import { highlightLines, languageOf } from "../highlight";
 import { NodeIcon } from "../icons";
-import type { GraphEdge, HttpCallInfo, Layer, NodeDetail, SourceSnippet, UnderlyingEdgesPayload } from "../types";
+import { evidenceSummary, tierLabel } from "../evidence";
+import type {
+  EvidenceInfo,
+  GraphEdge,
+  HttpCallInfo,
+  Layer,
+  NodeDetail,
+  SourceSnippet,
+  UnderlyingEdgesPayload,
+} from "../types";
 
 type Props = {
   detail: NodeDetail | null;
@@ -116,6 +125,11 @@ function ExploreEdgeCard({
         Confidence {Math.round((edge.confidence ?? 1) * 100)}%{weight > 1 ? ` · weight ${weight}` : ""}
         {props.aggregated ? " · aggregated" : ""}
       </p>
+      {edge.evidence ? (
+        <p className="evidence-line muted" title={edge.evidence.reason_code}>
+          {evidenceSummary(edge.evidence)}
+        </p>
+      ) : null}
       {Object.keys(byType).length > 0 ? (
         <div className="chip-row">
           {Object.entries(byType).map(([t, c]) => (
@@ -142,6 +156,12 @@ function ExploreEdgeCard({
                 <button type="button" className="link-inline" onClick={() => onNavigate(ue.target_id)}>
                   {ue.target_id.slice(0, 10)}…
                 </button>
+                {ue.evidence ? (
+                  <span className="muted evidence-inline" title={ue.evidence.reason_code}>
+                    {" "}
+                    · {tierLabel(ue.evidence.tier)}
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -176,8 +196,11 @@ function NodeCard({
   const confidence = node.confidence ?? 1;
   const isContainer = node.node_type === "Package" || node.node_type === "Project";
 
-  const grouped = new Map<string, { id: string; dir: "out" | "in"; low: boolean }[]>();
-  for (const e of edges as { edge_type: string; source_id: string; target_id: string; confidence?: number }[]) {
+  const grouped = new Map<
+    string,
+    { id: string; dir: "out" | "in"; low: boolean; evidence?: EvidenceInfo; extractor?: string }[]
+  >();
+  for (const e of edges) {
     const out = e.source_id === node.id;
     // Containment: list what this node contains (its parent is already in the breadcrumbs).
     if (e.edge_type === "CONTAINS" && !out) continue;
@@ -185,9 +208,20 @@ function NodeCard({
       e.edge_type === "CONTAINS" ? "Contains" : `${out ? "→" : "←"} ${EDGE_STYLE[e.edge_type]?.label ?? e.edge_type}`;
     const id = out ? e.target_id : e.source_id;
     const list = grouped.get(key) ?? [];
-    if (!list.some((x) => x.id === id)) list.push({ id, dir: out ? "out" : "in", low: (e.confidence ?? 1) < 0.7 });
+    if (!list.some((x) => x.id === id))
+      list.push({
+        id,
+        dir: out ? "out" : "in",
+        low: (e.confidence ?? 1) < 0.7,
+        evidence: e.evidence,
+        extractor: e.extractor,
+      });
     grouped.set(key, list);
   }
+  const unresolvedHttp = httpCalls.filter(
+    (c) => c.match_variant === "unresolved" || (!c.endpoint_id && !c.external_host),
+  );
+  const linkedHttp = httpCalls.filter((c) => !unresolvedHttp.includes(c));
 
   const askAbout =
     node.node_type === "Endpoint"
@@ -222,6 +256,11 @@ function NodeCard({
           ) : null}
         </div>
         <h2>{node.name}</h2>
+        {node.evidence ? (
+          <p className="evidence-line muted" title={node.evidence.reason_code}>
+            {evidenceSummary(node.evidence)}
+          </p>
+        ) : null}
         {summary ? <p className="detail-summary">{summary}</p> : null}
         {node.qualified_name && !sameAsPath(node.qualified_name, node.source_path) ? (
           <p className="mono muted">{node.qualified_name}</p>
@@ -304,14 +343,14 @@ function NodeCard({
         </div>
       </div>
 
-      {httpCalls.length > 0 ? (
+      {linkedHttp.length > 0 ? (
         <div className="relations">
           <details open>
             <summary>
-              HTTP requests <span className="muted">{httpCalls.length}</span>
+              HTTP requests <span className="muted">{linkedHttp.length}</span>
             </summary>
             <ul>
-              {httpCalls.map((c, i) => (
+              {linkedHttp.map((c, i) => (
                 <li key={i}>
                   <button
                     type="button"
@@ -323,7 +362,28 @@ function NodeCard({
                     <span className="impact-sub">
                       {c.endpoint ? `→ ${c.endpoint}` : c.external_host ? "external" : "unmatched"}
                     </span>
+                    {c.evidence ? <span className="impact-sub muted">{tierLabel(c.evidence.tier)}</span> : null}
                   </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      ) : null}
+      {unresolvedHttp.length > 0 ? (
+        <div className="relations">
+          <details open>
+            <summary>
+              Unresolved HTTP <span className="muted">{unresolvedHttp.length}</span>
+            </summary>
+            <ul>
+              {unresolvedHttp.map((c, i) => (
+                <li key={i}>
+                  <span className={`method method--${c.method ?? "GET"}`}>{c.method ?? "GET"}</span>
+                  <span className="impact-name mono">{c.url}</span>
+                  <span className="impact-sub muted">
+                    {c.evidence?.reason ?? "Backend endpoint could not be resolved"}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -356,6 +416,8 @@ function NodeCard({
                           <span className="impact-sub">
                             {n.node_type}
                             {it.low ? " · inferred" : ""}
+                            {it.evidence ? ` · ${tierLabel(it.evidence.tier)}` : ""}
+                            {it.extractor ? ` · ${it.extractor}` : ""}
                           </span>
                         </button>
                       </li>

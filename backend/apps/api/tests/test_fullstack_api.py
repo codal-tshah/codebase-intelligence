@@ -113,3 +113,19 @@ def test_build_context_and_find_references(fs_client):
     assert any(m["name"] == "Item" for m in ctx["models"])
     refs = tools.find_references("Item")
     assert refs["count"] > 0 and {"READS_MODEL"} <= {r["relation"] for r in refs["references"]}
+    assert all("evidence" in r and r["evidence"]["tier"] for r in refs["references"])
+
+
+def test_node_detail_and_graph_edge_evidence(fs_client):
+    pid = fs_client.project_id
+    models = fs_client.get(f"/projects/{pid}/models").json()["models"]
+    item = next(m for m in models if m["name"] == "Item")
+    detail = fs_client.get(f"/projects/{pid}/nodes/{item['id']}").json()
+    assert detail["node"].get("evidence", {}).get("tier")
+    assert detail["edges"] and all(e.get("evidence", {}).get("reason_code") for e in detail["edges"])
+    exp = fs_client.get(f"/projects/{pid}/graph/explore").json()
+    arc = next(e for e in exp["edges"] if e.get("evidence"))
+    under = fs_client.get(
+        f"/projects/{pid}/graph/edges", params={"source": arc["source"], "target": arc["target"]}
+    ).json()
+    assert under["edges"] and under["edges"][0].get("evidence")

@@ -62,7 +62,7 @@ Details: [parsing-and-graphs.md](../research_notes/Code%20intelligence%20market%
 
 | Item | Benefit | Complexity | Acceptance criteria |
 |------|---------|------------|---------------------|
-| Edge provenance labels in UI/MCP | Agents stop treating guesses as facts | M | HTTP and IMPORTS edges show confidence + `import_kind` / linker tier |
+| Edge provenance labels in UI/MCP | Agents stop treating guesses as facts | M | **Done** 2026-11-24 — shared `evidence` tier + HTTP `match_variant`; re-index for full linker metadata on old graphs |
 | Fixtures for partial claims | README matches reality | M | Next.js + monorepo regression repos under `benchmarks/fixtures/` |
 
 ### P1 — reliability (some done this pass)

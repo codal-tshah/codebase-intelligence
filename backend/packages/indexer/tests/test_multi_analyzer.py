@@ -51,6 +51,8 @@ def test_frontend_requests_link_to_backend_endpoints(fullstack_root):
     }
     assert "api.stripe.com" in hosts
     assert res.stats["http_unresolved"] == 0
+    http_edges = [e for e in res.edges if e.edge_type == EdgeType.HTTP_CALLS]
+    assert http_edges and all(e.properties.get("match_variant") in {"literal", "proxy_prefix"} for e in http_edges)
 
 
 def test_index_pipeline_stores_both_languages_and_impact_crosses_stacks(data_dir, fullstack_copy):

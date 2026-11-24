@@ -28,9 +28,10 @@ def test_match_prefers_literals_methods_and_proxy_prefix():
     eps = [_ep("/items/{id}", ["GET"]), _ep("/items/search", ["GET"]), _ep("/items", ["POST"])]
     assert match_endpoint("/items/search", "GET", eps)[0].name == "/items/search"
     assert match_endpoint("/items/42", "GET", eps)[0].name == "/items/{id}"
+    assert match_endpoint("/items/42", "GET", eps)[2] == "literal"
     assert match_endpoint("/items", "GET", eps) is None  # method mismatch
-    hit, conf = match_endpoint("/api/items", "POST", eps)  # dev proxy prefix dropped
-    assert hit.name == "/items" and conf < 0.9
+    hit, conf, variant = match_endpoint("/api/items", "POST", eps)  # dev proxy prefix dropped
+    assert hit.name == "/items" and conf < 0.9 and variant == "proxy_prefix"
 
 
 def test_match_tie_breaks_on_nearest_service():

@@ -6,6 +6,7 @@ from collections import deque
 from collections.abc import Callable, Iterable
 from typing import Any
 
+from ci_core.evidence import classify_edge, classify_node
 from ci_core.insights import GraphIndex
 from ci_core.models import EdgeRecord, EdgeType, GraphEdgeView, GraphNodeView, NodeRecord, NodeType
 
@@ -60,7 +61,7 @@ def node_view(node: NodeRecord, index: GraphIndex) -> GraphNodeView:
         summary=props.get("summary"),
         tags=list(props.get("tags", [])),
         confidence=node.confidence,
-        properties=props,
+        properties={**props, "node_evidence": classify_node(node)},
     )
 
 
@@ -71,7 +72,8 @@ def edge_view(edge: EdgeRecord) -> GraphEdgeView:
         target=edge.target_id,
         edge_type=edge.edge_type.value,
         confidence=edge.confidence,
-        properties=edge.properties,
+        properties=dict(edge.properties or {}),
+        evidence=classify_edge(edge),
     )
 
 

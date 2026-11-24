@@ -26,7 +26,10 @@ Click **+** (top bar), then paste a GitHub URL or an absolute local path, then *
 - the type icon and type name, plus its layer (API, Service, Data…)
 - a soft tint in the layer's colour
 - *N in* = how many things depend on it
-- dashed outline and *inferred* = found by heuristics, so check the source
+- dashed outline and *inferred* = found by heuristics, so check the source (still driven by the **0.7** confidence threshold on canvas edges)
+- In the details pane, **High / Medium / Low / Unknown** evidence lines explain *why* a relationship exists (static import, HTTP route match, proxy prefix, unresolved call, and so on) — separate from the numeric confidence badge
+- Explore **aggregated** arcs show roll-up evidence; open **Underlying edges** for per-edge tiers
+- **Unresolved HTTP** lists client calls that could not be linked to a backend route (metadata only; no fake graph edge)
 
 Zoomed out, cards show names only so they stay readable; zoom in for full cards.
 

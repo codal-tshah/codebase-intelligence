@@ -2,6 +2,13 @@
 
 All notable changes. Dates are when the work landed on a branch; versions are not tagged yet.
 
+## Unreleased: graph evidence (2026-11-24)
+
+### Added
+- **Evidence classification:** `ci_core.evidence` (`classify_edge`, `classify_node`, `classify_http_call_record`) with shared `tier` / `reason_code` / `reason` on API graph payloads, node detail, Explore underlying edges, MCP `get_node` / `find_references` / `trace_endpoint` chain hops, and `ci export`.
+- **HTTP linker metadata:** `match_variant` (`literal`, `proxy_prefix`, `external`, `unresolved`) on `HTTP_CALLS` edges and client `http_calls[]`; unresolved calls remain node metadata without synthetic edges.
+- **Dashboard:** Inspector shows evidence tier and explanation on relations, Explore aggregated arcs, underlying edges, linked vs unresolved HTTP calls.
+
 ## Unreleased: parsing research (2026-11-23)
 
 ### Added

@@ -6,7 +6,7 @@
 
 1. **Discover files** — `ci_parsers.files.list_*` with built-in skip dirs, repository **root** `.gitignore` (via `pathspec`; negation supported), optional `.ciignore`, and size caps. Nested `.gitignore` files in subdirectories are **not** applied (only the repo root file).
 2. **Analyze** — `ci_indexer.analyzers.analyze_project` runs registered analyzers (entry points `codebase_intelligence.analyzers`).
-3. **Merge** — `ci_core.analysis.merge_results`, `link_http_calls` (cross-stack HTTP edges).
+3. **Merge** — `ci_core.analysis.merge_results`, `link_http_calls` (cross-stack HTTP edges). For each static client call, `match_endpoint` records `literal` or `proxy_prefix` matches on `HTTP_CALLS` edges and matching `http_calls[]` rows; external hosts become `DEPENDS_ON` with `match_variant: external`; unmatched locals get `match_variant: unresolved` on the call record only (no fake edge).
 4. **Persist** — `IndexPipeline` rewrites SQLite; updates fingerprints; optional chunk embeddings.
 5. **Serve** — `GraphStore.load_index()` invalidates cache on DB change.
 

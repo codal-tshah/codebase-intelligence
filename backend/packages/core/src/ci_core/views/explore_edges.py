@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ci_core.evidence import edge_with_evidence
 from ci_core.insights import DEPENDENCY_EDGES, GraphIndex
 from ci_core.models import EdgeType
 from ci_core.views.explore import _lift_to_visible
@@ -27,16 +28,7 @@ def underlying_edges_between_visible(
         t = _lift_to_visible(index, e.target_id, visible, parent)
         if s != source_visible_id or t != target_visible_id:
             continue
-        out.append(
-            {
-                "id": e.id,
-                "edge_type": e.edge_type.value,
-                "source_id": e.source_id,
-                "target_id": e.target_id,
-                "confidence": e.confidence,
-                "properties": dict(e.properties),
-            }
-        )
+        out.append(edge_with_evidence(e))
         if len(out) >= cap:
             break
     return out

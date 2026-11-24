@@ -554,6 +554,7 @@ def export(
 ) -> None:
     """Export the full knowledge graph as JSON."""
     from ci_core.db import GraphStore
+    from ci_core.evidence import edge_with_evidence
     from ci_core.layers import layer_catalog
 
     record = _require(project)
@@ -563,7 +564,7 @@ def export(
         "project": record.model_dump(mode="json"),
         "layers": layer_catalog(),
         "nodes": [n.model_dump(mode="json", exclude={"project_id"}) for n in index.nodes.values()],
-        "edges": [e.model_dump(mode="json", exclude={"project_id"}) for e in index.edges],
+        "edges": [edge_with_evidence(e) for e in index.edges],
     }
     text = json.dumps(payload, default=str)
     if output:

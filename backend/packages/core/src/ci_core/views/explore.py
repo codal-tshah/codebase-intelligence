@@ -338,19 +338,34 @@ def _aggregate_edges(
         dominant = max(by_type, key=lambda k: by_type[k])
         min_conf = min(conf[(a, b)]) if conf[(a, b)] else 1.0
         uc = raw_counts[(a, b)]
+        agg_props = {
+            "weight": total,
+            "by_type": dict(by_type),
+            "underlying_edge_count": uc,
+            "aggregated": uc > 1 or lift_mismatch[(a, b)],
+        }
+        from ci_core.evidence import classify_edge
+        from ci_core.models import EdgeRecord
+
+        stub = EdgeRecord(
+            id=f"explore-agg:{a}:{b}:{dominant}",
+            project_id="",
+            edge_type=EdgeType(dominant),
+            source_id=a,
+            target_id=b,
+            extractor="explore.view",
+            confidence=min_conf,
+            properties=agg_props,
+        )
         dep_edges.append(
             GraphEdgeView(
-                id=f"explore-agg:{a}:{b}:{dominant}",
+                id=stub.id,
                 source=a,
                 target=b,
                 edge_type=dominant,
                 confidence=min_conf,
-                properties={
-                    "weight": total,
-                    "by_type": dict(by_type),
-                    "underlying_edge_count": uc,
-                    "aggregated": uc > 1 or lift_mismatch[(a, b)],
-                },
+                properties=agg_props,
+                evidence=classify_edge(stub, aggregated=True),
             )
         )
     return contains_out, dep_edges

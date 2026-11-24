@@ -54,6 +54,12 @@ def test_mcp_lists_tools_and_answers_against_path(data_dir, fullstack_copy):
     trace = _payload(_call(server, "trace_endpoint", {"route": "/api/items/{item_id}", "method": "GET"}))
     assert trace["handler"]["name"] == "get_item"
     assert any(c["name"] == "api.getItem" for c in trace["callers"])
+    chain_ev = [c for c in trace.get("chain", []) if c.get("evidence")]
+    assert chain_ev and chain_ev[0]["evidence"]["tier"]
+
+    detail = _payload(_call(server, "get_node", {"node": "Item"}))
+    assert detail.get("evidence", {}).get("reason_code")
+    assert detail.get("edges") and detail["edges"][0].get("evidence")
 
     found = _payload(_call(server, "search_nodes", {"query": "ItemList"}))
     assert found["results"][0]["name"] == "ItemList"
