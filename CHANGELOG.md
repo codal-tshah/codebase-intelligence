@@ -23,6 +23,11 @@ All notable changes. Dates are when the work landed on a branch; versions are no
 ### Added
 - **MCP `build_context`:** optional `token_budget` (approximate; `4×` chars on primary + related source snippets), `snippet_chars_used`, `missing_evidence` for truncation/omission and absent source.
 
+## Unreleased: integrations (2026-11-23)
+
+### Added
+- **GitHub Action sketch:** [integrations/github-action/action.yml](integrations/github-action/action.yml) for `ci impact --fail-on` in CI (experimental, monorepo-only).
+
 ## Unreleased: dashboard views (2026-11-20)
 
 ### Added

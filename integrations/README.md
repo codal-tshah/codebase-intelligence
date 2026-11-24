@@ -24,6 +24,19 @@ The plugin's MCP server runs `uv run --project $CI_HOME/backend ci mcp`. It keep
 2. Copy [cursor/rules/codebase-map.mdc](cursor/rules/codebase-map.mdc) to `.cursor/rules/`.
 3. Ask the agent to "generate the codebase map".
 
+## GitHub Action (impact gate) — experimental
+
+[github-action/action.yml](github-action/action.yml) is a **sketch**, not a published or consumer-ready Action.
+
+| Aspect | Current state |
+| --- | --- |
+| **Status** | Experimental; for maintainers validating the idea inside this monorepo only. |
+| **Layout assumption** | Steps use `${{ github.action_path }}/../../backend` so `uv sync` and `uv run ci` run from the **Codebase Intelligence** repository checkout (same layout as this tree). |
+| **Analyze target** | `ci analyze .` uses `${{ github.workspace }}`, which is correct when the workflow runs in **this** repo; it is wrong if you only vendor the action YAML into another repository without also checking out CI’s `backend/`. |
+| **Before external use** | Package or pin the CLI (`uv tool install` / container), set `working-directory` to the consumer repo, pass `CI_DATA_DIR`, document `CI_GITHUB_TOKEN` for private clones, and replace monorepo-relative paths with an explicit `CI_HOME` or composite `inputs.ci_repo_path`. |
+
+Intended behavior once wired correctly: shallow index the workspace, then `ci impact --base origin/main --fail-on high`. Do not reference this action from third-party repos until the above packaging work is done.
+
 ## Without an agent
 
 ```bash

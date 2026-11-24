@@ -1,0 +1,33 @@
+# Experimental: monorepo-only sketch — see integrations/README.md before use.
+name: Codebase Intelligence impact gate
+description: Index the repo and fail when working-tree changes reach high impact risk (not consumer-ready).
+inputs:
+  fail_on:
+    description: Minimum risk level to fail (low, medium, high)
+    required: false
+    default: high
+  base:
+    description: Git ref for diff (default origin/main)
+    required: false
+    default: origin/main
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+    - name: Install Codebase Intelligence CLI
+      shell: bash
+      working-directory: ${{ github.action_path }}/../../backend
+      run: uv sync --all-packages
+    - name: Index repository
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        cd "${{ github.action_path }}/../../backend"
+        uv run ci analyze . --incremental
+    - name: Impact gate
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        cd "${{ github.action_path }}/../../backend"
+        uv run ci impact --base "${{ inputs.base }}" --fail-on "${{ inputs.fail_on }}"
