@@ -2,6 +2,12 @@
 
 All notable changes. Dates are when the work landed on a branch; versions are not tagged yet.
 
+## Unreleased: Milestone 2.2 acceptance (2026-11-24)
+
+### Added
+- **HTTP linker:** `match_variant: ambiguous` when multiple backend routes tie; **medium** evidence tier. Method-specific endpoints win over `ANY` at the same path for a given verb.
+- **Tests:** `duplicate_routes_monorepo` fixture; `test_m2_http_acceptance.py`; expanded workspace regression tests; Playwright `e2e/mixed-monorepo.spec.ts`.
+
 ## Unreleased: Next.js and workspace indexing (2026-11-24)
 
 ### Added

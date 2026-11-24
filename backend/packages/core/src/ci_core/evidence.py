@@ -46,6 +46,12 @@ def classify_http_call_record(rec: dict[str, Any]) -> Evidence:
         return _evidence("unknown", "unresolved_http", "Backend endpoint could not be resolved for this call")
     if variant == "external":
         return _evidence("medium", "http_external_dependency", "Outbound call targets an external HTTP host")
+    if variant == "ambiguous":
+        return _evidence(
+            "medium",
+            "http_ambiguous_route_match",
+            "Multiple backend routes matched with equal evidence; resolved to one candidate",
+        )
     if variant == "proxy_prefix":
         return _evidence(
             "medium",
@@ -85,6 +91,12 @@ def classify_edge(edge: EdgeRecord, *, aggregated: bool = False) -> Evidence:
 
     if et == EdgeType.HTTP_CALLS:
         variant = props.get("match_variant")
+        if variant == "ambiguous":
+            return _evidence(
+                "medium",
+                "http_ambiguous_route_match",
+                "Multiple backend routes matched with equal evidence; verify which service handles this call",
+            )
         if variant == "proxy_prefix":
             return _evidence(
                 "medium",

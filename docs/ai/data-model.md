@@ -26,7 +26,7 @@
 | `namespace` | Package for a folder without `__init__.py` (≥2 indexed modules) |
 | `field_count` | On **Model** in the ER view: total fields in the index when the diagram shows ≤12 |
 | `summary`, `tags`, `complexity` | UI / search metadata |
-| `match_variant` | On `http_calls[]` entries and `HTTP_CALLS` / some `DEPENDS_ON` edges from `link_http_calls`: `literal`, `proxy_prefix`, `external`, or `unresolved` |
+| `match_variant` | On `http_calls[]` entries and `HTTP_CALLS` / some `DEPENDS_ON` edges from `link_http_calls`: `literal`, `proxy_prefix`, `ambiguous`, `external`, or `unresolved` |
 | `http_calls[]` | On client nodes: static outbound HTTP metadata (`url`, `method`, `line`, optional `endpoint_id`, `match_variant`) |
 | `aggregated` | Explore roll-up edges (`weight`, `by_type`) |
 

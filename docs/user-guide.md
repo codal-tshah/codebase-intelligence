@@ -118,7 +118,7 @@ Pick a route in the list (filter by text or HTTP method). The canvas shows only 
 
 ## TypeScript monorepos and Next.js (fixture-tested)
 
-The TypeScript analyzer discovers **npm** and **pnpm** workspace members (root `package.json` `workspaces` and `pnpm-workspace.yaml`), resolves **package-name imports**, and extracts common **Next.js App/Pages** patterns (routes, layouts, middleware matchers, file-level `use client` / `use server`). This is covered by regression fixtures; it is **not** full framework coverage (no Nx/Turborepo task graphs, rewrites, loading UI, or Python `pyproject` workspace manifests). After upgrading to analyzer version **typescript:3**, run **Full re-index** so workspace and Next graph data refresh.
+The TypeScript analyzer discovers **npm** and **pnpm** workspace members (root `package.json` `workspaces` and `pnpm-workspace.yaml`), resolves **package-name imports**, and extracts common **Next.js App/Pages** patterns (routes, layouts, middleware matchers, file-level `use client` / `use server`). This is covered by regression fixtures; it is **not** full framework coverage (no Nx/Turborepo task graphs, rewrites, loading UI, or Python `pyproject` workspace manifests). After upgrading to analyzer version **typescript:3**, run **Full re-index** so workspace and Next graph data refresh. Cross-stack HTTP links can show **medium** evidence when multiple backends match the same path (`match_variant: ambiguous`).
 
 ## Managing projects
 

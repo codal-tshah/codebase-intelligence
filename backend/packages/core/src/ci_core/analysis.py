@@ -140,6 +140,17 @@ def _common_dirs(a: str | None, b: str | None) -> int:
     return n
 
 
+def _method_match_rank(method: str | None, methods: list[str]) -> int:
+    if not method:
+        return 0
+    mu = method.upper()
+    if mu in methods:
+        return 2
+    if "ANY" in methods:
+        return 1
+    return 0
+
+
 def match_endpoint(
     url: str, method: str | None, endpoints: Sequence[NodeRecord], *, near: str | None = None
 ) -> tuple[NodeRecord, float, str] | None:
@@ -149,12 +160,16 @@ def match_endpoint(
     call = route_segments(url)
     if not call:
         return None
-    best: tuple[int, float, int, NodeRecord] | None = None
+    best: tuple[int, float, int, int, NodeRecord] | None = None
+    tied = 0
     for ep in endpoints:
         route = route_segments(str(ep.properties.get("route") or ep.name))
         methods = [m.upper() for m in ep.properties.get("methods") or []]
-        if method and methods and method.upper() not in methods:
-            continue
+        if method and methods:
+            mu = method.upper()
+            if mu not in methods and "ANY" not in methods:
+                continue
+        method_rank = _method_match_rank(method, methods)
         variants = [(call, route, 0.9, False)]
         if len(call) > 1:
             variants.append((call[1:], route, 0.65, True))
@@ -164,13 +179,23 @@ def match_endpoint(
             score = _match_score(c, r, require_literal=strict)
             if score is None or score == 0:
                 continue
-            cand = (score, conf, _common_dirs(near, ep.source_path), ep)
-            if best is None or cand[:3] > best[:3]:
+            cand = (score, conf, method_rank, _common_dirs(near, ep.source_path), ep)
+            if best is None or cand[:4] > best[:4]:
                 best = cand
+                tied = 1
+            elif cand[:4] == best[:4]:
+                tied += 1
     if best is None:
         return None
-    variant = "proxy_prefix" if best[1] < 0.9 else "literal"
-    return best[3], best[1], variant
+    conf = best[1]
+    if tied > 1:
+        conf = min(conf, 0.68)
+        variant = "ambiguous"
+    elif conf < 0.9:
+        variant = "proxy_prefix"
+    else:
+        variant = "literal"
+    return best[4], conf, variant
 
 
 # --------------------------------------------------------------------------- merging
