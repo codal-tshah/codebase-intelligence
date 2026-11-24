@@ -2,6 +2,17 @@
 
 All notable changes. Dates are when the work landed on a branch; versions are not tagged yet.
 
+## Unreleased: parsing research (2026-11-23)
+
+### Added
+- **Static extraction evaluation:** Comprehensive research and evaluation of `tree-sitter`, `ast-grep`, `Semgrep`, `SCIP`, `PyCG`, `Joern`, and `Code Property Graphs (CPG)` answering rubric items for adoption in codebase intelligence.
+- **Research report:** `research_notes/Code intelligence market evaluation 2026/parsing-and-graphs.md`.
+
+## Unreleased: research and product roadmap (2026-11-23)
+
+### Added
+- **Research deliverables:** [reports/Code intelligence market evaluation 2026.md](reports/Code%20intelligence%20market%20evaluation%202026.md), [docs/product-improvement-roadmap-2026.md](docs/product-improvement-roadmap-2026.md), and `research_notes/Code intelligence market evaluation 2026/`.
+
 ## Unreleased: dashboard views (2026-11-20)
 
 ### Added

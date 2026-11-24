@@ -10,7 +10,7 @@ Local-first codebase analysis that turns a repository into an explorable knowled
 
 New languages and frameworks plug in as separate packages; see [docs/architecture.md](docs/architecture.md#extending).
 
-**Docs:** [user guide](docs/user-guide.md) · [onboarding](docs/onboarding.md) (start here: data flow, views, integration status) · [architecture](docs/architecture.md) · **agents:** [AGENTS.md](AGENTS.md) · [docs/ai/README.md](docs/ai/README.md) · [graph research](docs/graph-architecture-research.md) · [design system](docs/DESIGN.md) · [security](docs/SECURITY.md) · [private repos](docs/private-repos.md) · [latest report](docs/REPORT.md) · [gaps & roadmap](docs/GAPS.md) · [decisions](docs/DECISIONS.md) · [competitive notes](docs/competitive-notes.md) · [research](docs/RESEARCH.md) · [audit](docs/audit-report.md) · [contributing](CONTRIBUTING.md) · [changelog](CHANGELOG.md)
+**Docs:** [user guide](docs/user-guide.md) · [onboarding](docs/onboarding.md) (start here: data flow, views, integration status) · [architecture](docs/architecture.md) · **agents:** [AGENTS.md](AGENTS.md) · [docs/ai/README.md](docs/ai/README.md) · [graph research](docs/graph-architecture-research.md) · [design system](docs/DESIGN.md) · [security](docs/SECURITY.md) · [private repos](docs/private-repos.md) · [latest report](docs/REPORT.md) · [gaps & roadmap](docs/GAPS.md) · [product roadmap 2026](docs/product-improvement-roadmap-2026.md) · [decisions](docs/DECISIONS.md) · [competitive notes](docs/competitive-notes.md) · [research](docs/RESEARCH.md) · [market report](reports/Code%20intelligence%20market%20evaluation%202026.md) · [audit](docs/audit-report.md) · [contributing](CONTRIBUTING.md) · [changelog](CHANGELOG.md)
 
 ## Quickstart
 
