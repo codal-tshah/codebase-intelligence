@@ -97,7 +97,7 @@ Global: `--project` / `-p`, `--json`. Verify flags: `uv run ci <cmd> --help`.
 
 From `ci_mcp.server.build_server` (wrap `toolspec` unless noted):
 
-`list_projects`, `index_project`, `index_status`, `project_overview`, `search_nodes`, `get_node`, `list_endpoints`, `trace_endpoint`, `get_callers`, `get_callees`, `impact_analysis`, `impact_of_working_tree`, `find_path`, `list_models`, `build_context`, `find_references`, `list_jobs`, `suggest_optimizations`, `generate_docs`, `read_source`, `search_code`.
+`list_projects`, `index_project`, `index_status`, `project_overview`, `search_nodes`, `get_node`, `list_endpoints`, `trace_endpoint`, `get_callers`, `get_callees`, `impact_analysis`, `impact_of_working_tree`, `find_path`, `list_models`, `build_context` (optional `token_budget`: caps source snippet **characters** ≈ `4 × token_budget` across primary + `related_source`; echoes `snippet_chars_used` / `snippet_char_budget`; `missing_evidence` lists truncation, omission, and absent source), `find_references`, `list_jobs`, `suggest_optimizations`, `generate_docs`, `read_source`, `search_code`.
 
 ## Verify
 

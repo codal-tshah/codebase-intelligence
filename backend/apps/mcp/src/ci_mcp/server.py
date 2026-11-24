@@ -193,8 +193,13 @@ def build_server(default_project: str | None = None, *, auto_index: bool = True)
         description="Context pack for a symbol or endpoint in one call: details, source, callers/callees with source, "
         "models touched, endpoint trace. Use before editing code."
     )
-    def build_context(node: str, max_snippets: int = 6, project: str | None = None) -> dict:
-        return call(project, "build_context", node=node, max_snippets=max_snippets)
+    def build_context(
+        node: str,
+        max_snippets: int = 6,
+        token_budget: int | None = None,
+        project: str | None = None,
+    ) -> dict:
+        return call(project, "build_context", node=node, max_snippets=max_snippets, token_budget=token_budget)
 
     @server.tool(
         description="Every reference to a symbol (calls, imports, renders, routes, DI, HTTP, model access) with file:line."

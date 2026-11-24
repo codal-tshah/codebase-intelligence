@@ -18,6 +18,11 @@ All notable changes. Dates are when the work landed on a branch; versions are no
 ### Added
 - **`.gitignore` in file discovery:** Python/TypeScript walks honour the repository root `.gitignore` (in addition to built-in skips and `.ciignore`).
 
+## Unreleased: agent tools (2026-11-23)
+
+### Added
+- **MCP `build_context`:** optional `token_budget` (approximate; `4×` chars on primary + related source snippets), `snippet_chars_used`, `missing_evidence` for truncation/omission and absent source.
+
 ## Unreleased: dashboard views (2026-11-20)
 
 ### Added

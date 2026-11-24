@@ -102,9 +102,14 @@ def test_build_context_and_find_references(fs_client):
     from ci_ai import GraphTools
 
     tools = GraphTools(fs_client.project_id)
-    ctx = tools.build_context("get_item")
+    ctx = tools.build_context("get_item", token_budget=8000)
     assert ctx["node"]["name"] == "get_item"
+    assert ctx["token_budget"] == 8000
+    assert isinstance(ctx.get("missing_evidence"), list)
     assert ctx["source"] and "def get_item" in ctx["source"]["content"]
+    tight = tools.build_context("get_item", token_budget=8, max_snippets=1)
+    assert tight["source"]["truncated"] is True
+    assert len(tight["source"]["content"]) <= 32
     assert any(m["name"] == "Item" for m in ctx["models"])
     refs = tools.find_references("Item")
     assert refs["count"] > 0 and {"READS_MODEL"} <= {r["relation"] for r in refs["references"]}

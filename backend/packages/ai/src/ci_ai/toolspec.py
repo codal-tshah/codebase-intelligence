@@ -138,10 +138,18 @@ TOOLS: tuple[ToolSpec, ...] = (
             {
                 "node": {**_STR, "description": "Node id, name, route or file path"},
                 "max_snippets": {"type": "integer", "minimum": 1, "maximum": 12},
+                "token_budget": {
+                    "type": "integer",
+                    "minimum": 256,
+                    "maximum": 32000,
+                    "description": "Approximate LLM tokens for source snippets (4 chars ≈ 1 token)",
+                },
             },
             ["node"],
         ),
-        lambda t, node, max_snippets=6: t.build_context(node, max_snippets=max_snippets),
+        lambda t, node, max_snippets=6, token_budget=None: t.build_context(
+            node, max_snippets=max_snippets, token_budget=token_budget
+        ),
     ),
     ToolSpec(
         "find_references",

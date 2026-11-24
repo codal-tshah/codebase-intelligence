@@ -121,7 +121,14 @@ class GraphTools:
         refs.sort(key=lambda r: (r["relation"], r.get("path") or "", r.get("line") or 0))
         return {"target": _brief(node), "count": len(refs), "references": refs[:limit]}
 
-    def build_context(self, query: str, max_snippets: int = 6, snippet_lines: int = 40) -> dict:
+    def build_context(
+        self,
+        query: str,
+        max_snippets: int = 6,
+        snippet_lines: int = 40,
+        *,
+        token_budget: int | None = None,
+    ) -> dict:
         """One-call context pack for an agent: the node, its source, direct callers/callees with
         their source, models touched and (for endpoints) the end-to-end trace."""
         node = self.index.nodes.get(query) or self.resolve(query)
@@ -153,14 +160,72 @@ class GraphTools:
         ]
         related = [n for n in {n.id: n for n in [*callees, *callers]}.values() if n.id != node.id]
         snippets = [s for s in (snippet(n) for n in related) if s][: max(0, max_snippets - 1)]
+        missing_evidence: list[str] = []
+        if not node.source_path:
+            missing_evidence.append(f"{node.name}: no source_path on node")
+        if node.node_type == NodeType.ENDPOINT and not callers:
+            missing_evidence.append(f"{node.name}: no HTTP_CALLS or CALLS callers in index (client may be dynamic)")
+        char_budget = token_budget * 4 if token_budget and token_budget > 0 else None
+        used = 0
+
+        def snippet_text(sn: dict) -> tuple[str | None, str]:
+            if "content" in sn:
+                return "content", sn.get("content") or ""
+            if "text" in sn:
+                return "text", sn.get("text") or ""
+            return None, ""
+
+        def snippet_chars_in_context(snippets_out: list[dict], primary: dict | None) -> int:
+            total = 0
+            for sn in [primary, *snippets_out]:
+                if not sn:
+                    continue
+                _, text = snippet_text(sn)
+                total += len(text)
+            return total
+
+        def fit_snippet(sn: dict) -> dict:
+            nonlocal used
+            if char_budget is None:
+                return sn
+            if sn.get("error"):
+                missing_evidence.append(f"{sn.get('name', '?')}: {sn['error']}")
+                return sn
+            key, text = snippet_text(sn)
+            if key is None:
+                missing_evidence.append(f"{sn.get('name', '?')}: no source snippet text")
+                return sn
+            remain = char_budget - used
+            if remain <= 0:
+                missing_evidence.append(f"{sn.get('name', '?')}: omitted (token_budget)")
+                return {**sn, key: "", "truncated": True}
+            if not text:
+                return sn
+            if len(text) <= remain:
+                used += len(text)
+                return sn
+            missing_evidence.append(f"{sn.get('name', '?')}: source truncated to fit token_budget")
+            trimmed = {**sn, key: text[:remain], "truncated": True}
+            used += len(trimmed[key])
+            return trimmed
+
+        src = snippet(node)
+        if src:
+            src = fit_snippet(src)
+        snippets = [fit_snippet(s) for s in snippets]
         context: dict = {
             "node": self.get_node(node.id),
-            "source": snippet(node),
+            "source": src,
             "callers": [_brief(n) for n in callers[:20]],
             "callees": [_brief(n) for n in callees[:20]],
             "models": models[:20],
             "related_source": snippets,
+            "missing_evidence": missing_evidence,
         }
+        if token_budget is not None and token_budget > 0:
+            context["token_budget"] = token_budget
+            context["snippet_chars_used"] = snippet_chars_in_context(snippets, src)
+            context["snippet_char_budget"] = char_budget
         if node.node_type == NodeType.ENDPOINT:
             context["trace"] = self.trace_endpoint(node.id)
         if node.properties.get("job"):
