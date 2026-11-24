@@ -2,6 +2,10 @@
 
 Short records of choices that are expensive to undo or that add dependencies. Newest first. Each entry gives the decision, why, and what was rejected.
 
+## 2026-11-24: PyYAML in `ci-parsers` for workspace manifests
+
+`ci_parsers.workspaces` uses `yaml.safe_load` on `pnpm-workspace.yaml` only (no custom YAML parser). Dependency `pyyaml>=6.0` added to `packages/parsers` so workspace discovery works without importing the backend root extra at runtime.
+
 ## 2026-11-23: Root `.gitignore` via pathspec
 
 File discovery (`ci_parsers.files.list_source_files`) now applies the repository root `.gitignore` using the `pathspec` library (MPL-2.0, listed in `docs/LICENSES.md`). Rejected hand-rolled fnmatch-only rules: they miss negation and git-specific patterns. **Scope:** only the root `.gitignore` is loaded (no per-directory nested files); that matches typical indexer needs and avoids walking and merging hundreds of ignore files in large monorepos.

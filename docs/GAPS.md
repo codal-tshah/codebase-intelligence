@@ -79,6 +79,7 @@ Done in FR-3: selection trace (direction, multi-hop), shared popover, depth leve
 Remaining backlog:
 - **P0:** none known.
 - **P1:**
+  - ~~Next.js / monorepo fixture coverage~~ **Done** (2026-11-24): workspace manifest parsing + App/Pages Next extraction with benchmarks; Turborepo/Nx task graphs and inline server actions remain partial.
   - ~~Honour `.gitignore` during discovery~~ **Done** (2026-11-23): root `.gitignore` via `pathspec`; `.ciignore` and project patterns unchanged).
   - Cross-group edges in Explore are curves; only sibling edges get ELK orthogonal routes.
   - FK resolution is about 91% on the reference repo (`ForeignKey(Model.id)` and non-literal targets are missed).

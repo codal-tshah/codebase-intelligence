@@ -724,12 +724,14 @@ source = { editable = "packages/parsers" }
 dependencies = [
     { name = "ci-core" },
     { name = "pathspec" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "ci-core", editable = "packages/core" },
     { name = "pathspec", specifier = ">=0.12" },
+    { name = "pyyaml", specifier = ">=6.0" },
 ]
 
 [[package]]

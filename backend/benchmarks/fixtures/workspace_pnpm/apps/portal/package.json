@@ -1,0 +1,7 @@
+{
+  "name": "@pnpm-fixture/portal",
+  "version": "1.0.0",
+  "dependencies": {
+    "@pnpm-fixture/core": "1.0.0"
+  }
+}

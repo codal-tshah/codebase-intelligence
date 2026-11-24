@@ -116,6 +116,10 @@ Click a node to select it: 2px accent border, accent fill and a ring. Direct dep
 
 Pick a route in the list (filter by text or HTTP method). The canvas shows only that request, left to right: UI callers → endpoint → guards/dependencies → handler → services → data access → models/external services. Dashed, labelled links are inferred.
 
+## TypeScript monorepos and Next.js (fixture-tested)
+
+The TypeScript analyzer discovers **npm** and **pnpm** workspace members (root `package.json` `workspaces` and `pnpm-workspace.yaml`), resolves **package-name imports**, and extracts common **Next.js App/Pages** patterns (routes, layouts, middleware matchers, file-level `use client` / `use server`). This is covered by regression fixtures; it is **not** full framework coverage (no Nx/Turborepo task graphs, rewrites, loading UI, or Python `pyproject` workspace manifests). After upgrading to analyzer version **typescript:3**, run **Full re-index** so workspace and Next graph data refresh.
+
 ## Managing projects
 
 Use the project name in the top bar → **Manage projects**. From there you can search, sort, **Re-index changed** (fast) or **Full re-index**, rename, edit ignore patterns, turn on auto-refresh, or remove a project. Removing deletes this tool's index (and a clone it made for a GitHub URL), never your source folder; the dialog lists exactly what goes. **Activity** is the audit log; **Status** shows mode, analyzers and running jobs. The bookmark icon saves the current view (diagram, selection, expansions).

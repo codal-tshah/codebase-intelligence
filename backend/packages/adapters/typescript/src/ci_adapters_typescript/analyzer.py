@@ -22,6 +22,12 @@ from typing import Any
 import tree_sitter_typescript as tsts
 from tree_sitter import Language, Node, Parser
 
+from ci_adapters_typescript.next_paths import (
+    is_next_middleware_path,
+    join_route_path,
+    next_app_segments,
+    next_pages_segments,
+)
 from ci_adapters_typescript.roles import (
     HTTP_CLIENT_OBJECTS,
     HTTP_VERBS,
@@ -42,8 +48,9 @@ from ci_core.analysis import AnalysisResult, HttpCall
 from ci_core.insights import GraphIndex, classify_complexity
 from ci_core.models import EdgeRecord, EdgeType, NodeRecord, NodeType
 from ci_parsers import file_sha256, stable_node_id
+from ci_parsers.workspaces import discover_workspace_package_dirs, workspace_name_map
 
-ANALYZER_VERSION = "2"
+ANALYZER_VERSION = "3"
 EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 RESOLVE_EXTS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 MAX_BYTES = 600_000
@@ -269,6 +276,25 @@ class _Mod:
     global_prefix: str | None = None
     has_error: bool = False
     packages_used: set[str] = field(default_factory=set)
+    boundary: str | None = None  # client | server from file-level directive
+
+
+def _file_boundary(source: bytes) -> str | None:
+    try:
+        head = source[:800].decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    if '"use client"' in head or "'use client'" in head:
+        return "client"
+    if '"use server"' in head or "'use server'" in head:
+        return "server"
+    return None
+
+
+def _route_prefix(parent: str, child: str) -> bool:
+    if parent == "/":
+        return child != parent
+    return child == parent or child.startswith(parent.rstrip("/") + "/")
 
 
 # -------------------------------------------------------------------- analyzer
@@ -306,12 +332,19 @@ class _Analyzer:
         self._tsconfig_cache: dict[str, list[tuple[str, dict[str, Any]]]] = {}
         self.package_dirs: dict[str, dict[str, Any]] = {}  # rel dir -> package.json
         self.workspace_names: dict[str, str] = {}  # package name -> rel dir
+        self._layout_by_route: dict[str, str] = {}  # route path -> layout symbol id
+        self._page_by_route: dict[str, str] = {}  # route path -> page symbol id
+        self._declares_next_dep = False
         self.parser_ts = Parser(_LANG_TS)
         self.parser_tsx = Parser(_LANG_TSX)
 
     # --------------------------------------------------------------------- run
 
     def run(self) -> AnalysisResult:
+        ws_pkgs, ws_warnings = discover_workspace_package_dirs(self.root)
+        self.result.warnings.extend(ws_warnings)
+        self.package_dirs.update(ws_pkgs)
+        self.workspace_names.update(workspace_name_map(ws_pkgs))
         self._load_package_json()
         for f in self.files:
             self._parse(f)
@@ -333,10 +366,13 @@ class _Analyzer:
         self._link_imports()
         self._nest_routes()
         self._next_routes()
+        self._next_middleware()
         self._emit_routes()  # endpoints first: inline handlers attribute their calls to them
         self._link_calls()
         self._link_jsx()
         self._emit_page_routes()
+        self._link_next_layouts()
+        self._finalize_next_framework()
         self._enrich()
 
         res = self.result
@@ -376,7 +412,9 @@ class _Analyzer:
                     }
                     for dep in deps:
                         fw = framework_for(dep)
-                        if fw:
+                        if fw == "nextjs":
+                            self._declares_next_dep = True
+                        elif fw:
                             self.frameworks.add(fw)
                 if parent == self.root:
                     break
@@ -401,6 +439,7 @@ class _Analyzer:
             id=stable_node_id(self.pid, "module", rel),
             lines=source.count(b"\n") + 1,
             has_error=tree.root_node.has_error,
+            boundary=_file_boundary(source),
         )
         self.mods[rel] = mod
         self.file_set.add(rel)
@@ -1001,6 +1040,25 @@ class _Analyzer:
                 return cand
         return None
 
+    def _resolve_package_export(self, pkg_dir: str, data: dict[str, Any], rest: str) -> str | None:
+        exports = data.get("exports")
+        if not isinstance(exports, dict):
+            return None
+        key = f"./{rest}" if rest else "."
+        entry = exports.get(key)
+        if entry is None and rest:
+            entry = exports.get(f"./{rest}.js") or exports.get(f"./{rest}/index")
+        if isinstance(entry, str):
+            return self._file_for(posixpath.join(pkg_dir, entry))
+        if isinstance(entry, dict):
+            for field in ("types", "import", "default", "require"):
+                target = entry.get(field)
+                if isinstance(target, str):
+                    hit = self._file_for(posixpath.join(pkg_dir, target))
+                    if hit:
+                        return hit
+        return None
+
     def _resolve_spec(self, mod: _Mod, spec: str) -> str | None:
         here = posixpath.dirname(mod.rel)
         if spec.startswith("."):
@@ -1036,6 +1094,9 @@ class _Analyzer:
             pkg_dir = self.workspace_names[root]
             rest = spec[len(root) :].lstrip("/")
             data = self.package_dirs.get(pkg_dir, {})
+            hit = self._resolve_package_export(pkg_dir, data, rest)
+            if hit:
+                return hit
             entries = (
                 [rest] if rest else [str(data.get("source") or ""), str(data.get("main") or ""), "src/index", "index"]
             )
@@ -1332,6 +1393,8 @@ class _Analyzer:
             props["job"] = job
         if sym.parent:
             props["parent_class"] = sym.parent
+        if mod.boundary and node_type == NodeType.COMPONENT:
+            props["boundary"] = mod.boundary
         self.nodes[sym.id] = NodeRecord(
             id=sym.id,
             project_id=self.pid,
@@ -1488,21 +1551,25 @@ class _Analyzer:
                         )
 
     def _next_routes(self) -> None:
+        app_verbs = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
         for mod in self.mods.values():
             parts = mod.rel.split("/")
             stem = posixpath.splitext(parts[-1])[0]
-            if "pages" in parts and len(parts) > parts.index("pages") + 1 and parts[parts.index("pages") + 1] == "api":
-                idx = parts.index("pages")
-                segs = [*parts[idx + 1 : -1], stem]
-                if segs[-1] == "index":
-                    segs = segs[:-1]
+            pages_idx = parts.index("pages") if "pages" in parts else -1
+            is_pages_api = pages_idx >= 0 and pages_idx + 1 < len(parts) and parts[pages_idx + 1] == "api"
+
+            if is_pages_api:
+                segs = next_pages_segments(parts, file_stem=stem, is_api=True)
+                if segs is None:
+                    continue
+                path = join_route_path(segs)
                 handler = self._export(mod, "default")
                 self.routes.append(
                     _Route(
-                        id=stable_node_id(self.pid, "ts-endpoint", mod.rel, "next-api"),
+                        id=stable_node_id(self.pid, "ts-endpoint", mod.rel, "next-pages-api"),
                         module=mod,
                         verb="ANY",
-                        path="/" + "/".join(segs),
+                        path=path,
                         line=handler[1].start if handler else 1,
                         end_line=handler[1].end if handler else mod.lines,
                         handlers=[],
@@ -1512,14 +1579,12 @@ class _Analyzer:
                     )
                 )
                 self.frameworks.add("nextjs")
-            elif stem == "route" and "app" in parts:
-                idx = len(parts) - 1 - parts[::-1].index("app")
-                segs = [
-                    p
-                    for p in parts[idx + 1 : -1]
-                    if not (p.startswith("(") and p.endswith(")")) and not p.startswith("@")
-                ]
-                for verb in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"):
+                continue
+
+            app_segs = next_app_segments(parts, file_stem=stem)
+            if app_segs is not None and stem == "route":
+                path = join_route_path(app_segs)
+                for verb in app_verbs:
                     sym = mod.symbols.get(verb)
                     if sym is None:
                         continue
@@ -1528,7 +1593,7 @@ class _Analyzer:
                             id=stable_node_id(self.pid, "ts-endpoint", mod.rel, verb),
                             module=mod,
                             verb=verb,
-                            path="/" + "/".join(segs),
+                            path=path,
                             line=sym.start,
                             end_line=sym.end,
                             handlers=[],
@@ -1537,25 +1602,102 @@ class _Analyzer:
                             prefix_mode="absolute",
                         )
                     )
+                self.frameworks.add("nextjs")
+                continue
+
+            if app_segs is not None and stem == "layout":
+                path = join_route_path(app_segs)
+                exported = self._export(mod, "default")
+                if exported is not None:
+                    self._layout_by_route[path] = exported[1].id
                     self.frameworks.add("nextjs")
-            elif (stem == "page" and "app" in parts) or (
-                "pages" in parts and mod.role == "pages" and "api" not in parts
-            ):
-                default = self._export(mod, "default")
-                if default is None:
+                continue
+
+            if app_segs is not None and stem == "page":
+                exported = self._export(mod, "default")
+                if exported is not None:
+                    self._mark_page(exported[1], join_route_path(app_segs), mod)
+                    self.frameworks.add("nextjs")
+                continue
+
+            if "pages" in parts and mod.role == "pages" and not is_pages_api and self._is_next_pages_module(parts):
+                exported = self._export(mod, "default")
+                if exported is None:
                     continue
-                if stem == "page":
-                    idx = len(parts) - 1 - parts[::-1].index("app")
-                    segs = [p for p in parts[idx + 1 : -1] if not (p.startswith("(") and p.endswith(")"))]
-                else:
-                    idx = parts.index("pages")
-                    segs = [*parts[idx + 1 : -1], stem]
+                segs = next_pages_segments(parts, file_stem=stem, is_api=False)
+                if segs is None:
+                    segs = [*parts[pages_idx + 1 : -1], stem]
                     if segs and segs[-1] == "index":
                         segs = segs[:-1]
-                if stem == "page" or "nextjs" in self.frameworks:
-                    self._mark_page(default[1], "/" + "/".join(segs))
+                self._mark_page(exported[1], join_route_path(segs), mod)
+                self.frameworks.add("nextjs")
 
-    def _mark_page(self, sym: _Sym, route: str) -> None:
+    def _is_next_pages_module(self, parts: list[str]) -> bool:
+        """True for Next.js ``pages/`` trees, not arbitrary ``*/pages/*`` UI folders."""
+        if "pages" not in parts:
+            return False
+        idx = parts.index("pages")
+        before = parts[:idx]
+        if not before:
+            return True
+        if before == ["src"]:
+            return True
+        if len(before) == 2 and before[0] in ("apps", "app"):
+            return True
+        return bool(len(before) >= 2 and before[-1] == "src" and before[-2] in ("apps", "app"))
+
+    def _next_middleware(self) -> None:
+        import re
+
+        for mod in self.mods.values():
+            if not is_next_middleware_path(mod.rel):
+                continue
+            self.frameworks.add("nextjs")
+            exported = self._export(mod, "default")
+            if exported is None:
+                continue
+            sym = exported[1]
+            node = self.nodes.get(sym.id)
+            if node is None:
+                continue
+            node.node_type = NodeType.MIDDLEWARE
+            node.properties.update(
+                {
+                    "role": "middleware",
+                    "layer": "middleware",
+                    "framework": "nextjs",
+                }
+            )
+            text = mod.source[:6000].decode("utf-8", "replace")
+            matcher = re.search(r"matcher\s*:\s*(\[[^\]]*\]|['\"][^'\"]+['\"])", text)
+            if matcher:
+                node.properties["matcher"] = matcher.group(1)
+
+    def _link_next_layouts(self) -> None:
+        layouts = sorted(self._layout_by_route.items(), key=lambda x: len(x[0]))
+        for page_path, page_id in self._page_by_route.items():
+            for layout_path, layout_id in layouts:
+                if _route_prefix(layout_path, page_path):
+                    self._edge(
+                        EdgeType.CONTAINS,
+                        layout_id,
+                        page_id,
+                        rel=self.nodes[page_id].source_path,
+                        confidence=0.85,
+                        relation="layout",
+                    )
+
+    def _finalize_next_framework(self) -> None:
+        has_structure = any(
+            rel.startswith(("app/", "pages/")) or "/app/" in rel or "/pages/" in rel for rel in self.mods
+        )
+        has_routes = any(r.framework == "nextjs" for r in self.routes)
+        if has_structure or has_routes:
+            self.frameworks.add("nextjs")
+        elif self._declares_next_dep and not has_structure:
+            self.frameworks.discard("nextjs")
+
+    def _mark_page(self, sym: _Sym, route: str, mod: _Mod | None = None) -> None:
         node = self.nodes.get(sym.id)
         if node is None:
             return
@@ -1565,6 +1707,17 @@ class _Analyzer:
         node.properties["route"] = node.properties["routes"][0]
         node.properties["role"] = "pages"
         node.properties["layer"] = "ui"
+        self._page_by_route[route] = sym.id
+        if mod is None:
+            mod = self.mods.get(node.source_path or "")
+        if mod is not None and mod.boundary:
+            node.properties["boundary"] = mod.boundary
+        if mod is not None and mod.boundary == "server":
+            for fn in mod.symbols.values():
+                if fn.exported and fn.kind == "function":
+                    fn_node = self.nodes.get(fn.id)
+                    if fn_node is not None:
+                        fn_node.properties["server_action"] = True
 
     def _emit_page_routes(self) -> None:
         for mod in self.mods.values():
@@ -1573,7 +1726,7 @@ class _Analyzer:
                     continue
                 target = self._resolve(mod, ref)
                 if target is not None and target.is_component:
-                    self._mark_page(target, path if path.startswith("/") else "/" + path)
+                    self._mark_page(target, path if path.startswith("/") else "/" + path, mod)
                     self.frameworks.add("react-router")
 
     def _module_prefixes(self) -> dict[str, list[str]]:
@@ -1625,7 +1778,7 @@ class _Analyzer:
             middleware = handler_ids[:-1] if not route.handler_id else []
             for i, path in enumerate(paths):
                 eid = route.id if i == 0 else stable_node_id(self.pid, "ts-endpoint-alias", route.id, path)
-                methods = [] if route.verb == "ANY" else [route.verb]
+                methods = ["ANY"] if route.verb == "ANY" else [route.verb]
                 props: dict[str, Any] = {
                     "route": path,
                     "methods": methods,
@@ -1636,6 +1789,7 @@ class _Analyzer:
                 }
                 if main_handler and main_handler in self.nodes:
                     props["handler"] = self.nodes[main_handler].name
+                ep_conf = 0.75 if route.verb == "ANY" else (0.9 if main_handler or route.handlers == [] else 0.7)
                 self.nodes[eid] = NodeRecord(
                     id=eid,
                     project_id=self.pid,
@@ -1646,7 +1800,7 @@ class _Analyzer:
                     start_line=route.line,
                     end_line=route.end_line,
                     extractor=f"{route.framework}.routes",
-                    confidence=0.9 if main_handler or route.handlers == [] else 0.7,
+                    confidence=ep_conf,
                     properties=props,
                 )
                 self._edge(EdgeType.CONTAINS, mod.id, eid, rel=mod.rel, confidence=1.0)

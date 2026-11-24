@@ -20,7 +20,7 @@ Market position: agent-first MCP servers (GitNexus, Greptile) are the growth vec
 |------|--------|----------|
 | Python Django/FastAPI/Flask/SQLAlchemy | Implemented | `layered_fastapi`, `synthetic_django`, GitHub clones |
 | TypeScript React/Express/Nest | Implemented | `fullstack_app`, adapter tests |
-| Next.js | Partial | Code paths exist; no dedicated fixture |
+| Next.js | Partial (fixture-verified) | App/Pages routes, middleware, client/server directives; no loading/template/rewrite graph |
 | Cross-stack HTTP | Implemented | `fullstack_app` 3 `HTTP_CALLS`; `test_multi_analyzer` |
 | Incremental index | Implemented | `test_pipeline.py`, hooks |
 | Explore / views | Implemented | E2E + `test_explore.py` |
@@ -63,7 +63,7 @@ Details: [parsing-and-graphs.md](../research_notes/Code%20intelligence%20market%
 | Item | Benefit | Complexity | Acceptance criteria |
 |------|---------|------------|---------------------|
 | Edge provenance labels in UI/MCP | Agents stop treating guesses as facts | M | **Done** 2026-11-24 — shared `evidence` tier + HTTP `match_variant`; re-index for full linker metadata on old graphs |
-| Fixtures for partial claims | README matches reality | M | Next.js + monorepo regression repos under `benchmarks/fixtures/` |
+| Fixtures for partial claims | README matches reality | M | **Done** (2026-11-24): five fixtures under `benchmarks/fixtures/`; extend with real OSS clones over time |
 
 ### P1 — reliability (some done this pass)
 

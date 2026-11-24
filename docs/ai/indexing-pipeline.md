@@ -5,8 +5,8 @@
 ## Stages
 
 1. **Discover files** — `ci_parsers.files.list_*` with built-in skip dirs, repository **root** `.gitignore` (via `pathspec`; negation supported), optional `.ciignore`, and size caps. Nested `.gitignore` files in subdirectories are **not** applied (only the repo root file).
-2. **Analyze** — `ci_indexer.analyzers.analyze_project` runs registered analyzers (entry points `codebase_intelligence.analyzers`).
-3. **Merge** — `ci_core.analysis.merge_results`, `link_http_calls` (cross-stack HTTP edges). For each static client call, `match_endpoint` records `literal` or `proxy_prefix` matches on `HTTP_CALLS` edges and matching `http_calls[]` rows; external hosts become `DEPENDS_ON` with `match_variant: external`; unmatched locals get `match_variant: unresolved` on the call record only (no fake edge).
+2. **Analyze** — `ci_indexer.analyzers.analyze_project` runs registered analyzers (entry points `codebase_intelligence.analyzers`). TypeScript analysis discovers **npm/pnpm workspace** package roots from root `package.json` `workspaces` and `pnpm-workspace.yaml`, then merges those `package.json` files with per-file parent walking. Next.js detection requires identifiable `app/` or `pages/` structure (or extracted Next routes/middleware); a `next` dependency alone does not tag the project.
+3. **Merge** — `ci_core.analysis.merge_results`, `link_http_calls` (cross-stack HTTP edges). For each static client call, `match_endpoint` records `literal` or `proxy_prefix` matches on `HTTP_CALLS` edges and matching `http_calls[]` rows; external hosts become `DEPENDS_ON` with `match_variant: external`; unmatched locals get `match_variant: unresolved` on the call record only (no fake edge). Pages Router API handlers emit `methods: ["ANY"]`; the linker accepts any HTTP verb against `ANY`.
 4. **Persist** — `IndexPipeline` rewrites SQLite; updates fingerprints; optional chunk embeddings.
 5. **Serve** — `GraphStore.load_index()` invalidates cache on DB change.
 
@@ -23,7 +23,7 @@ Combined analyzer version string bumps → `FULL` rebuild.
 
 ## Adapter versioning
 
-Django: `ADAPTER_VERSION = "6"` in `adapter.py` (namespace packages, SQLAlchemy field types, FastAPI `Annotated` dependency aliases). Bump when edge semantics change so existing projects re-index.
+Django: `ADAPTER_VERSION = "6"` in `adapter.py` (namespace packages, SQLAlchemy field types, FastAPI `Annotated` dependency aliases). TypeScript: `ANALYZER_VERSION = "3"` in `ci_adapters_typescript/analyzer.py` (workspace manifest discovery, Next.js App/Pages routes, layout links, middleware matchers, client/server directives, package `exports` resolution). Bump when edge semantics change so existing projects re-index.
 
 ## Concurrency
 

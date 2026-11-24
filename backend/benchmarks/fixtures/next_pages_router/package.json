@@ -1,0 +1,8 @@
+{
+  "name": "next-pages-router",
+  "private": true,
+  "dependencies": {
+    "next": "13.5.0",
+    "react": "18.2.0"
+  }
+}

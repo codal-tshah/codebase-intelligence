@@ -2,6 +2,17 @@
 
 All notable changes. Dates are when the work landed on a branch; versions are not tagged yet.
 
+## Unreleased: Next.js and workspace indexing (2026-11-24)
+
+### Added
+- **Workspace discovery:** `ci_parsers.workspaces` parses npm `workspaces` and `pnpm-workspace.yaml`, expands globs safely inside the repo root, and feeds TypeScript `workspace_names` / `package_dirs`.
+- **Next.js (TypeScript analyzer v3):** App Router `page`/`route`/`layout`, Pages Router pages and `pages/api` (`ANY` method), route groups and `@slot` segments stripped from public paths, file-level `use client` / `use server` metadata, middleware matcher extraction, layout→page `CONTAINS`, package `exports` import resolution.
+- **HTTP linker:** `match_endpoint` matches any verb when endpoint `methods` includes `ANY`.
+- **Fixtures:** `next_app_router_min`, `next_pages_router`, `workspace_npm`, `workspace_pnpm`, `mixed_monorepo` under `backend/benchmarks/fixtures/`.
+
+### Changed
+- Re-analyze TypeScript projects after upgrade (`typescript:3` combined version) to refresh Next.js and workspace graph data.
+
 ## Unreleased: graph evidence parity (2026-11-24)
 
 ### Added

@@ -1,0 +1,7 @@
+{
+  "name": "@fixture/web",
+  "version": "1.0.0",
+  "dependencies": {
+    "@fixture/shared": "1.0.0"
+  }
+}

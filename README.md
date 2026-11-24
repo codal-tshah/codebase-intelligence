@@ -5,7 +5,7 @@ Local-first codebase analysis that turns a repository into an explorable knowled
 | Stack | Detected |
 |-------|----------|
 | Python | Django (URLs, views, DRF, models, signals, middleware, admin), FastAPI / Flask / django-ninja (decorator routes, router prefixes, `Depends` injection), SQLAlchemy / SQLModel (tables, columns, foreign keys, session reads/writes) |
-| TypeScript / JavaScript | React (components, hooks, JSX render tree, React Router pages), Next.js (pages/app router pages and API routes), Express (routes, `app.use` mount prefixes, middleware), NestJS (controllers, guards, constructor injection) |
+| TypeScript / JavaScript | React (components, hooks, JSX render tree, React Router pages), Next.js (App/Pages router pages and route handlers, layouts, middleware matchers, `use client` / `use server` metadata), npm/pnpm workspace package discovery and cross-package imports, Express (routes, `app.use` mount prefixes, middleware), NestJS (controllers, guards, constructor injection) |
 | Cross-stack | `fetch` / axios / `getJson`-style calls matched to backend endpoints from any analyzer; absolute URLs become external services; known SDKs (Stripe, AWS, Redis, OpenAI, …) become integrations |
 
 New languages and frameworks plug in as separate packages; see [docs/architecture.md](docs/architecture.md#extending).

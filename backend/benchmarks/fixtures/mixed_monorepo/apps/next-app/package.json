@@ -1,0 +1,8 @@
+{
+  "name": "@mixed/next-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "next": "14.0.0",
+    "@mixed/ui-shared": "1.0.0"
+  }
+}
