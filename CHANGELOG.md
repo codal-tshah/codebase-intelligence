@@ -13,6 +13,11 @@ All notable changes. Dates are when the work landed on a branch; versions are no
 ### Added
 - **Research deliverables:** [reports/Code intelligence market evaluation 2026.md](reports/Code%20intelligence%20market%20evaluation%202026.md), [docs/product-improvement-roadmap-2026.md](docs/product-improvement-roadmap-2026.md), and `research_notes/Code intelligence market evaluation 2026/`.
 
+## Unreleased: indexing (2026-11-23)
+
+### Added
+- **`.gitignore` in file discovery:** Python/TypeScript walks honour the repository root `.gitignore` (in addition to built-in skips and `.ciignore`).
+
 ## Unreleased: dashboard views (2026-11-20)
 
 ### Added

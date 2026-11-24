@@ -10,6 +10,24 @@ import re
 import subprocess
 from pathlib import Path
 
+from pathspec import GitIgnoreSpec
+
+_GITIGNORE_CACHE: dict[str, GitIgnoreSpec | None] = {}
+
+
+def gitignore_spec(root: Path) -> GitIgnoreSpec | None:
+    """Parse the repository root `.gitignore` once per root (git-compatible patterns)."""
+    key = str(root.resolve())
+    if key not in _GITIGNORE_CACHE:
+        path = root / ".gitignore"
+        if not path.is_file():
+            _GITIGNORE_CACHE[key] = None
+        else:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            _GITIGNORE_CACHE[key] = GitIgnoreSpec.from_lines("gitignore", lines)
+    return _GITIGNORE_CACHE[key]
+
+
 DEFAULT_SKIP_DIRS = frozenset(
     {
         ".git",
@@ -92,10 +110,11 @@ def list_python_files(root: Path, *, extra_ignore: list[str] | None = None) -> l
 def list_source_files(
     root: Path, extensions: tuple[str, ...] | frozenset[str], *, extra_ignore: list[str] | None = None
 ) -> list[Path]:
-    """Walk `root` once, pruning vendored/build dirs, honouring `.ciignore`, skipping huge
-    and generated files, and return files whose suffix is in `extensions`."""
+    """Walk `root` once, pruning vendored/build dirs, honouring `.gitignore` and `.ciignore`,
+    skipping huge and generated files, and return files whose suffix is in `extensions`."""
     wanted = {e.lower() for e in extensions}
     patterns = [*load_ignore_patterns(root), *(extra_ignore or [])]
+    gi = gitignore_spec(root)
     files: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         base = Path(dirpath)
@@ -105,6 +124,8 @@ def list_source_files(
             if d in DEFAULT_SKIP_DIRS or d.endswith(".egg-info"):
                 continue
             rel = d if rel_dir == "." else f"{rel_dir}/{d}"
+            if gi and gi.match_file(rel):
+                continue
             if is_ignored(rel, True, patterns):
                 continue
             kept.append(d)
@@ -115,6 +136,8 @@ def list_source_files(
             if dot < 0 or lower[dot:] not in wanted or lower.endswith(SKIP_FILE_SUFFIXES):
                 continue
             rel = fname if rel_dir == "." else f"{rel_dir}/{fname}"
+            if gi and gi.match_file(rel):
+                continue
             if is_ignored(rel, False, patterns):
                 continue
             path = base / fname

@@ -4,7 +4,7 @@
 
 ## Stages
 
-1. **Discover files** — `ci_parsers.files.list_*` with skip dirs/suffixes.
+1. **Discover files** — `ci_parsers.files.list_*` with built-in skip dirs, repository **root** `.gitignore` (via `pathspec`; negation supported), optional `.ciignore`, and size caps. Nested `.gitignore` files in subdirectories are **not** applied (only the repo root file).
 2. **Analyze** — `ci_indexer.analyzers.analyze_project` runs registered analyzers (entry points `codebase_intelligence.analyzers`).
 3. **Merge** — `ci_core.analysis.merge_results`, `link_http_calls` (cross-stack HTTP edges).
 4. **Persist** — `IndexPipeline` rewrites SQLite; updates fingerprints; optional chunk embeddings.

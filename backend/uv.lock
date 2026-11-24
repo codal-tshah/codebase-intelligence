@@ -723,10 +723,14 @@ version = "0.1.0"
 source = { editable = "packages/parsers" }
 dependencies = [
     { name = "ci-core" },
+    { name = "pathspec" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "ci-core", editable = "packages/core" }]
+requires-dist = [
+    { name = "ci-core", editable = "packages/core" },
+    { name = "pathspec", specifier = ">=0.12" },
+]
 
 [[package]]
 name = "ci-security"
